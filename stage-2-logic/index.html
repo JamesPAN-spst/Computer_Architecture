@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阶段2：逻辑的诞生 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="overview-page" data-category="stage-2" data-module="logic"
+      style="--domain-color: var(--c-logic);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 2</span>
+      <span class="module-name" style="cursor:default">逻辑的诞生</span>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">4 chapitres</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    <div class="overview-hero">
+      <div class="domain-tag">STAGE 2 · logic</div>
+      <h1>逻辑的诞生 — 从开关到思考</h1>
+      <p>核心问题：几个开关，怎么做加法？</p>
+    </div>
+
+    <div class="chapter-grid">
+      <a class="chapter-card" href="ch01.html">
+        <div class="ch-number">CHAPITRE 01</div>
+        <div class="ch-title">逻辑门的物理实现</div>
+        <div class="ch-kps">
+          <span class="kp-tag">NOT/NAND/NOR 的 MOSFET 实现</span>
+          <span class="kp-tag">NAND 万能门</span>
+          <span class="kp-tag">传播延迟与功耗</span>
+          <span class="kp-tag">CMOS 逻辑家族</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+
+      <a class="chapter-card" href="ch02.html">
+        <div class="ch-number">CHAPITRE 02</div>
+        <div class="ch-title">布尔代数与化简</div>
+        <div class="ch-kps">
+          <span class="kp-tag">布尔公理与定理</span>
+          <span class="kp-tag">卡诺图化简</span>
+          <span class="kp-tag">德摩根定律</span>
+          <span class="kp-tag">无关项利用</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+
+      <a class="chapter-card" href="ch03.html">
+        <div class="ch-number">CHAPITRE 03</div>
+        <div class="ch-title">组合逻辑电路</div>
+        <div class="ch-kps">
+          <span class="kp-tag">半加器与全加器</span>
+          <span class="kp-tag">行波进位与超前进位</span>
+          <span class="kp-tag">多路复用器与解码器</span>
+          <span class="kp-tag">比较器与校验</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+
+      <a class="chapter-card" href="ch04.html">
+        <div class="ch-number">CHAPITRE 04</div>
+        <div class="ch-title">ALU 初探</div>
+        <div class="ch-kps">
+          <span class="kp-tag">ALU 功能与接口</span>
+          <span class="kp-tag">溢出检测</span>
+          <span class="kp-tag">补码算术</span>
+          <span class="kp-tag">移位与乘除</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+    </div>
+
+    <nav class="chapter-nav" style="max-width:900px;margin:0 auto;padding:24px 40px;">
+      <a href="../index.html" class="nav-prev">← 返回主页</a>
+      <span></span>
+      <span></span>
+    </nav>
+  </main>
+
+  <footer class="site-footer">
+    <span>Architectura · 计算机结构全景</span>
+  </footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
