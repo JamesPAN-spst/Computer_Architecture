@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.3 二极管与晶体管 — 电的语言 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s1-ch03-q1",
+        question: "PN 结中，耗尽层（Depletion Region）的形成原因是？",
+        options: ["外加电压驱动载流子移动", "多数载流子在交界面扩散并复合", "光照产生电子-空穴对", "热膨胀导致材料变形"],
+        answer: 1,
+        explanation: "PN 结形成时，P 区的空穴和 N 区的电子在交界面相互扩散并复合，留下不可移动的离子，形成耗尽层。这是一个无需外加电压就自发产生的过程。"
+      },
+      {
+        id: "s1-ch03-q2",
+        question: "硅二极管的正向导通电压约为？",
+        options: ["0.1V", "0.3V", "0.7V", "1.5V"],
+        answer: 2,
+        explanation: "硅二极管的正向导通电压（门坎电压）约为 0.7V。锗二极管约 0.3V。这个电压是克服 PN 结内建电场所需的最低电压。"
+      },
+      {
+        id: "s1-ch03-q3",
+        question: "二极管反向偏置时，流过的电流为？",
+        options: ["零", "非常小的反向饱和电流", "与正向相同大小的电流", "无穷大"],
+        answer: 1,
+        explanation: "反向偏置时，耗尽层变宽，主要载流子不能通过。但少数载流子仍然存在并形成极小的反向饱和电流（硅二极管约 nA 级别）。"
+      },
+      {
+        id: "s1-ch03-q4",
+        question: "BJT 工作在放大区时，集电极电流 \\(I_C\\) 与基极电流 \\(I_B\\) 的关系是？",
+        options: ["\\(I_C = I_B\\)", "\\(I_C = \\beta I_B\\)", "\\(I_C = I_B / \\beta\\)", "\\(I_C\\) 与 \\(I_B\\) 无关"],
+        answer: 1,
+        explanation: "在放大区，\\(I_C = \\beta I_B\\)，其中 \\(\\beta\\)（电流增益）通常为 50-300。这意味着小的基极电流可以控制大的集电极电流。"
+      },
+      {
+        id: "s1-ch03-q5",
+        question: "MOSFET 作为数字开关使用时，\\(V_{GS} = 0\\) 对应？",
+        options: ["导通（ON）", "截止（OFF）", "放大区", "击穿"],
+        answer: 1,
+        explanation: "对于增强型 N-MOSFET，\\(V_{GS} = 0\\) 时没有导电沟道，晶体管截止（OFF）。当 \\(V_{GS} > V_{th}\\) 时才导通。"
+      },
+      {
+        id: "s1-ch03-q6",
+        question: "MOSFET 相比 BJT 的最大优势是？",
+        options: ["开关速度更快", "栅极几乎不消耗直流电流", "能承受更高电压", "制造成本更低"],
+        answer: 1,
+        explanation: "MOSFET 是电压控制器件，栅极被氧化层绝缘，几乎不流过直流电流（输入阻抗极高）。这意味着驱动 MOSFET 几乎不消耗静态功率，非常适合高密度集成电路。"
+      },
+      {
+        id: "s1-ch03-q7",
+        question: "在 CMOS 反相器中，当输入为高电平时，哪个晶体管导通？",
+        options: ["PMOS 导通，NMOS 截止", "NMOS 导通，PMOS 截止", "两个都导通", "两个都截止"],
+        answer: 1,
+        explanation: "输入高电平时：NMOS 的 \\(V_{GS} > V_{th}\\) 导通，将输出拉低；PMOS 的 \\(V_{SG} < |V_{tp}|\\) 截止。因此输出为低电平，实现了"反相"功能。"
+      },
+      {
+        id: "s1-ch03-q8",
+        question: "下列关于半导体掺杂的描述，正确的是？",
+        options: ["N型半导体整体带负电", "P型半导体中多数载流子是电子", "掺杂后的半导体仍然是电中性的", "掺杂只改变半导体的颜色"],
+        answer: 2,
+        explanation: "掺杂只改变了载流子浓度，不改变材料的电中性。N 型半导体中虽然多数载流子是电子，但掺入的施主原子（如磷）带正电，总体仍然电中性。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-1" data-module="ch03"
+      style="--domain-color: var(--c-electronics);">
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 1</span>
+      <a href="index.html" class="module-name">电的语言</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.3 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · PN 结的形成</a></li>
+      <li><a href="#kp2">02 · 二极管的单向导通</a></li>
+      <li><a href="#kp3">03 · BJT 的放大与开关</a></li>
+      <li><a href="#kp4">04 · MOSFET——数字逻辑的基石</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 3</p>
+      <h1>二极管与晶体管</h1>
+    </header>
+
+    <!-- ═══════════ KP 1 ═══════════ -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>PN 结（PN Junction）的形成</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>前两章我们讨论了电阻、电容和电感——它们都是<strong>被动元件</strong>（Passive Components），不能放大信号也不能主动控制电流。但计算机需要一种能"做决定"的元件：当条件满足时导通，不满足时截止。</p>
+            <p>这种"单向阀门"特性从哪里来？答案是<strong>半导体（Semiconductor）</strong>——一类导电能力介于导体和绝缘体之间的材料。当两种不同掺杂的半导体（P 型和 N 型）连接在一起时，交界面形成了一个具有奇妙特性的结构——<strong>PN 结</strong>。</p>
+            <p>PN 结是所有半导体器件（二极管、晶体管、太阳能电池、LED）的基本构建单元。理解 PN 结，就是理解整个半导体世界的钥匙。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>半导体掺杂（Doping）：</strong>纯硅（Intrinsic Silicon）的导电能力很弱。通过向硅中加入微量杂质，可以显著改变其导电特性：</p>
+            <ul>
+              <li><strong>N 型（N-type）</strong>：掺入五价元素（如磷 P），多出一个自由电子。多数载流子（Majority Carrier）是<strong>电子</strong>。</li>
+              <li><strong>P 型（P-type）</strong>：掺入三价元素（如硼 B），缺少一个电子形成"空穴"（Hole）。多数载流子是<strong>空穴</strong>。</li>
+            </ul>
+            <p>关键概念：掺杂不改变材料的电中性！N 型半导体中虽然多了自由电子，但磷原子也多了一个质子，总体仍然中性。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>PN 结的形成过程：</strong></p>
+            <p>当 P 型和 N 型半导体接触时，由于浓度差，N 区的电子向 P 区扩散，P 区的空穴向 N 区扩散。扩散的电子和空穴在交界面附近<strong>复合</strong>（Recombination），消耗掉移动载流子。</p>
+            <p>复合后，N 区边缘留下带正电的施主离子（不可移动），P 区边缘留下带负电的受主离子。这些不可移动的离子形成一个<strong>空间电荷区</strong>——即<strong>耗尽层（Depletion Region）</strong>。</p>
+            <p>耗尽层中的电荷分布产生一个<strong>内建电场（Built-in Electric Field）</strong>\(\vec{E}\)，方向从 N 指向 P。这个电场阻止进一步的扩散，最终达到平衡。</p>
+            <p><strong>内建电位差</strong>（Built-in Potential）：</p>
+            \[V_{bi} = \frac{kT}{q}\ln\left(\frac{N_A N_D}{n_i^2}\right)\]
+            <p>其中 \(k\) 是玻尔兹曼常数，\(T\) 是温度，\(N_A\) 和 \(N_D\) 是受主和施主浓度，\(n_i\) 是本征载流子浓度。对硅在室温下，\(V_{bi} \approx 0.6\text{–}0.8\,\text{V}\)。</p>
+            <div class="warning-box">⚠️ <strong>N 型半导体不带负电！</strong>"N"代表 Negative 载流子（电子），不是指材料带负电。同理，P 型半导体也不带正电。掺杂后的半导体仍然是电中性的。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>所有半导体器件的基础：</strong>二极管 = 1 个 PN 结；BJT = 2 个 PN 结背靠背（NPN 或 PNP）；MOSFET 中源区/漏区与衬底也形成 PN 结。</p>
+            <p><strong>太阳能电池：</strong>本质上是一个大面积的 PN 结。光子在耗尽层附近产生电子-空穴对，被内建电场分离，形成光电流。</p>
+            <p><strong>LED：</strong>PN 结正向导通时，电子与空穴复合释放光子。不同半导体材料（GaAs、GaN 等）的能隙不同，产生不同颜色的光。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个硅 PN 结，\(N_A = 10^{17}\,\text{cm}^{-3}\)，\(N_D = 10^{16}\,\text{cm}^{-3}\)，室温下 \(n_i = 1.5 \times 10^{10}\,\text{cm}^{-3}\)，\(kT/q = 26\,\text{mV}\)。求内建电位差。</p>
+            <p><strong>❌ 常见错误：</strong>忘记 ln 中的 \(n_i^2\)（不是 \(n_i\)），或者把 \(N_A\) 和 \(N_D\) 的单位搞混。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            \[V_{bi} = 0.026 \times \ln\left(\frac{10^{17} \times 10^{16}}{(1.5 \times 10^{10})^2}\right) = 0.026 \times \ln\left(\frac{10^{33}}{2.25 \times 10^{20}}\right)\]
+            \[= 0.026 \times \ln(4.44 \times 10^{12}) = 0.026 \times 29.12 \approx 0.757\,\text{V}\]
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch03-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="20" text-anchor="middle" class="fg" font-size="12" font-weight="bold">PN 结结构示意</text>
+          <!-- P region -->
+          <rect x="30" y="50" width="160" height="140" rx="4" fill="#fecdd3" stroke="#f43f5e" stroke-width="1"/>
+          <text x="110" y="75" text-anchor="middle" fill="#e11d48" font-size="14" font-weight="bold">P 型</text>
+          <!-- N region -->
+          <rect x="210" y="50" width="160" height="140" rx="4" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1"/>
+          <text x="290" y="75" text-anchor="middle" fill="#2563eb" font-size="14" font-weight="bold">N 型</text>
+          <!-- Depletion region -->
+          <rect x="160" y="50" width="80" height="140" fill="#fef9c3" opacity="0.8" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="200" y="100" text-anchor="middle" fill="#b45309" font-size="9">耗尽层</text>
+          <!-- Fixed charges in depletion region -->
+          <text x="175" y="125" text-anchor="middle" fill="#e11d48" font-size="14">⊖</text>
+          <text x="175" y="145" text-anchor="middle" fill="#e11d48" font-size="14">⊖</text>
+          <text x="175" y="165" text-anchor="middle" fill="#e11d48" font-size="14">⊖</text>
+          <text x="225" y="125" text-anchor="middle" fill="#2563eb" font-size="14">⊕</text>
+          <text x="225" y="145" text-anchor="middle" fill="#2563eb" font-size="14">⊕</text>
+          <text x="225" y="165" text-anchor="middle" fill="#2563eb" font-size="14">⊕</text>
+          <!-- Mobile carriers -->
+          <circle cx="60" cy="120" r="5" fill="#f43f5e" opacity="0.6"/><text x="60" y="124" text-anchor="middle" fill="white" font-size="7">+</text>
+          <circle cx="90" cy="150" r="5" fill="#f43f5e" opacity="0.6"/><text x="90" y="154" text-anchor="middle" fill="white" font-size="7">+</text>
+          <circle cx="120" cy="130" r="5" fill="#f43f5e" opacity="0.6"/><text x="120" y="134" text-anchor="middle" fill="white" font-size="7">+</text>
+          <circle cx="280" cy="120" r="5" fill="#3b82f6" opacity="0.6"/><text x="280" y="124" text-anchor="middle" fill="white" font-size="7">e</text>
+          <circle cx="310" cy="150" r="5" fill="#3b82f6" opacity="0.6"/><text x="310" y="154" text-anchor="middle" fill="white" font-size="7">e</text>
+          <circle cx="340" cy="130" r="5" fill="#3b82f6" opacity="0.6"/><text x="340" y="134" text-anchor="middle" fill="white" font-size="7">e</text>
+          <!-- Built-in E field -->
+          <line x1="235" y1="205" x2="175" y2="205" stroke="#10b981" stroke-width="2" marker-end="url(#arrowBi)"/>
+          <text x="205" y="225" text-anchor="middle" class="accent" font-size="10" font-weight="bold">内建电场 E</text>
+          <defs>
+            <marker id="arrowBi" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#10b981"/></marker>
+          </defs>
+        </svg>
+        <figcaption>图 3-1：PN 结——耗尽层中固定电荷产生内建电场</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">PN 结的耗尽层中，主要存在什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '耗尽层中的自由载流子已经被复合掉了。')">A. 大量自由电子和空穴</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！扩散来的载流子复合后，留下不可移动的离子化施主和受主原子。')">B. 不可移动的正负离子</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '耗尽层不是真空，它是半导体晶格的一部分。')">C. 真空（无任何粒子）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '耗尽层确实有电场存在，但这不是"存在什么"的答案。')">D. 均匀分布的电场</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 2 ═══════════ -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>二极管（Diode）的单向导通</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>PN 结有一个令人惊叹的特性：电流只能从一个方向轻松通过，反方向几乎被完全阻断。这就是<strong>二极管（Diode）</strong>——电路中的"单向阀"。</p>
+            <p>在计算机电源中，二极管实现整流（将交流电转为直流电）；在保护电路中，二极管防止电流反灌损坏芯片；在信号处理中，二极管实现包络检波。</p>
+            <p>更重要的是，理解二极管的 V-I 特性是理解晶体管（放大器/开关）的前置知识——晶体管本质上是"可控的二极管组合"。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>二极管有两种工作状态：</p>
+            <ul>
+              <li><strong>正向偏置（Forward Bias）</strong>：外加电压削弱内建电场，载流子能够通过耗尽层，电流从 P→N 流动。当正向电压超过门坎电压（硅约 0.7V）后，电流急剧增大。</li>
+              <li><strong>反向偏置（Reverse Bias）</strong>：外加电压增强内建电场，耗尽层变宽，几乎没有电流（只有极小的反向饱和电流 \(I_0\)，硅二极管约 nA 级）。</li>
+            </ul>
+            <p>在电路分析中，理想二极管可以简化为：正向导通时相当于短路（或 0.7V 电压源），反向时相当于开路。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>Shockley 二极管方程：</strong></p>
+            \[I = I_0\left(e^{V/(nV_T)} - 1\right)\]
+            <p>其中：</p>
+            <ul>
+              <li>\(I_0\) = 反向饱和电流（硅二极管约 \(10^{-12}\) A）</li>
+              <li>\(V\) = 二极管两端的电压（正向为正）</li>
+              <li>\(n\) = 理想因子（Ideality Factor），1–2 之间</li>
+              <li>\(V_T = kT/q \approx 26\,\text{mV}\)（室温热电压）</li>
+            </ul>
+            <p><strong>推导过程：</strong>正向偏置时，外加电压 \(V\) 减小了势垒高度为 \(V_{bi} - V\)。载流子越过势垒的概率由玻尔兹曼因子 \(\exp(-q(V_{bi}-V)/(kT))\) 决定。平衡时扩散电流和漂移电流相等，正向偏置打破平衡，净电流正比于 \(\exp(qV/(kT)) - 1\)。</p>
+            <p>当 \(V \gg V_T\)（典型正向工作）：\(I \approx I_0 e^{V/(nV_T)}\)——指数增长。</p>
+            <p>当 \(V \ll -V_T\)（反向偏置）：\(I \approx -I_0\)——饱和在 \(-I_0\)。</p>
+            <div class="warning-box">⚠️ <strong>二极管的 0.7V 不是精确常数！</strong>0.7V 只是硅二极管在典型工作电流（约 1mA）下的近似值。实际上，正向电压随电流呈对数变化：电流增大 10 倍，电压大约增加 60mV。在精密电路设计中不能简单地把二极管当作"恒压 0.7V"处理。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>整流器（Rectifier）：</strong>将交流电（AC）转为直流电（DC）。全桥整流器用 4 个二极管，让正半周和负半周的电流都朝同一方向流过负载。这是每一个电脑电源适配器的第一级电路。</p>
+            <p><strong>ESD 保护：</strong>芯片引脚内置钳位二极管（Clamping Diode），当静电放电（ESD）产生过高电压时，二极管导通将多余电荷引向电源或地，保护内部电路。</p>
+            <p><strong>LED 指示灯：</strong>发光二极管是最常见的二极管应用。不同材料的 PN 结能发出从红外到紫外的光。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个硅二极管（\(V_D = 0.7\,\text{V}\)）与 \(1\,\text{k}\Omega\) 电阻串联，接在 \(5\,\text{V}\) 电源上。求通过电路的电流。</p>
+            <p><strong>❌ 常见错误：</strong>用 \(I = 5/1000 = 5\,\text{mA}\) 忘记扣除二极管的正向压降。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>二极管正向导通，压降 0.7V。电阻上的电压：\(V_R = 5 - 0.7 = 4.3\,\text{V}\)。</p>
+            <p>\(I = V_R/R = 4.3/1000 = 4.3\,\text{mA}\)</p>
+            <p>如果用更精确的 Shockley 方程，需要联立 \(V = 5 - IR\) 和 \(I = I_0(e^{V/(nV_T)}-1)\) 迭代求解。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch03-kp2">
+        <svg viewBox="0 0 400 260" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}.gridline{stroke:#e2e8f0;stroke-width:0.5}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">二极管 V-I 特性曲线</text>
+          <!-- Axes -->
+          <line x1="180" y1="240" x2="380" y2="240" class="line"/>
+          <line x1="180" y1="240" x2="180" y2="20" class="line"/>
+          <line x1="180" y1="240" x2="20" y2="240" class="line"/>
+          <line x1="180" y1="240" x2="180" y2="250" class="line"/>
+          <text x="385" y="245" class="fg2" font-size="10">V</text>
+          <text x="173" y="18" class="fg2" font-size="10">I</text>
+          <!-- Grid -->
+          <line x1="180" y1="180" x2="380" y2="180" class="gridline"/>
+          <line x1="180" y1="120" x2="380" y2="120" class="gridline"/>
+          <line x1="250" y1="20" x2="250" y2="240" class="gridline"/>
+          <!-- Forward curve (exponential) -->
+          <path d="M180,240 L245,238 Q260,235 270,220 Q280,190 290,140 Q300,80 310,40" stroke="#10b981" stroke-width="2.5" fill="none"/>
+          <!-- Reverse saturation -->
+          <line x1="180" y1="243" x2="40" y2="243" stroke="#10b981" stroke-width="2.5"/>
+          <!-- 0.7V mark -->
+          <line x1="250" y1="236" x2="250" y2="244" stroke="#f59e0b" stroke-width="2"/>
+          <text x="250" y="256" text-anchor="middle" fill="#f59e0b" font-size="9">≈0.7V</text>
+          <!-- Labels -->
+          <text x="320" y="50" fill="#10b981" font-size="10" font-weight="bold">正向导通</text>
+          <text x="320" y="62" fill="#10b981" font-size="9">I ≈ I₀·e^(V/V_T)</text>
+          <text x="80" y="235" class="fg2" font-size="10">反向截止</text>
+          <text x="80" y="250" class="fg2" font-size="9">I ≈ −I₀ (极小)</text>
+        </svg>
+        <figcaption>图 3-2：二极管 V-I 特性——正向指数导通，反向几乎截止</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">将硅二极管的正向电流从 1mA 增大到 10mA，正向电压大约增加多少？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '二极管不是线性器件，电压增加不是 0.7V。')">A. 增加 0.7V</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！由 Shockley 方程，电流变 10 倍对应 ΔV ≈ n·V_T·ln(10) ≈ 60mV（n≈1时）。')">B. 约 60mV</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '电压变化远小于此，V-I 关系是指数型的。')">C. 约 0.35V</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '正向电压确实会增加，不会保持不变。')">D. 不变</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 3 ═══════════ -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>双极型晶体管（BJT）——放大与开关</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>二极管能"单向导通"，但它不能<strong>控制</strong>电流的大小——要么导通要么截止。可是计算机需要一种更强大的能力：用<strong>一个小信号控制一个大信号</strong>。这就是<strong>放大</strong>和<strong>开关</strong>功能。</p>
+            <p>1947 年，贝尔实验室的 Bardeen、Brattain 和 Shockley 发明了晶体管（Transistor），这是 20 世纪最伟大的发明之一。BJT（Bipolar Junction Transistor，双极型结型晶体管）是第一种被广泛使用的晶体管。</p>
+            <p>虽然现代数字电路主要使用 MOSFET，但理解 BJT 的放大原理对于理解模拟电路和晶体管的基本物理至关重要。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>以 NPN 型 BJT 为例，结构是 N-P-N 三层半导体三明治，中间的 P 区非常薄（约 1μm），称为<strong>基极（Base, B）</strong>。两端的 N 区分别是<strong>发射极（Emitter, E）</strong>和<strong>集电极（Collector, C）</strong>。</p>
+            <p>核心思想：少量注入基极的电流 \(I_B\) 可以控制大量从发射极流向集电极的电流 \(I_C\)。</p>
+            <p>定义<strong>电流增益</strong>：</p>
+            \[\beta = \frac{I_C}{I_B}\]
+            <p>典型的 \(\beta\) 值为 50–300，意味着 1μA 的基极电流可以控制几百 μA 的集电极电流。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>为什么基极能控制集电极电流？</strong></p>
+            <p>正常工作（放大区）时：发射结（B-E）正偏，集电结（B-C）反偏。</p>
+            <p>1. B-E 正偏 → 大量电子从 E 注入到极薄的 P 型基区。</p>
+            <p>2. 基区太薄 → 大多数电子来不及与空穴复合，就被 B-C 反偏的电场"扫"进集电极。</p>
+            <p>3. 只有少数电子在基区复合，形成基极电流 \(I_B\)。</p>
+            <p>因此：\(I_C \approx \beta I_B\)，\(I_E = I_C + I_B = (\beta + 1)I_B\)。</p>
+            <p><strong>BJT 的三个工作区域：</strong></p>
+            <ul>
+              <li><strong>截止区（Cutoff）</strong>：\(I_B = 0\)，\(I_C \approx 0\)。相当于开关<strong>断开</strong>。</li>
+              <li><strong>放大区（Active）</strong>：\(I_C = \beta I_B\)。用于模拟放大电路。</li>
+              <li><strong>饱和区（Saturation）</strong>：\(V_{CE}\) 很小（约 0.2V），电流不再随 \(I_B\) 线性增长。相当于开关<strong>导通</strong>。</li>
+            </ul>
+            <div class="warning-box">⚠️ <strong>BJT 是电流控制器件，消耗基极电流。</strong>这意味着驱动 BJT 本身就需要消耗功率。在大规模集成电路中，数十亿个晶体管都消耗基极电流是不可接受的。这正是 MOSFET 取代 BJT 的核心原因——MOSFET 用电压控制，栅极几乎不消耗直流电流。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>开关应用（数字电路早期）：</strong>第一代集成电路（TTL，Transistor-Transistor Logic）就是用 BJT 实现数字逻辑。BJT 在截止和饱和之间切换，分别代表逻辑 0 和 1。</p>
+            <p><strong>放大应用：</strong>音频功放、运算放大器、射频放大器中 BJT 仍然广泛使用，因为其跨导（gm）高，噪声性能好。</p>
+            <p><strong>达林顿管：</strong>两个 BJT 级联，总 β = β₁·β₂，可达数千甚至数万，用于微弱信号驱动大功率负载。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>NPN BJT 的 \(\beta = 100\)。基极通过 \(100\,\text{k}\Omega\) 电阻接到 \(5\,\text{V}\)，\(V_{BE} = 0.7\,\text{V}\)。集电极通过 \(1\,\text{k}\Omega\) 接到 \(5\,\text{V}\)。求 \(V_{CE}\)，判断工作区域。</p>
+            <p><strong>❌ 常见错误：</strong>假设 BJT 在放大区，但算出的 \(V_{CE}\) 为负值——说明实际已经饱和。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>\(I_B = (5 - 0.7)/100\text{k} = 43\,\mu\text{A}\)</p>
+            <p>假设放大区：\(I_C = \beta I_B = 100 \times 43\,\mu\text{A} = 4.3\,\text{mA}\)</p>
+            <p>\(V_{CE} = 5 - I_C \times 1\text{k} = 5 - 4.3 = 0.7\,\text{V}\)</p>
+            <p>由于 \(V_{CE} = 0.7\,\text{V} > V_{CE(sat)} \approx 0.2\,\text{V}\)，BJT 确实在放大区。如果算出 \(V_{CE} < 0.2\,\text{V}\)，则实际处于饱和区。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch03-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="20" text-anchor="middle" class="fg" font-size="12" font-weight="bold">NPN BJT 结构与符号</text>
+          <!-- BJT layers -->
+          <rect x="140" y="40" width="50" height="50" rx="2" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1"/>
+          <text x="165" y="70" text-anchor="middle" fill="#2563eb" font-size="11" font-weight="bold">N</text>
+          <rect x="140" y="90" width="50" height="30" rx="2" fill="#fecdd3" stroke="#f43f5e" stroke-width="1"/>
+          <text x="165" y="110" text-anchor="middle" fill="#e11d48" font-size="11" font-weight="bold">P</text>
+          <rect x="140" y="120" width="50" height="50" rx="2" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1"/>
+          <text x="165" y="150" text-anchor="middle" fill="#2563eb" font-size="11" font-weight="bold">N</text>
+          <!-- Terminal labels -->
+          <text x="165" y="35" text-anchor="middle" class="fg2" font-size="10">C（集电极）</text>
+          <text x="100" y="108" text-anchor="middle" class="fg2" font-size="10">B（基极）</text>
+          <text x="165" y="185" text-anchor="middle" class="fg2" font-size="10">E（发射极）</text>
+          <line x1="110" y1="105" x2="138" y2="105" class="line"/>
+          <!-- BJT symbol on right -->
+          <circle cx="300" cy="110" r="35" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <line x1="280" y1="110" x2="245" y2="110" class="line"/>
+          <line x1="280" y1="85" x2="280" y2="135" stroke="#334155" stroke-width="2.5"/>
+          <line x1="280" y1="90" x2="320" y2="70" class="line"/>
+          <line x1="280" y1="130" x2="320" y2="150" class="line"/>
+          <!-- Arrow on emitter -->
+          <polygon points="308,142 320,150 312,138" fill="#334155"/>
+          <!-- Symbol labels -->
+          <text x="240" y="107" class="fg2" font-size="10">B</text>
+          <text x="325" y="68" class="fg2" font-size="10">C</text>
+          <text x="325" y="158" class="fg2" font-size="10">E</text>
+          <!-- Current flow -->
+          <text x="300" y="210" text-anchor="middle" class="accent" font-size="10">I_C = β · I_B</text>
+          <text x="300" y="225" text-anchor="middle" class="fg2" font-size="9">β 通常 50–300</text>
+        </svg>
+        <figcaption>图 3-3：NPN BJT 结构（左）与电路符号（右）</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">一个 \(\beta = 200\) 的 NPN BJT，基极电流为 \(10\,\mu\text{A}\)。若处于放大区，集电极电流约为？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '集电极电流应该大于基极电流很多倍。')">A. \(10\\,\\mu\\text{A}\)</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！I_C = β·I_B = 200 × 10μA = 2mA。')">B. \(2\\,\\text{mA}\)</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '注意 β = 200，不是 2000。')">C. \(20\\,\\text{mA}\)</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '单位需要注意，10μA × 200 = 2000μA = 2mA。')">D. \(200\\,\\mu\\text{A}\)</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 4 ═══════════ -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>场效应晶体管（MOSFET）——数字逻辑的基石</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>BJT 虽然能放大和开关，但有一个致命缺点：基极需要持续的驱动电流。当你有数十亿个晶体管时，这些"泄漏的龙头"消耗的总功率是不可接受的。</p>
+            <p>解决方案是<strong>MOSFET（Metal-Oxide-Semiconductor Field-Effect Transistor，金属-氧化物-半导体场效应晶体管）</strong>。MOSFET 用<strong>电压</strong>而不是电流来控制导通状态，栅极（Gate）被一层极薄的氧化硅（SiO₂）绝缘，几乎不消耗直流电流。</p>
+            <p>今天你使用的每一个数字设备——手机、电脑、路由器——其核心芯片都是用数十亿个 MOSFET 构建的。MOSFET 是当之无愧的"数字时代基石"。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>以增强型 N-MOSFET（NMOS）为例：在 P 型衬底上制作两个 N 型区域（源极 Source 和漏极 Drain），中间由 P 型衬底隔开。栅极（Gate）位于源漏之间的衬底上方，与衬底之间隔着极薄的氧化层（SiO₂，约几纳米）。</p>
+            <p>工作原理：当栅极电压 \(V_{GS}\) 为零时，源漏之间没有导电通道——<strong>截止</strong>。当 \(V_{GS}\) 超过<strong>阈值电压（Threshold Voltage）</strong>\(V_{th}\) 时，栅极的正电压吸引电子到衬底表面，形成一个薄薄的 N 型<strong>反转层（Inversion Layer）</strong>，连通源漏——<strong>导通</strong>。</p>
+            <p>这就像是用电压"凭空创造"了一条导电通道。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>MOSFET 的 I-V 特性：</strong></p>
+            <p>当 \(V_{GS} > V_{th}\) 且 \(V_{DS}\) 较小（线性区 / 三极管区）：</p>
+            \[I_D = \mu_n C_{ox} \frac{W}{L}\left[(V_{GS} - V_{th})V_{DS} - \frac{V_{DS}^2}{2}\right]\]
+            <p>当 \(V_{DS} \geq V_{GS} - V_{th}\)（饱和区）：</p>
+            \[I_D = \frac{1}{2}\mu_n C_{ox} \frac{W}{L}(V_{GS} - V_{th})^2\]
+            <p>其中 \(\mu_n\) 是电子迁移率，\(C_{ox}\) 是栅氧化层单位面积电容，\(W/L\) 是沟道的宽长比。</p>
+            <p><strong>作为数字开关：</strong></p>
+            <ul>
+              <li><strong>OFF 状态</strong>：\(V_{GS} < V_{th}\)，\(I_D \approx 0\)——开路</li>
+              <li><strong>ON 状态</strong>：\(V_{GS} \gg V_{th}\)，MOSFET 在深线性区工作，等效为小电阻 \(R_{on}\)</li>
+            </ul>
+            <p><strong>CMOS 反相器：</strong>将一个 NMOS 和一个 PMOS 互补连接。输入高→NMOS 通/PMOS 断→输出低；输入低→PMOS 通/NMOS 断→输出高。稳态时总有一个断开，<strong>不消耗静态功率</strong>——这就是 CMOS 的革命性优势。</p>
+            <div class="warning-box">⚠️ <strong>MOSFET 作为开关时处于线性区/饱和区边界。</strong>很多教材说数字 MOSFET 工作在"饱和区"，但实际上作为好的开关，我们希望 MOSFET 处于<strong>深线性区</strong>（\(R_{on}\) 很小），只有在开关过渡期间才短暂经过饱和区。CMOS 的动态功耗 \(P = CV_{DD}^2f\) 就是这个过渡过程中对负载电容充放电消耗的能量。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>现代处理器：</strong>Apple M2 芯片包含约 200 亿个晶体管，全部是 MOSFET。这些晶体管以 5nm 工艺制造，栅极长度仅约几十个原子的排列长度。</p>
+            <p><strong>SRAM：</strong>每个 SRAM 单元用 6 个 MOSFET 构成一个双稳态触发器，存储一个 bit。CPU 的缓存（Cache）全部由 SRAM 构成。</p>
+            <p><strong>功率 MOSFET：</strong>不仅用于数字逻辑，大功率 MOSFET 还用于电源转换、电机驱动。一个功率 MOSFET 可以在几十安培电流下以 MHz 频率开关。</p>
+            <p><strong>摩尔定律的实现者：</strong>通过缩小 MOSFET 的尺寸（缩小 \(L\)），同样面积可以容纳更多晶体管、运行更快（\(f \propto 1/L\)）、消耗更少功率——这就是摩尔定律的物理基础。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个 NMOS 晶体管，\(V_{th} = 0.5\,\text{V}\)，\(\mu_n C_{ox} = 200\,\mu\text{A/V}^2\)，\(W/L = 10\)。\(V_{GS} = 1.5\,\text{V}\)，\(V_{DS} = 0.5\,\text{V}\)。求漏极电流和工作区域。</p>
+            <p><strong>❌ 常见错误：</strong>不判断工作区就直接套公式。必须先比较 \(V_{DS}\) 和 \(V_{GS} - V_{th}\)。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>\(V_{GS} - V_{th} = 1.5 - 0.5 = 1.0\,\text{V}\)</p>
+            <p>\(V_{DS} = 0.5\,\text{V} < V_{GS} - V_{th} = 1.0\,\text{V}\)  → <strong>线性区</strong></p>
+            <p>\(I_D = 200 \times 10^{-6} \times 10 \times [(1.0)(0.5) - 0.5^2/2] = 2 \times 10^{-3} \times [0.5 - 0.125]\)</p>
+            <p>\(I_D = 2 \times 10^{-3} \times 0.375 = 0.75\,\text{mA}\)</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch03-kp4">
+        <svg viewBox="0 0 400 260" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">CMOS 反相器</text>
+          <!-- VDD -->
+          <line x1="200" y1="35" x2="200" y2="55" class="line"/>
+          <text x="200" y="30" text-anchor="middle" class="fg" font-size="10">V_DD</text>
+          <!-- PMOS -->
+          <rect x="175" y="55" width="50" height="40" rx="4" fill="#fecdd3" stroke="#f43f5e" stroke-width="1.5"/>
+          <text x="200" y="80" text-anchor="middle" fill="#e11d48" font-size="11" font-weight="bold">PMOS</text>
+          <!-- Connection -->
+          <line x1="200" y1="95" x2="200" y2="115" class="line"/>
+          <!-- Output -->
+          <line x1="200" y1="105" x2="280" y2="105" class="line"/>
+          <text x="300" y="108" class="fg" font-size="10">V_out</text>
+          <!-- NMOS -->
+          <rect x="175" y="115" width="50" height="40" rx="4" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="200" y="140" text-anchor="middle" fill="#2563eb" font-size="11" font-weight="bold">NMOS</text>
+          <!-- GND -->
+          <line x1="200" y1="155" x2="200" y2="175" class="line"/>
+          <line x1="185" y1="175" x2="215" y2="175" class="line"/>
+          <line x1="190" y1="180" x2="210" y2="180" stroke="#334155" stroke-width="1"/>
+          <line x1="195" y1="185" x2="205" y2="185" stroke="#334155" stroke-width="0.8"/>
+          <text x="200" y="198" text-anchor="middle" class="fg2" font-size="9">GND</text>
+          <!-- Gate input -->
+          <line x1="100" y1="105" x2="173" y2="105" class="line"/>
+          <line x1="173" y1="75" x2="173" y2="135" stroke="#f59e0b" stroke-width="2"/>
+          <text x="85" y="108" class="fg" font-size="10">V_in</text>
+          <!-- Truth table -->
+          <rect x="20" y="210" width="160" height="45" rx="4" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+          <text x="100" y="225" text-anchor="middle" class="fg" font-size="9" font-weight="bold">V_in = HIGH → NMOS ON, PMOS OFF → V_out = LOW</text>
+          <text x="100" y="245" text-anchor="middle" class="fg" font-size="9" font-weight="bold">V_in = LOW  → PMOS ON, NMOS OFF → V_out = HIGH</text>
+          <!-- Key advantage -->
+          <rect x="210" y="210" width="170" height="45" rx="4" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+          <text x="295" y="228" text-anchor="middle" fill="#059669" font-size="9" font-weight="bold">核心优势：</text>
+          <text x="295" y="245" text-anchor="middle" fill="#059669" font-size="9">稳态无直流通路 → 静态功耗≈0</text>
+        </svg>
+        <figcaption>图 3-4：CMOS 反相器——互补的 PMOS 和 NMOS 实现零静态功耗</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">MOSFET 相比 BJT 在大规模集成电路中的核心优势是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'BJT 在某些应用中开关速度并不比 MOSFET 慢。')">A. 开关速度更快</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'MOSFET 的制造工艺并不一定更简单。')">B. 制造工艺更简单</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！MOSFET 栅极被氧化层绝缘，几乎不消耗直流电流，非常适合高密度集成。')">C. 栅极不消耗直流电流，静态功耗极低</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '在相同工艺下，MOSFET 的增益不一定比 BJT 高。')">D. 电压增益更高</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ Exercises ═══════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+    <nav class="chapter-nav">
+      <a href="ch02.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch04.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
