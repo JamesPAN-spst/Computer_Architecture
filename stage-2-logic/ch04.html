@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.4 ALU 初探 — 逻辑的诞生 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s2-ch04-q1",
+        question: "ALU 最基本的控制信号作用是什么？",
+        options: ["选择输出的位宽", "选择执行哪种运算", "选择时钟频率", "选择寄存器编号"],
+        answer: 1,
+        explanation: "ALU 的操作码（ALUOp / Function Select）信号决定了当前执行加法、减法、AND、OR 等哪种运算。位宽是设计时固定的，时钟和寄存器由其他模块控制。"
+      },
+      {
+        id: "s2-ch04-q2",
+        question: "在 \\(n\\) 位补码中，能表示的最小负数是：",
+        options: ["\\(-2^{n}\\)", "\\(-2^{n-1}\\)", "\\(-2^{n-1}+1\\)", "\\(-(2^n - 1)\\)"],
+        answer: 1,
+        explanation: "\\(n\\) 位补码表示范围为 \\([-2^{n-1},\\; 2^{n-1}-1]\\)。最高位权重为 \\(-2^{n-1}\\)，当其他位全 0 时取到最小值 \\(-2^{n-1}\\)。"
+      },
+      {
+        id: "s2-ch04-q3",
+        question: "两个正数相加结果为负数，说明发生了什么？",
+        options: ["下溢（Underflow）", "进位溢出", "有符号溢出（Overflow）", "截断错误"],
+        answer: 2,
+        explanation: "两个正数相加结果变号为负数，是典型的有符号溢出。此时最高位产生了进位导致符号位翻转。检测方法：\\(V = C_{n-1} \\oplus C_n\\)。"
+      },
+      {
+        id: "s2-ch04-q4",
+        question: "8 位补码中 \\(-1\\) 的表示是：",
+        options: ["\\(10000001_2\\)", "\\(11111111_2\\)", "\\(11111110_2\\)", "\\(00000001_2\\)"],
+        answer: 1,
+        explanation: "补码中 \\(-1\\) = 按位取反 \\(00000001\\) → \\(11111110\\) 再加 1 → \\(11111111_2\\)。也可以理解为所有位权求和：\\(-128 + 64 + 32 + 16 + 8 + 4 + 2 + 1 = -1\\)。"
+      },
+      {
+        id: "s2-ch04-q5",
+        question: "逻辑右移（Logical Shift Right）和算术右移（Arithmetic Shift Right）的区别在于：",
+        options: ["逻辑右移更快", "算术右移在高位补符号位", "逻辑右移只能用于偶数", "两者完全相同"],
+        answer: 1,
+        explanation: "逻辑右移在高位补 0，用于无符号数。算术右移在高位补原来的符号位，保持负数的符号不变，等效于有符号数的除以 2。"
+      },
+      {
+        id: "s2-ch04-q6",
+        question: "一个 4 位 ALU 的标志位 Z（Zero flag）= 1 意味着：",
+        options: ["结果最高位为 0", "运算没有溢出", "运算结果等于 0", "运算的两个操作数相等"],
+        answer: 2,
+        explanation: "Zero flag 为 1 表示 ALU 输出全零。\\(Z = \\overline{F_3 + F_2 + F_1 + F_0}\\)（NOR 所有输出位）。注意：两个操作数做减法结果为 0 确实说明它们相等，但 Z 的定义始终是"结果为零"。"
+      },
+      {
+        id: "s2-ch04-q7",
+        question: "对 \\(n\\) 位补码取负（\\(-X\\)）的操作是：",
+        options: ["每位取反", "每位取反再加 1", "减去 1 再取反", "直接翻转符号位"],
+        answer: 1,
+        explanation: "补码取负：先按位取反（得到 \\(\\overline{X}\\)），再加 1。即 \\(-X = \\overline{X} + 1\\)。注意特殊情况：\\(-(-2^{n-1})\\) 会溢出，因为 \\(2^{n-1}\\) 超出正数范围。"
+      },
+      {
+        id: "s2-ch04-q8",
+        question: "左移 1 位等价于乘以 2，那么对 8 位补码 \\(01000001_2\\)（65）左移 1 位结果是否正确？",
+        options: ["正确，结果为 130", "发生溢出，因为 130 超出 8 位有符号范围", "结果为 −126，发生了溢出", "结果为 0"],
+        answer: 2,
+        explanation: "8 位有符号数范围为 \\([-128, 127]\\)。\\(65 \\times 2 = 130 > 127\\)，溢出。左移后 \\(10000010_2\\) 被解释为补码 \\(-126\\)。符号位从 0 变为 1，是移位导致溢出的经典例子。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-2" data-module="ch04"
+      style="--domain-color: var(--c-logic);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 2</span>
+      <a href="index.html" class="module-name">逻辑的诞生</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.4 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · ALU 的功能与接口</a></li>
+      <li><a href="#kp2">02 · 溢出检测</a></li>
+      <li><a href="#kp3">03 · 补码算术</a></li>
+      <li><a href="#kp4">04 · 移位与乘除法的初步实现</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 4</p>
+      <h1>ALU 初探（Arithmetic Logic Unit）</h1>
+    </header>
+
+    <!-- ── KP1 ── -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>ALU 的功能与接口</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>前面我们学了加法器、MUX、解码器等组合逻辑模块。然而在实际处理器中，<strong>算术逻辑单元（ALU）</strong>是所有计算的执行核心——加法、减法、与、或、比较等操作全部由同一个硬件模块完成。</p>
+            <p>理解 ALU 就是理解"CPU 如何算数"。ALU 的设计直接决定了处理器能支持哪些运算、运算有多快，以及指令集架构（ISA）中算术指令的具体行为。掌握 ALU 的接口与内部结构是从"组合逻辑"跨向"计算机体系结构"的关键一步。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>将 ALU 抽象为一个黑盒，它有以下接口：</p>
+            <ul>
+              <li><strong>数据输入</strong>：两个 \(n\) 位操作数 \(A\) 和 \(B\)。</li>
+              <li><strong>控制输入</strong>：操作码（ALUOp），通常 3–4 位，选择执行哪种运算。</li>
+              <li><strong>数据输出</strong>：\(n\) 位运算结果 \(F\)。</li>
+              <li><strong>状态标志</strong>：Zero (Z)、Carry (C)、Overflow (V)、Negative (N) 等。</li>
+            </ul>
+            <p>内部实现方法：用 MUX 根据 ALUOp 选择不同运算单元（加法器、逻辑单元、移位器等）的输出。这就是我们之前学过的 MUX "数据选择"功能的直接应用。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 1 位 ALU 切片（ALU Slice）</h4>
+            <p>最小的 ALU 单元处理 1 位运算。典型功能如下：</p>
+            <ul>
+              <li>AND：\(F_i = A_i \cdot B_i\)</li>
+              <li>OR：\(F_i = A_i + B_i\)</li>
+              <li>ADD：\(F_i = A_i \oplus B_i \oplus C_{in,i}\)</li>
+              <li>SUB：通过 \(B\) 取反 + \(C_{in,0} = 1\) 实现</li>
+            </ul>
+            <p>用一个 4 选 1 MUX 选出结果：</p>
+            <p>\[F_i = \text{MUX}(\text{ALUOp},\; A_i \cdot B_i,\; A_i + B_i,\; \text{Sum}_i,\; \text{SLT}_i)\]</p>
+
+            <h4>2. \(n\) 位 ALU = \(n\) 个切片级联</h4>
+            <p>\(n\) 个 1 位 ALU 切片通过进位链串联。最低位的 \(C_{in}\) 由控制信号决定：加法时 \(C_{in} = 0\)，减法时 \(C_{in} = 1\)。</p>
+
+            <h4>3. 标志位计算</h4>
+            <p>\[Z = \overline{F_{n-1} + F_{n-2} + \cdots + F_0}\]</p>
+            <p>\[N = F_{n-1} \quad (\text{最高位即符号位})\]</p>
+            <p>\[C = C_{out,n-1} \quad (\text{最高位进位输出})\]</p>
+            <p>\[V = C_{n-1} \oplus C_n \quad (\text{最高位进位入 ⊕ 进位出})\]</p>
+
+            <div class="warning-box">⚠️ <strong>易错点</strong>：ALU 的 Carry 标志和 Overflow 标志含义完全不同。Carry 反映<strong>无符号</strong>运算的进位/借位；Overflow 反映<strong>有符号</strong>运算的溢出。做无符号比较看 C，做有符号比较看 V 和 N。许多初学者混淆这两个标志导致判断条件分支时出错。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>MIPS ALU</strong>：经典 MIPS 处理器的 ALU 支持 AND、OR、ADD、SUB、SLT（Set Less Than）等运算，由 4 位 ALUOp 控制。SLT 指令将比较结果（0 或 1）写入寄存器，用于分支条件判断。</p>
+            <p><strong>ARM 条件执行</strong>：ARM 架构将 ALU 的 N、Z、C、V 标志存入状态寄存器（CPSR），几乎所有指令都可以根据这些标志条件执行，减少了分支指令的数量。</p>
+            <p><strong>GPU 中的 SIMD ALU</strong>：GPU 含有数千个简化 ALU，同时对多条数据执行相同运算（SIMD），这是并行计算的硬件基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题：一个 4 位 ALU 执行 \(A = 0101, B = 0011\)，ALUOp = ADD</h4>
+            <p>逐位计算：</p>
+            <ul>
+              <li>位 0：\(1 + 1 + 0 = 10\) → \(F_0 = 0, C_1 = 1\)</li>
+              <li>位 1：\(0 + 1 + 1 = 10\) → \(F_1 = 0, C_2 = 1\)</li>
+              <li>位 2：\(1 + 0 + 1 = 10\) → \(F_2 = 0, C_3 = 1\)</li>
+              <li>位 3：\(0 + 0 + 1 = 01\) → \(F_3 = 1, C_4 = 0\)</li>
+            </ul>
+            <p>结果 \(F = 1000_2 = 8\)（验证：\(5 + 3 = 8\) ✓）。标志：Z=0, N=1, C=0, V=1（\(C_3 \oplus C_4 = 1 \oplus 0 = 1\)，有符号溢出）。</p>
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 认为 Z=0 就是"没有结果"——Z=0 表示结果不为零，Z=1 才是零。</li>
+              <li>❌ 忽略有符号解释：无符号看 \(5+3=8\) 正确；有符号看 \(+5+3=+8\) 但 4 位补码最大正数是 7，所以 \(1000_2 = -8\)，发生溢出。</li>
+              <li>✅ 始终根据上下文（有符号/无符号）选择正确的标志来判断结果有效性。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch04-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="18" text-anchor="middle" font-size="13" font-weight="600" class="fg">ALU 黑盒模型</text>
+          <!-- ALU body -->
+          <polygon points="130,40 270,40 290,120 260,200 140,200 110,120" fill="#ede9fe" stroke="#6366f1" stroke-width="2"/>
+          <text x="200" y="125" text-anchor="middle" font-size="18" font-weight="700" class="accent">ALU</text>
+          <!-- inputs -->
+          <line x1="60" y1="70" x2="130" y2="70" class="line"/>
+          <text x="50" y="74" text-anchor="end" font-size="12" class="fg">A [n]</text>
+          <line x1="60" y1="110" x2="118" y2="110" class="line"/>
+          <text x="50" y="114" text-anchor="end" font-size="12" class="fg">B [n]</text>
+          <line x1="200" y1="30" x2="200" y2="40" class="line"/>
+          <text x="200" y="26" text-anchor="middle" font-size="11" class="fg2">ALUOp</text>
+          <!-- outputs -->
+          <line x1="290" y1="120" x2="350" y2="120" class="line"/>
+          <text x="360" y="124" font-size="12" class="fg">F [n]</text>
+          <line x1="260" y1="200" x2="280" y2="230" class="line"/>
+          <text x="290" y="234" font-size="11" class="fg2">Z N C V</text>
+        </svg>
+        <figcaption>ALU 的接口：两个操作数 A/B、控制信号 ALUOp、结果 F 和标志位 ZNCV</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">ALU 内部通过什么器件根据 ALUOp 选择不同运算的结果？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '解码器将编码转换为独热码，不直接选择数据。')">A. 解码器（Decoder）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！MUX 根据 ALUOp 从多个运算结果中选择一个输出。')">B. 多路复用器（MUX）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '触发器用于时序电路存储状态，ALU 是组合逻辑。')">C. 触发器（Flip-Flop）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '计数器用于计数，不用于选择运算。')">D. 计数器（Counter）</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ── KP2 ── -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>溢出（Overflow）检测</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>计算机用有限位数表示数值，当运算结果超出可表示范围时就发生<strong>溢出（Overflow）</strong>。溢出会导致结果完全错误——例如两个正数相加变成负数，这在金融计算、航天控制等场景中可能造成灾难性后果。</p>
+            <p>著名的 Ariane 5 火箭爆炸事故（1996 年）就是因为 64 位浮点数转换为 16 位整数时发生溢出而未被正确处理。因此，理解溢出的检测机制不仅是学术问题，更是工程安全的基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>溢出检测的核心思路是<strong>观察符号位的变化</strong>：</p>
+            <ul>
+              <li>正数 + 正数 → 结果应为正数。如果结果符号位为 1（负数），则溢出。</li>
+              <li>负数 + 负数 → 结果应为负数。如果结果符号位为 0（正数），则溢出。</li>
+              <li>正数 + 负数 → 永远不会溢出（结果的绝对值一定小于较大操作数）。</li>
+            </ul>
+            <p>这个规律可以用进位来精确表达：比较最高位的进位入（\(C_{n-1}\)）和进位出（\(C_n\)），如果它们不同则发生溢出。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 溢出检测公式</h4>
+            <p>对于补码加法器，溢出标志定义为：</p>
+            <p>\[V = C_{n-1} \oplus C_n\]</p>
+            <p>其中 \(C_{n-1}\) 是进入最高位（符号位）的进位，\(C_n\) 是最高位产生的进位（即整个加法器的 Carry Out）。</p>
+
+            <h4>2. 为什么这个公式有效？</h4>
+            <p>考虑两个正数相加：符号位都为 0，\(0 + 0 + C_{n-1}\)。如果 \(C_{n-1} = 1\)，结果符号位变成 1（负数），同时 \(C_n = 0\)。此时 \(V = 1 \oplus 0 = 1\)，检测到溢出。</p>
+            <p>考虑两个负数相加：符号位都为 1，\(1 + 1 + C_{n-1}\)。如果 \(C_{n-1} = 0\)，结果符号位 = 0（正数），\(C_n = 1\)。此时 \(V = 0 \oplus 1 = 1\)，检测到溢出。</p>
+            <p>正常情况：\(C_{n-1}\) 和 \(C_n\) 相同，\(V = 0\)。</p>
+
+            <h4>3. 无符号溢出（Carry）</h4>
+            <p>对于无符号数，"溢出"就是进位输出 \(C_n = 1\)。注意这和有符号溢出是完全不同的概念：</p>
+            <p>\[\text{Unsigned overflow} = C_n, \quad \text{Signed overflow} = C_{n-1} \oplus C_n\]</p>
+
+            <div class="warning-box">⚠️ <strong>关键区分</strong>：同一次加法运算可能有 Carry 但没有 Overflow（无符号溢出但有符号不溢出），也可能有 Overflow 但没有 Carry（有符号溢出但无符号不溢出）。硬件同时计算两个标志，由软件（指令类型）决定关注哪一个。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>MIPS 异常处理</strong>：MIPS 的 <code>add</code> 指令在溢出时触发异常（Exception），而 <code>addu</code> 则忽略溢出。编译器根据数据类型选择使用哪条指令——有符号 <code>int</code> 用 <code>add</code>，无符号 <code>unsigned int</code> 用 <code>addu</code>。</p>
+            <p><strong>x86 标志寄存器</strong>：x86 的 EFLAGS 寄存器同时保存 CF（Carry Flag）和 OF（Overflow Flag）。条件跳转指令 <code>JC</code> 看 CF，<code>JO</code> 看 OF，<code>JG</code>（有符号大于）则同时看 ZF、SF、OF。</p>
+            <p><strong>安全编程</strong>：C 语言中有符号整数溢出是<strong>未定义行为</strong>（UB），编译器可能做出任意优化。Rust 语言在 debug 模式下会对溢出进行运行时检查并 panic。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题：4 位补码计算 \(0111 + 0001\)（即 \(7 + 1\)）</h4>
+            <p>逐位计算：</p>
+            <ul>
+              <li>位 0：\(1 + 1 = 10\) → \(F_0 = 0, C_1 = 1\)</li>
+              <li>位 1：\(1 + 0 + 1 = 10\) → \(F_1 = 0, C_2 = 1\)</li>
+              <li>位 2：\(1 + 0 + 1 = 10\) → \(F_2 = 0, C_3 = 1\)</li>
+              <li>位 3（符号位）：\(0 + 0 + 1 = 01\) → \(F_3 = 1, C_4 = 0\)</li>
+            </ul>
+            <p>结果 \(1000_2\)，补码值为 \(-8\)。\(V = C_3 \oplus C_4 = 1 \oplus 0 = 1\)，检测到溢出。</p>
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 只看 Carry 标志来判断有符号溢出。这里 \(C_4 = 0\)（无进位），但确实发生了有符号溢出！</li>
+              <li>❌ 认为"结果位数不够"才是溢出——对于有符号数，位数够了但符号位翻转也是溢出。</li>
+              <li>✅ 有符号运算始终用 \(V = C_{n-1} \oplus C_n\) 检测溢出。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch04-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}.err{fill:#ef4444}</style>
+          <text x="200" y="18" text-anchor="middle" font-size="13" font-weight="600" class="fg">溢出检测：C_{n-1} ⊕ C_n</text>
+          <!-- 4 FA boxes -->
+          <rect x="20" y="60" width="70" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="55" y="84" text-anchor="middle" font-size="11" class="fg">FA₀</text>
+          <rect x="110" y="60" width="70" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="145" y="84" text-anchor="middle" font-size="11" class="fg">FA₁</text>
+          <rect x="200" y="60" width="70" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="235" y="84" text-anchor="middle" font-size="11" class="fg">FA₂</text>
+          <rect x="290" y="60" width="70" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="325" y="84" text-anchor="middle" font-size="11" class="fg">FA₃</text>
+          <!-- carry chain -->
+          <line x1="90" y1="80" x2="110" y2="80" class="line"/>
+          <line x1="180" y1="80" x2="200" y2="80" class="line"/>
+          <line x1="270" y1="80" x2="290" y2="80" class="line"/>
+          <!-- label carries -->
+          <text x="100" y="75" text-anchor="middle" font-size="9" class="fg2">C₁</text>
+          <text x="190" y="75" text-anchor="middle" font-size="9" class="fg2">C₂</text>
+          <text x="280" y="75" text-anchor="middle" font-size="9" class="fg2">C₃</text>
+          <!-- XOR gate for overflow -->
+          <line x1="280" y1="100" x2="280" y2="150" class="line"/>
+          <line x1="360" y1="100" x2="360" y2="150" class="line"/>
+          <text x="280" y="118" text-anchor="middle" font-size="9" class="accent">C_{n-1}</text>
+          <text x="360" y="118" text-anchor="middle" font-size="9" class="accent">C_n</text>
+          <circle cx="320" cy="170" r="18" fill="#ede9fe" stroke="#6366f1" stroke-width="1.5"/>
+          <text x="320" y="175" text-anchor="middle" font-size="14" class="accent">⊕</text>
+          <line x1="280" y1="150" x2="308" y2="165" class="line"/>
+          <line x1="360" y1="150" x2="332" y2="165" class="line"/>
+          <line x1="320" y1="188" x2="320" y2="215" class="line"/>
+          <text x="320" y="228" text-anchor="middle" font-size="12" font-weight="600" class="err">V (Overflow)</text>
+        </svg>
+        <figcaption>溢出检测电路：最高位进位入与进位出做异或</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">4 位补码运算 \(1000 + 1000\)（即 \(-8 + (-8)\)），结果和标志是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '−8 + (−8) = −16 超出 4 位补码范围 [−8,7]，必定溢出。')">A. 结果 \(0000\)，V=0</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！\\(1000+1000=10000\\)，截断为 \\(0000\\)，C₃=0, C₄=1，V=0⊕1=1。两个负数之和变成 0，溢出。')">B. 结果 \(0000\)，V=1</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '再算一次进位链。')">C. 结果 \(1000\)，V=0</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '检查一下位运算过程。')">D. 结果 \(1111\)，V=1</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ── KP3 ── -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>补码（Two's Complement）算术</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>计算机必须处理负数，但硬件只认识 0 和 1。<strong>补码（Two's Complement）</strong>是现代计算机表示有符号整数的标准编码方式。为什么不用原码或反码？因为补码有一个决定性的优势——<strong>加法器不需要任何修改就能同时处理正数和负数的加法</strong>。</p>
+            <p>这意味着同一套硬件（ALU 中的加法器）既做无符号加法也做有符号加法，大大简化了电路设计。理解补码的数学本质，才能真正理解为什么 ALU 能"一套电路走天下"。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>补码的数学本质是<strong>模运算（Modular Arithmetic）</strong>。对于 \(n\) 位二进制数，所有运算都在模 \(2^n\) 下进行：</p>
+            <p>\[-X \equiv 2^n - X \pmod{2^n}\]</p>
+            <p>例如在 4 位系统中（模 16），\(-3\) 等价于 \(16 - 3 = 13 = 1101_2\)。这就是为什么 \(1101_2\) 在补码中表示 \(-3\)。</p>
+            <p>操作上，取负数的快捷方式是：<strong>按位取反再加 1</strong>。</p>
+            <p>\[-X = \overline{X} + 1\]</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 补码的权重表示</h4>
+            <p>对于 \(n\) 位补码数 \(b_{n-1}b_{n-2}\ldots b_0\)：</p>
+            <p>\[\text{Value} = -b_{n-1} \cdot 2^{n-1} + \sum_{i=0}^{n-2} b_i \cdot 2^i\]</p>
+            <p>最高位的权重是 \(-2^{n-1}\)（负权重），这是补码的核心。</p>
+
+            <h4>2. 表示范围</h4>
+            <p>\[-2^{n-1} \leq X \leq 2^{n-1} - 1\]</p>
+            <p>8 位：\([-128, 127]\)；16 位：\([-32768, 32767]\)；32 位：\([-2^{31}, 2^{31}-1]\)。</p>
+
+            <h4>3. 取反加一的证明</h4>
+            <p>对于任意 \(n\) 位数 \(X\)，有 \(X + \overline{X} = \underbrace{111\ldots1}_{n} = 2^n - 1\)。因此：</p>
+            <p>\[\overline{X} = 2^n - 1 - X \implies \overline{X} + 1 = 2^n - X \equiv -X \pmod{2^n}\]</p>
+
+            <h4>4. 减法的硬件实现</h4>
+            <p>\[A - B = A + (-B) = A + \overline{B} + 1\]</p>
+            <p>在 ALU 中，将 B 输入通过 XOR 门取反（与控制信号 1 做 XOR），并把 \(C_{in,0}\) 设为 1，就完成了减法。无需额外的减法器硬件。</p>
+
+            <div class="warning-box">⚠️ <strong>特殊情况</strong>：\(-(-2^{n-1})\) 无法在 \(n\) 位补码中表示！例如 8 位中 \(-(-128) = 128\)，但 8 位最大正数是 127。对 \(10000000_2\) 取反加一得到 \(10000000_2\)——它"等于自己的负数"。这是补码表示不对称性的直接后果。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>符号扩展（Sign Extension）</strong>：将 8 位补码扩展为 16 位时，必须用符号位填充高 8 位。例如 \(-5 = 11111011_2\)（8 位）扩展为 \(1111111111111011_2\)（16 位），仍然是 \(-5\)。如果错误地用 0 填充，\(-5\) 会变成 \(251\)。</p>
+            <p><strong>Java 的 int</strong>：Java 规定 <code>int</code> 是 32 位补码有符号整数，范围 \([-2^{31}, 2^{31}-1]\)。Java 没有无符号整数类型（直到 Java 8 添加了 <code>Integer.toUnsignedLong()</code> 等辅助方法）。</p>
+            <p><strong>C 语言陷阱</strong>：<code>abs(INT_MIN)</code> 是未定义行为，因为 \(-\text{INT\_MIN} = 2^{31}\) 无法用 32 位 <code>int</code> 表示。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题：用 4 位补码计算 \(3 - 5\)</h4>
+            <p>\(3 = 0011_2\)，\(5 = 0101_2\)。</p>
+            <p>\(3 - 5 = 3 + (-5) = 0011 + \overline{0101} + 1 = 0011 + 1010 + 1 = 0011 + 1011\)。</p>
+            <p>逐位加：\(0011 + 1011 = 1110_2\)。</p>
+            <p>验证：\(1110_2\) 的补码值 = \(-8 + 4 + 2 = -2\)。确实 \(3 - 5 = -2\) ✓。</p>
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 取反时忘记加 1：\(\overline{0101} = 1010\)，如果直接用 \(0011 + 1010 = 1101 = -3\)，差了 1。</li>
+              <li>❌ 减法时把 \(A\) 和 \(B\) 搞反：\(3 - 5 \neq 5 - 3\)！</li>
+              <li>✅ 记住公式：\(A - B = A + \overline{B} + 1\)，其中取反的是被减数 \(B\)。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch04-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="18" text-anchor="middle" font-size="13" font-weight="600" class="fg">补码减法硬件：A − B = A + B̅ + 1</text>
+          <!-- B input -->
+          <text x="60" y="55" text-anchor="middle" font-size="12" class="fg">B</text>
+          <line x1="60" y1="60" x2="60" y2="80" class="line"/>
+          <!-- XOR with Sub signal -->
+          <rect x="35" y="80" width="50" height="30" rx="4" fill="#e0e7ff" stroke="#6366f1"/>
+          <text x="60" y="100" text-anchor="middle" font-size="10" class="fg">XOR</text>
+          <line x1="10" y1="95" x2="35" y2="95" class="line"/>
+          <text x="8" y="92" text-anchor="end" font-size="9" class="fg2">Sub</text>
+          <!-- output of XOR -->
+          <line x1="60" y1="110" x2="60" y2="140" class="line"/>
+          <text x="68" y="132" font-size="9" class="fg2">B̅ (when Sub=1)</text>
+          <!-- Adder -->
+          <rect x="120" y="140" width="120" height="50" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+          <text x="180" y="170" text-anchor="middle" font-size="13" font-weight="600" class="fg">Adder</text>
+          <!-- A input -->
+          <text x="180" y="132" text-anchor="middle" font-size="12" class="fg">A</text>
+          <line x1="180" y1="134" x2="180" y2="140" class="line"/>
+          <!-- B' input to adder -->
+          <line x1="60" y1="140" x2="60" y2="165" class="line"/>
+          <line x1="60" y1="165" x2="120" y2="165" class="line"/>
+          <!-- Cin = Sub -->
+          <line x1="10" y1="180" x2="120" y2="180" class="line"/>
+          <text x="8" y="183" text-anchor="end" font-size="9" class="fg2">C_in=Sub</text>
+          <!-- Result -->
+          <line x1="240" y1="165" x2="360" y2="165" class="line"/>
+          <text x="370" y="169" font-size="12" class="fg">F = A − B</text>
+          <text x="200" y="220" text-anchor="middle" font-size="11" class="fg2">Sub=0 → 加法 ｜ Sub=1 → 减法</text>
+        </svg>
+        <figcaption>减法通过 XOR 取反 B 并设 C_in=1 实现</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">8 位补码 \(10000000_2\) 代表的十进制值是：</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '最高位权重为 −128，不是 +128。')">A. 128</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！权重公式：\\(-1 \\times 2^7 + 0 = -128\\)，这是 8 位补码能表示的最小值。')">B. −128</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '那是 8 位补码的最大正数 01111111 的值。')">C. 127</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '−0 在补码中不存在，00000000 就是 0。')">D. −0</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ── KP4 ── -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>移位与乘除法的初步实现</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>ALU 不仅需要加减法和逻辑运算，还必须支持<strong>移位（Shift）</strong>操作。移位看似简单，实际上它是实现乘法、除法、位域操作等功能的基础。</p>
+            <p>更重要的是，硬件乘法器和除法器的内部也大量使用移位和加法。理解移位操作和基于"移位-加法"的乘除法算法，才能理解为什么乘法比加法慢、为什么除法更慢，以及现代处理器如何通过流水线和专用乘法单元来加速这些操作。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>移位操作分为三类：</p>
+            <ul>
+              <li><strong>逻辑左移（SLL）</strong>：所有位左移，低位补 0。等效于无符号乘以 \(2^k\)。</li>
+              <li><strong>逻辑右移（SRL）</strong>：所有位右移，高位补 0。等效于无符号除以 \(2^k\)。</li>
+              <li><strong>算术右移（SRA）</strong>：所有位右移，高位补<strong>符号位</strong>。等效于有符号除以 \(2^k\)（向负无穷取整）。</li>
+            </ul>
+            <p>硬件实现移位器通常使用<strong>桶形移位器（Barrel Shifter）</strong>——通过多级 MUX 实现 0 到 \(n-1\) 位的任意移位，延迟为 \(O(\log n)\)。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 移位的数学含义</h4>
+            <p>\[X \ll k = X \times 2^k \quad (\text{左移 } k \text{ 位})\]</p>
+            <p>\[X \ggg k = \lfloor X / 2^k \rfloor \quad (\text{逻辑右移，无符号})\]</p>
+            <p>\[X \gg k = \lfloor X / 2^k \rfloor \quad (\text{算术右移，有符号，向 } -\infty \text{ 取整})\]</p>
+
+            <h4>2. 桶形移位器结构</h4>
+            <p>对于 \(n\) 位数据，需要 \(\log_2 n\) 级 MUX。第 \(j\) 级根据移位量的第 \(j\) 位决定是否移动 \(2^j\) 位。例如 8 位桶形移位器有 3 级（移 1、移 2、移 4），可实现 0–7 位的任意移位。</p>
+
+            <h4>3. 移位-加法乘法（Shift-and-Add Multiplication）</h4>
+            <p>与手算乘法类似：</p>
+            <p>\[A \times B = \sum_{i=0}^{n-1} \left( B_i \cdot A \cdot 2^i \right)\]</p>
+            <p>每一步检查乘数 \(B\) 的最低位：若为 1 则将被乘数 \(A\) 加到部分积；然后 \(A\) 左移、\(B\) 右移。重复 \(n\) 次。</p>
+
+            <h4>4. 恢复余数除法（Restoring Division）</h4>
+            <p>试减法：余数左移 1 位后减去除数。若结果为负，恢复（加回除数），商该位为 0；若为正或零，保留，商该位为 1。重复 \(n\) 次。</p>
+
+            <div class="warning-box">⚠️ <strong>易错点</strong>：算术右移 \(-1\)（\(1111_2\)）的结果仍然是 \(-1\)（\(1111_2\)），而不是 \(0\)。这与直觉中 "\(-1 / 2 = 0\)" 不同——算术右移是<strong>向负无穷取整</strong>，\(\lfloor -0.5 \rfloor = -1\)。C 语言中有符号数右移的行为是实现定义的，这是很多隐蔽 bug 的来源。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>编译器优化</strong>：编译器经常将乘以 2 的幂替换为移位操作——<code>x * 8</code> 变成 <code>x << 3</code>，因为移位只需 1 个时钟周期，而乘法可能需要 3–5 个周期。更巧妙的是，<code>x * 5</code> 可以优化为 <code>(x << 2) + x</code>。</p>
+            <p><strong>Booth 算法</strong>：改进的乘法算法，通过对连续的 1 进行编码减少加法次数。例如乘以 \(0111_2\)（7）可以转化为 \(1000_2 - 0001_2\)（即 \(8 - 1\)），只需 1 次加法和 1 次减法，而非 3 次加法。</p>
+            <p><strong>RISC-V 乘除指令</strong>：RISC-V 的 M 扩展提供 <code>MUL</code>、<code>MULH</code>、<code>DIV</code>、<code>REM</code> 指令。乘法产生 \(2n\) 位结果，<code>MUL</code> 返回低 \(n\) 位，<code>MULH</code> 返回高 \(n\) 位。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题：用移位-加法计算 \(0110_2 \times 0101_2\)（\(6 \times 5\)）</h4>
+            <p>初始：被乘数 A = 0110，乘数 B = 0101，部分积 P = 0000。</p>
+            <ul>
+              <li>步骤 1：B₀ = 1 → P = P + A = 0110；A 左移 → 01100，B 右移 → 010</li>
+              <li>步骤 2：B₀ = 0 → 不加；A 左移 → 011000，B 右移 → 01</li>
+              <li>步骤 3：B₀ = 1 → P = 0110 + 011000 = 011110；A 左移，B 右移 → 0</li>
+              <li>步骤 4：B₀ = 0 → 不加</li>
+            </ul>
+            <p>结果 \(P = 011110_2 = 30\)。验证：\(6 \times 5 = 30\) ✓</p>
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 忘记每步 A 都要左移——不移位的话相当于每步都加 A 本身，结果会偏小。</li>
+              <li>❌ 混淆逻辑右移和算术右移：对负数用逻辑右移会丢失符号，得到很大的正数。</li>
+              <li>✅ 乘法结果位宽 = 两个操作数位宽之和。4 位 × 4 位最大结果 = \(15 \times 15 = 225\)，需要 8 位。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch04-kp4">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="18" text-anchor="middle" font-size="13" font-weight="600" class="fg">桶形移位器（Barrel Shifter）原理</text>
+          <!-- Stage labels -->
+          <text x="50" y="55" text-anchor="middle" font-size="11" class="fg2">输入</text>
+          <text x="50" y="105" text-anchor="middle" font-size="11" class="fg2">Level 0</text>
+          <text x="50" y="155" text-anchor="middle" font-size="11" class="fg2">Level 1</text>
+          <text x="50" y="205" text-anchor="middle" font-size="11" class="fg2">Level 2</text>
+          <!-- 8 input lines -->
+          <line x1="90" y1="40" x2="90" y2="60" class="line"/>
+          <line x1="130" y1="40" x2="130" y2="60" class="line"/>
+          <line x1="170" y1="40" x2="170" y2="60" class="line"/>
+          <line x1="210" y1="40" x2="210" y2="60" class="line"/>
+          <line x1="250" y1="40" x2="250" y2="60" class="line"/>
+          <line x1="290" y1="40" x2="290" y2="60" class="line"/>
+          <line x1="330" y1="40" x2="330" y2="60" class="line"/>
+          <line x1="370" y1="40" x2="370" y2="60" class="line"/>
+          <!-- Level 0: shift by 1 -->
+          <rect x="80" y="60" width="300" height="30" rx="4" fill="#ede9fe" stroke="#6366f1" opacity="0.6"/>
+          <text x="230" y="80" text-anchor="middle" font-size="10" class="accent">s₀ → 移 1 位?</text>
+          <!-- Level 1: shift by 2 -->
+          <rect x="80" y="110" width="300" height="30" rx="4" fill="#e0e7ff" stroke="#6366f1" opacity="0.6"/>
+          <text x="230" y="130" text-anchor="middle" font-size="10" class="accent">s₁ → 移 2 位?</text>
+          <!-- Level 2: shift by 4 -->
+          <rect x="80" y="160" width="300" height="30" rx="4" fill="#c7d2fe" stroke="#6366f1" opacity="0.6"/>
+          <text x="230" y="180" text-anchor="middle" font-size="10" class="accent">s₂ → 移 4 位?</text>
+          <!-- Output lines -->
+          <line x1="90" y1="190" x2="90" y2="210" class="line"/>
+          <line x1="130" y1="190" x2="130" y2="210" class="line"/>
+          <line x1="170" y1="190" x2="170" y2="210" class="line"/>
+          <line x1="210" y1="190" x2="210" y2="210" class="line"/>
+          <line x1="250" y1="190" x2="250" y2="210" class="line"/>
+          <line x1="290" y1="190" x2="290" y2="210" class="line"/>
+          <line x1="330" y1="190" x2="330" y2="210" class="line"/>
+          <line x1="370" y1="190" x2="370" y2="210" class="line"/>
+          <text x="230" y="230" text-anchor="middle" font-size="11" class="fg2">3 级实现 0–7 位任意移位（延迟 = O(log n)）</text>
+        </svg>
+        <figcaption>8 位桶形移位器由 3 级 MUX 构成，每级决定是否移动 2^j 位</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">8 位有符号数 \(11100000_2\)（−32）算术右移 2 位的结果是：</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '逻辑右移才补 0，算术右移应补符号位 1。')">A. \(00111000_2\)（56）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！符号位是 1，右移 2 位后高位补 1：\\(11111000_2 = -8\\)。\\(-32 / 4 = -8\\) ✓。')">B. \(11111000_2\)（−8）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '移位量是 2 不是 1，再算一次。')">C. \(11110000_2\)（−16）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '检查移位方向，右移低位被丢弃。')">D. \(10000000_2\)（−128）</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch03.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="#" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer">
+    <span>Architectura · 计算机结构全景</span>
+  </footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
