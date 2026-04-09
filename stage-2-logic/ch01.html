@@ -383,8 +383,8 @@
             \[A \oplus B = \overline{\overline{A \oplus B}} = \overline{\overline{A\bar{B} + \bar{A}B}}\]
             <p>利用 NAND 的性质，一种高效实现方式是：</p>
             <p>令 \(P = \text{NAND}(A, B)\)，则 \(P = \overline{AB}\)。</p>
-            <p>令 \(Q = \text{NAND}(A, P)\)，则 \(Q = \overline{A \cdot \overline{AB}} = \overline{A} + AB = \overline{A} + B\)（化简后）。实际上 \(Q = \bar{A} + B\) 不完全正确。正确推导：\(Q = \overline{A \cdot \overline{AB}}\)。</p>
-            <p>更系统的方法：展开 XOR 为 NAND 链——</p>
+            <p>令 \(Q = \text{NAND}(A, P) = \overline{A \cdot \overline{AB}}\)，令 \(R = \text{NAND}(B, P) = \overline{B \cdot \overline{AB}}\)，最后 \(Y = \text{NAND}(Q, R)\)。</p>
+            <p>展开为标准 NAND 链表达式：</p>
             \[A \oplus B = \text{NAND}\big(\text{NAND}(A, \text{NAND}(A,B)),\;\text{NAND}(B, \text{NAND}(A,B))\big)\]
             <p>这需要 <strong>4 个 NAND 门</strong>，是 XOR 的最优 NAND 实现。验证：当 \(A=1, B=0\) 时，\(\text{NAND}(1,0)=1\)，\(\text{NAND}(1,1)=0\)，\(\text{NAND}(0,1)=1\)，\(\text{NAND}(0,1)=1\)。最终 \(\text{NAND}(0,1)=1\)。✓</p>
             <p><strong>❌ 常见错误：</strong>不少学生直接用 \(\text{NAND}(A,B)\) 来代替 XOR——两者的真值表完全不同！NAND(0,0)=1 而 XOR(0,0)=0。记住：NAND 不等于 XOR。</p>
