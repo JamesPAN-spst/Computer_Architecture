@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.3 存储器层次 — 记忆与时间 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s3-ch03-q1",
+        question: "SRAM 每个存储单元通常使用多少个晶体管？",
+        options: ["1 个", "2 个", "4 个", "6 个"],
+        answer: 3,
+        explanation: "SRAM 使用 6 个晶体管（6T）构成一个存储单元：两个交叉耦合的反相器（4 个晶体管）加上两个访问晶体管。这种结构无需刷新，但面积较大。"
+      },
+      {
+        id: "s3-ch03-q2",
+        question: "DRAM 需要定期刷新的根本原因是什么？",
+        options: ["晶体管会老化", "电容上的电荷会泄漏", "电源电压不稳定", "地址线存在噪声"],
+        answer: 1,
+        explanation: "DRAM 利用微小电容存储电荷来表示 0 或 1。由于电容存在漏电流，电荷会在毫秒级时间内泄漏殆尽，因此必须定期刷新（重新写入）以保持数据。"
+      },
+      {
+        id: "s3-ch03-q3",
+        question: "以下哪种存储器可以通过紫外线擦除后重新编程？",
+        options: ["Mask ROM", "PROM", "EPROM", "DRAM"],
+        answer: 2,
+        explanation: "EPROM（Erasable Programmable ROM）使用浮栅晶体管存储数据，可以通过紫外线照射使浮栅上的电荷逸出，从而擦除数据并重新编程。其封装上有透明的石英窗口用于接收紫外光。"
+      },
+      {
+        id: "s3-ch03-q4",
+        question: "在存储器层次结构中，平均存储器访问时间（AMAT）的计算公式是？",
+        options: [
+          "AMAT = Hit Time + Miss Rate",
+          "AMAT = Hit Time × Miss Rate × Miss Penalty",
+          "AMAT = Hit Time + Miss Rate × Miss Penalty",
+          "AMAT = (Hit Time + Miss Penalty) × Miss Rate"
+        ],
+        answer: 2,
+        explanation: "AMAT = Hit Time + Miss Rate × Miss Penalty。命中时间是每次访问都会产生的基本延迟，未命中时还需要额外承担未命中惩罚，其权重就是未命中率。"
+      },
+      {
+        id: "s3-ch03-q5",
+        question: "与 SRAM 相比，DRAM 的主要优势是什么？",
+        options: ["访问速度更快", "不需要刷新", "存储密度更高、成本更低", "功耗更低"],
+        answer: 2,
+        explanation: "DRAM 每个存储单元仅需 1 个晶体管和 1 个电容，面积远小于 SRAM 的 6T 结构，因此在同等芯片面积下可容纳更多存储单元，单位成本也更低。这使得 DRAM 适合用作大容量主存。"
+      },
+      {
+        id: "s3-ch03-q6",
+        question: "NAND Flash 相比 NOR Flash 的主要优势是什么？",
+        options: ["支持随机字节读取", "存储密度更高", "读取速度更快", "不存在磨损问题"],
+        answer: 1,
+        explanation: "NAND Flash 将存储单元串联排列，每个单元只需更少的接线，因此密度更高、每比特成本更低。但 NAND Flash 只能按页/块操作，不支持像 NOR Flash 那样的随机字节级读取。"
+      },
+      {
+        id: "s3-ch03-q7",
+        question: "分散刷新（Distributed Refresh）相比集中刷新（Burst Refresh）的优点是什么？",
+        options: ["刷新更彻底", "减少了一次性长时间占用总线的问题", "不需要刷新计数器", "可以完全消除刷新开销"],
+        answer: 1,
+        explanation: "分散刷新将刷新操作均匀地分散在正常访问间隙中进行，避免了集中刷新时一次性暂停所有存储器访问造成的长延迟，从而改善了系统的实时响应特性。"
+      },
+      {
+        id: "s3-ch03-q8",
+        question: "存储器层次结构能有效工作的根本原因是什么？",
+        options: ["所有存储技术的速度相同", "程序访问具有局部性（Locality）", "硬件成本可以忽略", "操作系统能完美调度"],
+        answer: 1,
+        explanation: "程序访问呈现出时间局部性（刚访问的数据很可能再次被访问）和空间局部性（相邻地址很可能被连续访问）。利用局部性原理，将近期常用数据放在快速但昂贵的小容量存储中，就能以较低成本获得接近最快存储器的平均性能。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-3" data-module="ch03"
+      style="--domain-color: var(--c-memory);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 3</span>
+      <a href="index.html" class="module-name">记忆与时间</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.3 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · SRAM vs DRAM</a></li>
+      <li><a href="#kp2">02 · DRAM 的刷新机制</a></li>
+      <li><a href="#kp3">03 · ROM / Flash 存储原理</a></li>
+      <li><a href="#kp4">04 · 存储器层次结构</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 3</p>
+      <h1>存储器层次（Memory Hierarchy）</h1>
+    </header>
+
+    <!-- ============================================================ KP 1 -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>SRAM vs DRAM——速度与密度的权衡</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>处理器的运算速度已经远远超过主存的访问速度——这是现代计算机体系结构中最核心的矛盾之一。要缓解这一矛盾，我们首先需要理解两种最基本的半导体存储器：SRAM（Static Random-Access Memory）和 DRAM（Dynamic Random-Access Memory）各自的物理特性与工程约束。</p>
+            <p>SRAM 速度快，但每个存储单元需要 6 个晶体管，芯片面积大、成本高；DRAM 每个单元只需要 1 个晶体管加 1 个电容，密度极高但速度较慢且需要定期刷新。理解二者的本质差异，才能解释为什么计算机系统会同时使用这两种技术，而非只选其一。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>我们可以从存储单元（Cell）的电路拓扑入手进行比较。SRAM 的一个存储单元由两个交叉耦合的 CMOS 反相器（Cross-Coupled Inverters）组成，形成一个双稳态锁存器（Bistable Latch），再加上两个通道晶体管（Access Transistors）控制读写，共 6 个晶体管（6T 结构）。只要电源不断，锁存器就能保持数据不变，故称"静态"。</p>
+            <p>DRAM 的存储单元只有 1 个晶体管（用作开关）和 1 个微小电容（用来存储电荷）。电容上有电荷代表逻辑"1"，无电荷代表逻辑"0"。由于电容不可避免地会通过漏电流丧失电荷，数据必须在丢失前被刷新，故称"动态"。</p>
+            <p>从面积上看，6T SRAM 单元面积约为 1T1C DRAM 单元的 4–6 倍。因此在相同芯片面积下，DRAM 的容量远大于 SRAM。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>假设 SRAM 的每比特面积为 \(A_{\text{SRAM}}\)，DRAM 的每比特面积为 \(A_{\text{DRAM}}\)。在相同工艺节点下，典型比值为：</p>
+            \[ \frac{A_{\text{SRAM}}}{A_{\text{DRAM}}} \approx 4 \sim 6 \]
+            <p>若芯片总面积为 \(A_{\text{chip}}\)，则可容纳的存储位数分别为：</p>
+            \[ N_{\text{SRAM}} = \frac{A_{\text{chip}}}{A_{\text{SRAM}}}, \quad N_{\text{DRAM}} = \frac{A_{\text{chip}}}{A_{\text{DRAM}}} \]
+            <p>因此 \(N_{\text{DRAM}} / N_{\text{SRAM}} \approx 4 \sim 6\)，即 DRAM 的存储密度是 SRAM 的 4–6 倍。</p>
+            <p>在访问时间方面，SRAM 的典型访问时间约为 \(1 \sim 10\,\text{ns}\)，而 DRAM 约为 \(50 \sim 100\,\text{ns}\)。每比特成本（Cost per Bit）关系为：</p>
+            \[ \text{Cost}_{\text{SRAM}} \gg \text{Cost}_{\text{DRAM}} \]
+            <div class="warning-box">⚠️ 注意：SRAM 和 DRAM 的速度差异不仅来自单元结构，还与外围电路（行/列解码器、灵敏放大器）密切相关。DRAM 读取时还需要先对位线预充电、再通过灵敏放大器检测微弱的电荷差异，因此延迟更大。不能简单地认为"晶体管少 = 速度慢"。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p>在现代计算机中，SRAM 主要用于 CPU 内部的高速缓存（Cache）——L1、L2、L3 Cache 均采用 SRAM 实现，以匹配处理器流水线的高时钟频率。L1 Cache 通常只有几十 KB，但访问延迟可以低至 1–2 个时钟周期。</p>
+            <p>DRAM 则用作主存（Main Memory），容量通常为 8 GB–64 GB 甚至更大。现代 DRAM 标准（如 DDR5）通过多 Bank 并行、预取（Prefetch）等技术提高带宽，但单次随机访问延迟仍然远高于 SRAM。</p>
+            <p>嵌入式系统中也常用到小容量 SRAM 作为片上存储（On-Chip SRAM），用于对延迟敏感的实时任务。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>某系统的 L1 Cache 使用 SRAM 实现，访问时间为 2 ns；主存使用 DRAM 实现，访问时间为 80 ns。若 L1 Cache 命中率为 95%，求平均访问时间。</p>
+            <p>❌ <strong>错误做法：</strong>直接取 SRAM 和 DRAM 访问时间的算术平均值 \((2 + 80) / 2 = 41\,\text{ns}\)。这忽略了命中率的权重。</p>
+            <p>✅ <strong>正确做法：</strong>使用 AMAT 公式：</p>
+            \[ \text{AMAT} = t_{\text{hit}} + (1 - h) \times t_{\text{miss}} = 2 + 0.05 \times 80 = 2 + 4 = 6\,\text{ns} \]
+            <p>可见 95% 的命中率就能将平均访问时间从 80 ns 降到 6 ns，接近 SRAM 的速度。这正是存储器层次结构的威力所在。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch03-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <!-- SRAM 6T cell -->
+          <text x="100" y="20" class="fg" font-size="11" text-anchor="middle" font-weight="bold">SRAM (6T)</text>
+          <rect x="40" y="30" width="120" height="80" rx="6" class="line" stroke-dasharray="4,2"/>
+          <rect x="55" y="50" width="35" height="25" rx="3" class="line"/>
+          <text x="72" y="67" class="fg2" font-size="8" text-anchor="middle">INV</text>
+          <rect x="110" y="50" width="35" height="25" rx="3" class="line"/>
+          <text x="128" y="67" class="fg2" font-size="8" text-anchor="middle">INV</text>
+          <line x1="90" y1="55" x2="110" y2="70" class="line"/>
+          <line x1="90" y1="70" x2="110" y2="55" class="line"/>
+          <text x="72" y="100" class="fg2" font-size="8" text-anchor="middle">T_acc</text>
+          <text x="128" y="100" class="fg2" font-size="8" text-anchor="middle">T_acc</text>
+          <rect x="55" y="85" width="14" height="14" rx="2" class="line"/>
+          <rect x="130" y="85" width="14" height="14" rx="2" class="line"/>
+          <!-- DRAM 1T1C cell -->
+          <text x="300" y="20" class="fg" font-size="11" text-anchor="middle" font-weight="bold">DRAM (1T1C)</text>
+          <rect x="240" y="30" width="120" height="80" rx="6" class="line" stroke-dasharray="4,2"/>
+          <rect x="270" y="50" width="20" height="30" rx="3" class="line"/>
+          <text x="280" y="69" class="fg2" font-size="7" text-anchor="middle">T</text>
+          <line x1="310" y1="55" x2="310" y2="75" class="line" stroke-width="3"/>
+          <line x1="316" y1="55" x2="316" y2="75" class="line" stroke-width="3"/>
+          <text x="313" y="88" class="fg2" font-size="7" text-anchor="middle">C</text>
+          <line x1="290" y1="65" x2="310" y2="65" class="line"/>
+          <!-- Comparison table -->
+          <line x1="30" y1="130" x2="370" y2="130" class="line" stroke-width="1"/>
+          <text x="70" y="150" class="fg" font-size="9" text-anchor="middle" font-weight="bold">参数</text>
+          <text x="180" y="150" class="accent" font-size="9" text-anchor="middle" font-weight="bold">SRAM</text>
+          <text x="310" y="150" class="accent" font-size="9" text-anchor="middle" font-weight="bold">DRAM</text>
+          <line x1="30" y1="156" x2="370" y2="156" class="line" stroke-width="0.5"/>
+          <text x="70" y="172" class="fg2" font-size="9" text-anchor="middle">晶体管/Cell</text>
+          <text x="180" y="172" class="fg" font-size="9" text-anchor="middle">6</text>
+          <text x="310" y="172" class="fg" font-size="9" text-anchor="middle">1</text>
+          <text x="70" y="190" class="fg2" font-size="9" text-anchor="middle">访问时间</text>
+          <text x="180" y="190" class="fg" font-size="9" text-anchor="middle">1–10 ns</text>
+          <text x="310" y="190" class="fg" font-size="9" text-anchor="middle">50–100 ns</text>
+          <text x="70" y="208" class="fg2" font-size="9" text-anchor="middle">需要刷新</text>
+          <text x="180" y="208" class="fg" font-size="9" text-anchor="middle">否</text>
+          <text x="310" y="208" class="fg" font-size="9" text-anchor="middle">是</text>
+          <text x="70" y="226" class="fg2" font-size="9" text-anchor="middle">密度</text>
+          <text x="180" y="226" class="fg" font-size="9" text-anchor="middle">低</text>
+          <text x="310" y="226" class="fg" font-size="9" text-anchor="middle">高</text>
+        </svg>
+        <figcaption>图 3-1　SRAM 6T 单元与 DRAM 1T1C 单元结构对比及关键参数</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">SRAM 存储单元由两个交叉耦合的反相器加两个访问晶体管组成，不需要刷新。那么 DRAM 比 SRAM 的最大优势是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '访问速度方面 SRAM 远快于 DRAM，这不是 DRAM 的优势。')">A. 访问速度更快</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！DRAM 每个单元只需 1T1C，面积远小于 SRAM 的 6T，因此在相同芯片面积下可获得更高的存储容量，单位成本也更低。')">B. 存储密度更高、成本更低</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'SRAM 无需刷新，静态功耗更低（不考虑漏电流时）；DRAM 反而需要刷新消耗额外功耗。')">C. 功耗更低</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '电路简单并不意味着控制简单——DRAM 需要额外的刷新控制逻辑。')">D. 控制逻辑更简单</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ============================================================ KP 2 -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>DRAM 的刷新机制</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>DRAM 使用电容存储数据，而电容上的电荷会随时间泄漏。如果不加干预，存储的信息将在毫秒量级内完全丢失。这意味着 DRAM 必须在电荷泄漏到不可辨别之前，将数据"读出-放大-写回"，这一过程称为刷新（Refresh）。</p>
+            <p>刷新操作需要占用总线带宽和时间，直接影响系统的有效存储器带宽。理解刷新机制不仅是理解 DRAM 工作原理的关键，也是优化系统性能的基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>DRAM 芯片内部按行（Row）和列（Column）组织。每次读操作时，整行数据被激活并通过灵敏放大器（Sense Amplifier）读出，同时自动写回到电容中——这就是所谓的"破坏性读取"（Destructive Read）后的恢复过程。</p>
+            <p>刷新操作本质上就是对每一行执行一次这样的"读出-写回"操作，但不输出数据到外部总线。只要在电荷泄漏到临界值之前对所有行完成一轮刷新，数据就能得到保持。</p>
+            <p>典型 DRAM 的刷新间隔（Refresh Interval）为 64 ms（标准温度）或 32 ms（高温环境），在此期间需要对芯片内所有行完成一轮刷新。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>设 DRAM 共有 \(R\) 行，刷新间隔为 \(T_{\text{ref}}\)，每次刷新一行所需时间为 \(t_{\text{rc}}\)（Row Cycle Time）。则：</p>
+            <p><strong>集中刷新（Burst Refresh）：</strong>在每个刷新间隔末尾集中刷新所有行：</p>
+            \[ T_{\text{burst}} = R \times t_{\text{rc}} \]
+            <p>在此期间存储器完全不可用。刷新开销（Overhead）为：</p>
+            \[ \text{Overhead}_{\text{burst}} = \frac{R \times t_{\text{rc}}}{T_{\text{ref}}} \]
+            <p><strong>分散刷新（Distributed Refresh）：</strong>将刷新操作均匀分散到整个刷新间隔中，每隔 \(T_{\text{ref}} / R\) 时间刷新一行：</p>
+            \[ \Delta t = \frac{T_{\text{ref}}}{R} \]
+            <p>每次刷新仅占用 \(t_{\text{rc}}\) 时间，对正常访问的干扰更小。刷新总开销相同，但峰值延迟大幅降低。</p>
+            <p><strong>数值示例：</strong>若 \(R = 8192\)，\(T_{\text{ref}} = 64\,\text{ms}\)，\(t_{\text{rc}} = 50\,\text{ns}\)：</p>
+            \[ \text{Overhead} = \frac{8192 \times 50\,\text{ns}}{64\,\text{ms}} = \frac{409.6\,\mu\text{s}}{64\,\text{ms}} \approx 0.64\% \]
+            <div class="warning-box">⚠️ 注意：随着 DRAM 容量增大，行数 \(R\) 成倍增长，刷新开销也随之增加。现代大容量 DRAM（如 16 Gb 颗粒）的刷新开销已不可忽视，DDR4/DDR5 引入了细粒度刷新（Fine Granularity Refresh）等机制来缓解此问题。高温环境下刷新间隔减半，开销进一步加倍。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p>在实际系统中，DRAM 控制器（Memory Controller）负责在合适的时机插入刷新命令。现代 DDR 标准定义了多种刷新模式：</p>
+            <p><strong>Auto Refresh (AR)：</strong>控制器定期发送 REF 命令，DRAM 内部自动维护刷新行计数器，每收到一次 REF 命令刷新若干行。</p>
+            <p><strong>Self Refresh (SR)：</strong>当系统进入低功耗状态（如笔记本待机）时，DRAM 自行使用内部振荡器维持刷新，无需外部命令。但 Self Refresh 消耗的功率仍是待机功耗的重要组成部分。</p>
+            <p>在实时嵌入式系统中，刷新引起的最坏情况延迟（Worst-Case Refresh Latency）是硬实时任务调度时必须考虑的因素。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>某 DRAM 芯片有 4096 行，刷新间隔 64 ms，行周期 60 ns。采用分散刷新时，相邻两次刷新操作的间隔是多少？</p>
+            <p>❌ <strong>错误做法：</strong>用 64 ms 除以总的刷新时间 \(4096 \times 60\,\text{ns} = 245.76\,\mu\text{s}\)，得到一个无意义的比值。混淆了"间隔"和"开销"的概念。</p>
+            <p>✅ <strong>正确做法：</strong></p>
+            \[ \Delta t = \frac{T_{\text{ref}}}{R} = \frac{64\,\text{ms}}{4096} = 15.625\,\mu\text{s} \approx 15.6\,\mu\text{s} \]
+            <p>即每隔约 15.6 μs 刷新一行，每次刷新占用 60 ns，其余时间可正常访问。这保证了在 64 ms 内所有 4096 行都被刷新一遍。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch03-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}.ref{fill:#6366f1;opacity:0.25}</style>
+          <text x="200" y="18" class="fg" font-size="11" text-anchor="middle" font-weight="bold">集中刷新 vs 分散刷新</text>
+          <!-- Burst refresh timeline -->
+          <text x="15" y="52" class="fg2" font-size="9">集中</text>
+          <rect x="50" y="40" width="280" height="16" rx="3" fill="#e2e8f0"/>
+          <rect x="290" y="40" width="40" height="16" rx="3" class="ref"/>
+          <text x="310" y="52" class="accent" font-size="7" text-anchor="middle">全部刷新</text>
+          <text x="170" y="52" class="fg2" font-size="8" text-anchor="middle">正常访问</text>
+          <!-- Arrow -->
+          <line x1="50" y1="62" x2="330" y2="62" class="line" stroke-width="0.8" marker-end="url(#arrowhead)"/>
+          <text x="190" y="72" class="fg2" font-size="7" text-anchor="middle">T_ref = 64 ms</text>
+          <!-- Distributed refresh timeline -->
+          <text x="15" y="105" class="fg2" font-size="9">分散</text>
+          <rect x="50" y="93" width="280" height="16" rx="3" fill="#e2e8f0"/>
+          <!-- Distributed refresh ticks -->
+          <rect x="68" y="93" width="3" height="16" class="ref"/>
+          <rect x="98" y="93" width="3" height="16" class="ref"/>
+          <rect x="128" y="93" width="3" height="16" class="ref"/>
+          <rect x="158" y="93" width="3" height="16" class="ref"/>
+          <rect x="188" y="93" width="3" height="16" class="ref"/>
+          <rect x="218" y="93" width="3" height="16" class="ref"/>
+          <rect x="248" y="93" width="3" height="16" class="ref"/>
+          <rect x="278" y="93" width="3" height="16" class="ref"/>
+          <rect x="308" y="93" width="3" height="16" class="ref"/>
+          <text x="190" y="125" class="fg2" font-size="7" text-anchor="middle">每隔 Δt 刷新一行，峰值延迟低</text>
+          <!-- Charge decay diagram -->
+          <text x="200" y="150" class="fg" font-size="10" text-anchor="middle" font-weight="bold">电容电荷衰减</text>
+          <line x1="60" y1="225" x2="340" y2="225" class="line" stroke-width="1"/>
+          <line x1="60" y1="165" x2="60" y2="225" class="line" stroke-width="1"/>
+          <text x="55" y="170" class="fg2" font-size="7" text-anchor="end">Q</text>
+          <text x="345" y="228" class="fg2" font-size="7">t</text>
+          <!-- Exponential decay curve -->
+          <path d="M60,170 Q120,172 160,185 Q200,200 250,212 Q300,220 340,223" class="line" stroke="#6366f1" stroke-width="2"/>
+          <!-- Threshold line -->
+          <line x1="60" y1="210" x2="340" y2="210" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,3" fill="none"/>
+          <text x="345" y="213" fill="#ef4444" font-size="7">阈值</text>
+          <!-- Refresh point -->
+          <line x1="180" y1="165" x2="180" y2="225" stroke="#22c55e" stroke-width="1" stroke-dasharray="3,3" fill="none"/>
+          <text x="180" y="162" fill="#22c55e" font-size="7" text-anchor="middle">刷新点</text>
+          <defs><marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 3-2　集中刷新与分散刷新对比，以及电容电荷衰减示意</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">某 DRAM 有 8192 行，刷新间隔为 64 ms。采用分散刷新时，相邻两次刷新的间隔约为多少？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '这是刷新间隔 64 ms 除以 64，即 1 ms，行数不对。')">A. 1 ms</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '64 ms / 8192 ≈ 7.8 μs，不是 7.8 ms。注意单位。')">B. 7.8 ms</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！64 ms / 8192 ≈ 7.8 μs。每隔约 7.8 微秒刷新一行，保证在 64 ms 内完成所有行的刷新。')">C. 7.8 μs</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '64 ms / 8192 ≈ 7812.5 ns ≈ 7.8 μs，不是 50 ns。50 ns 是一个行周期的时间。')">D. 50 ns</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ============================================================ KP 3 -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>ROM / Flash 的存储原理</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>SRAM 和 DRAM 都是易失性存储器（Volatile Memory）——断电后数据就会丢失。然而计算机系统需要在断电后仍然保存引导程序（Bootloader）、固件（Firmware）以及用户数据。这就需要非易失性存储器（Non-Volatile Memory, NVM）。</p>
+            <p>从最早的掩模 ROM（Mask ROM）到现代的 NAND Flash，非易失性存储技术经历了深刻的演进。特别是 Flash 存储器，已成为从手机到数据中心的通用存储介质。理解其工作原理和限制（如写入耐久性、磨损均衡），对系统设计至关重要。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>ROM 的演进路线：</strong></p>
+            <p><strong>Mask ROM：</strong>在制造时通过掩模版（Mask）将数据"烧"进芯片，无法修改。成本最低（大批量时），但灵活性为零。</p>
+            <p><strong>PROM（Programmable ROM）：</strong>出厂时所有位为"1"，用户通过高电压熔断熔丝（Fuse）将指定位置为"0"。一次性编程，不可擦除。</p>
+            <p><strong>EPROM（Erasable PROM）：</strong>使用浮栅晶体管（Floating Gate Transistor），通过热电子注入将电荷注入浮栅实现编程。可用紫外线照射使电荷逸出来擦除，支持多次重编程。</p>
+            <p><strong>EEPROM（Electrically Erasable PROM）：</strong>改用隧穿效应（Fowler-Nordheim Tunneling）进行擦写，可在电路内按字节擦除和重编程，但速度慢、成本高。</p>
+            <p><strong>Flash Memory：</strong>本质上是 EEPROM 的改进版本，牺牲了字节级擦除能力，换取更高的密度和更低的成本。擦除以块（Block）为单位，编程以页（Page）为单位。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>Flash 存储器的核心器件是浮栅晶体管。其阈值电压 \(V_{\text{th}}\) 取决于浮栅上存储的电荷量 \(Q_{\text{FG}}\)：</p>
+            \[ V_{\text{th}} = V_{\text{th0}} - \frac{Q_{\text{FG}}}{C_{\text{pp}}} \]
+            <p>其中 \(V_{\text{th0}}\) 是无电荷时的阈值电压，\(C_{\text{pp}}\) 是控制栅到浮栅的耦合电容。当浮栅注入负电荷（电子）时，\(Q_{\text{FG}} &lt; 0\)，阈值电压升高，该单元读为"0"；浮栅无电荷时，阈值低，读为"1"。</p>
+            <p><strong>NOR Flash vs NAND Flash：</strong></p>
+            <p>NOR Flash 中存储单元并联连接到位线，每个单元可独立随机读取，适合存储执行代码（XIP, Execute In Place）。但因每个单元需要独立的接地端，面积较大。</p>
+            <p>NAND Flash 中存储单元串联成串（String），多个单元共享选择线和接地端，密度更高、每比特成本更低。但只能按页读写，适合大容量数据存储（如 SSD、U 盘）。</p>
+            <p>Flash 的写入耐久性（Endurance）通常为 \(10^3 \sim 10^5\) 次 P/E（Program/Erase）循环。磨损均衡（Wear Leveling）算法通过将写入均匀分布到所有块，延长整体寿命：</p>
+            \[ \text{寿命} \approx \frac{N_{\text{blocks}} \times E_{\text{max}}}{\text{每天写入块数}} \]
+            <div class="warning-box">⚠️ 注意：Flash 存储器"编程"（写入）只能将位从"1"变为"0"，不能反向操作。要将"0"变回"1"，必须先擦除整个块（将所有位恢复为"1"），然后重新编程。这种不对称性是 Flash 文件系统（如 JFFS2、F2FS）和 SSD 固件（FTL, Flash Translation Layer）复杂性的根源。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>NOR Flash</strong> 常用于嵌入式系统的固件存储（如 BIOS/UEFI、微控制器的代码存储区），因为它支持原地执行（XIP）。容量通常较小（几 MB 到几十 MB）。</p>
+            <p><strong>NAND Flash</strong> 是现代 SSD（Solid-State Drive）、SD 卡、eMMC、UFS 等存储设备的核心介质。通过多层堆叠技术（3D NAND），单颗芯片容量已达 1 Tb 以上。</p>
+            <p>SSD 控制器中的 FTL（Flash Translation Layer）负责地址映射、垃圾回收（Garbage Collection）和磨损均衡，对外呈现为传统的块设备接口，使操作系统无需感知 Flash 的特殊性。</p>
+            <p>新兴的非易失性存储技术（如 Intel Optane/3D XPoint、STT-MRAM）正在试图填补 DRAM 和 NAND Flash 之间的性能-容量鸿沟。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>某 NAND Flash 芯片共有 4096 个擦除块，每块的擦写耐久性为 \(3 \times 10^3\) 次 P/E 循环。若每天平均写入 40 GB 数据，每块大小为 512 KB，估算该芯片在理想磨损均衡下的寿命。</p>
+            <p>❌ <strong>错误做法：</strong>用总 P/E 次数除以每天的写入量（不换算为块数），导致单位不一致。</p>
+            <p>✅ <strong>正确做法：</strong></p>
+            <p>每天写入的块数（假设写放大为 1）：</p>
+            \[ \frac{40\,\text{GB}}{512\,\text{KB}} = \frac{40 \times 1024\,\text{MB}}{0.5\,\text{MB}} = 81920\,\text{块/天} \]
+            <p>理想磨损均衡下，每天每块被擦写次数：</p>
+            \[ \frac{81920}{4096} = 20\,\text{次/天} \]
+            <p>芯片寿命：</p>
+            \[ \frac{3000}{20} = 150\,\text{天} \approx 5\,\text{个月} \]
+            <p>这说明写入密集的场景下，Flash 的寿命是一个需要认真对待的工程问题。实际中写放大（Write Amplification）还会进一步缩短寿命。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch03-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="18" class="fg" font-size="11" text-anchor="middle" font-weight="bold">浮栅晶体管 &amp; NOR vs NAND 结构</text>
+          <!-- Floating gate transistor -->
+          <rect x="30" y="30" width="140" height="95" rx="5" class="line" stroke-dasharray="4,2"/>
+          <text x="100" y="44" class="fg2" font-size="8" text-anchor="middle">浮栅晶体管</text>
+          <!-- Gate stack -->
+          <rect x="70" y="95" width="60" height="8" rx="2" fill="#94a3b8"/>
+          <text x="100" y="102" font-size="6" fill="white" text-anchor="middle">衬底</text>
+          <rect x="80" y="72" width="40" height="10" rx="2" fill="#6366f1" opacity="0.6"/>
+          <text x="100" y="80" font-size="6" fill="white" text-anchor="middle">浮栅 FG</text>
+          <rect x="82" y="63" width="36" height="6" rx="1" fill="#e2e8f0"/>
+          <rect x="80" y="52" width="40" height="10" rx="2" fill="#334155"/>
+          <text x="100" y="60" font-size="6" fill="white" text-anchor="middle">控制栅 CG</text>
+          <!-- S and D -->
+          <rect x="55" y="88" width="20" height="8" rx="2" fill="#22c55e" opacity="0.6"/>
+          <text x="65" y="94" font-size="5" fill="white" text-anchor="middle">S</text>
+          <rect x="125" y="88" width="20" height="8" rx="2" fill="#22c55e" opacity="0.6"/>
+          <text x="135" y="94" font-size="5" fill="white" text-anchor="middle">D</text>
+          <!-- Electrons in floating gate -->
+          <text x="87" y="78" font-size="6" fill="#6366f1">e⁻ e⁻ e⁻</text>
+          <!-- NOR Flash layout -->
+          <rect x="210" y="30" width="80" height="95" rx="5" class="line" stroke-dasharray="4,2"/>
+          <text x="250" y="44" class="accent" font-size="9" text-anchor="middle" font-weight="bold">NOR</text>
+          <text x="250" y="56" class="fg2" font-size="7" text-anchor="middle">并联</text>
+          <line x1="250" y1="62" x2="250" y2="118" class="line" stroke-width="1"/>
+          <rect x="237" y="65" width="26" height="12" rx="2" class="line"/>
+          <text x="250" y="74" class="fg2" font-size="6" text-anchor="middle">Cell</text>
+          <line x1="230" y1="71" x2="237" y2="71" class="line" stroke-width="0.8"/>
+          <line x1="263" y1="71" x2="270" y2="71" class="line" stroke-width="0.8"/>
+          <rect x="237" y="82" width="26" height="12" rx="2" class="line"/>
+          <text x="250" y="91" class="fg2" font-size="6" text-anchor="middle">Cell</text>
+          <line x1="230" y1="88" x2="237" y2="88" class="line" stroke-width="0.8"/>
+          <line x1="263" y1="88" x2="270" y2="88" class="line" stroke-width="0.8"/>
+          <rect x="237" y="99" width="26" height="12" rx="2" class="line"/>
+          <text x="250" y="108" class="fg2" font-size="6" text-anchor="middle">Cell</text>
+          <line x1="230" y1="105" x2="237" y2="105" class="line" stroke-width="0.8"/>
+          <line x1="263" y1="105" x2="270" y2="105" class="line" stroke-width="0.8"/>
+          <text x="225" y="75" class="fg2" font-size="6" text-anchor="end">BL</text>
+          <!-- NAND Flash layout -->
+          <rect x="310" y="30" width="80" height="95" rx="5" class="line" stroke-dasharray="4,2"/>
+          <text x="350" y="44" class="accent" font-size="9" text-anchor="middle" font-weight="bold">NAND</text>
+          <text x="350" y="56" class="fg2" font-size="7" text-anchor="middle">串联</text>
+          <line x1="350" y1="62" x2="350" y2="118" class="line" stroke-width="1"/>
+          <rect x="337" y="65" width="26" height="12" rx="2" class="line"/>
+          <text x="350" y="74" class="fg2" font-size="6" text-anchor="middle">Cell</text>
+          <rect x="337" y="82" width="26" height="12" rx="2" class="line"/>
+          <text x="350" y="91" class="fg2" font-size="6" text-anchor="middle">Cell</text>
+          <rect x="337" y="99" width="26" height="12" rx="2" class="line"/>
+          <text x="350" y="108" class="fg2" font-size="6" text-anchor="middle">Cell</text>
+          <!-- ROM evolution timeline -->
+          <text x="200" y="145" class="fg" font-size="10" text-anchor="middle" font-weight="bold">ROM 技术演进</text>
+          <line x1="40" y1="165" x2="370" y2="165" class="line" stroke-width="1.5"/>
+          <circle cx="60" cy="165" r="4" class="accent"/>
+          <text x="60" y="180" class="fg" font-size="7" text-anchor="middle">Mask ROM</text>
+          <text x="60" y="190" class="fg2" font-size="6" text-anchor="middle">不可改</text>
+          <circle cx="140" cy="165" r="4" class="accent"/>
+          <text x="140" y="180" class="fg" font-size="7" text-anchor="middle">PROM</text>
+          <text x="140" y="190" class="fg2" font-size="6" text-anchor="middle">一次编程</text>
+          <circle cx="220" cy="165" r="4" class="accent"/>
+          <text x="220" y="180" class="fg" font-size="7" text-anchor="middle">EPROM</text>
+          <text x="220" y="190" class="fg2" font-size="6" text-anchor="middle">UV 擦除</text>
+          <circle cx="300" cy="165" r="4" class="accent"/>
+          <text x="300" y="180" class="fg" font-size="7" text-anchor="middle">EEPROM</text>
+          <text x="300" y="190" class="fg2" font-size="6" text-anchor="middle">电擦除</text>
+          <circle cx="360" cy="165" r="4" fill="#6366f1"/>
+          <text x="360" y="180" class="fg" font-size="7" text-anchor="middle" font-weight="bold">Flash</text>
+          <text x="360" y="190" class="fg2" font-size="6" text-anchor="middle">块擦除</text>
+          <!-- Arrow markers -->
+          <polygon points="56,165 64,162 64,168" class="accent"/>
+          <text x="200" y="210" class="fg2" font-size="8" text-anchor="middle">灵活性与密度 →</text>
+          <line x1="120" y1="210" x2="280" y2="210" class="line" stroke-width="0.8" marker-end="url(#arrowhead2)"/>
+          <defs><marker id="arrowhead2" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 3-3　浮栅晶体管结构、NOR/NAND Flash 单元排列方式及 ROM 技术演进</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">Flash 存储器的"编程"操作只能将位从 1 变为 0。要将 0 变回 1 需要执行什么操作？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '直接写入只能 1→0，无法 0→1。')">A. 对该位执行一次写入操作</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '刷新是 DRAM 的概念，Flash 不需要刷新。')">B. 对该位进行刷新</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！Flash 必须以块为单位擦除（将整块所有位恢复为 1），然后再重新编程写入需要的数据。这是 Flash 写入复杂性的根源。')">C. 先擦除整个块，再重新编程</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '反向施加电压并不能在 Flash 中将单个位从 0 变回 1，擦除必须以块为单位。')">D. 反向施加编程电压</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ============================================================ KP 4 -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>存储器层次结构（Hierarchy）的必要性</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>理想中我们希望存储器既快又大又便宜——但现实中这三个目标互相矛盾。SRAM 快但贵且小；DRAM 大且较便宜但慢；磁盘/SSD 便宜且巨大但更慢。没有任何一种技术能同时满足所有需求。</p>
+            <p>存储器层次结构（Memory Hierarchy）是计算机体系结构中最优雅的折中方案之一：利用程序访问的局部性（Locality），将少量高速存储与大量低速存储组合起来，使系统整体性能接近最快的层次，而总成本接近最便宜的层次。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>存储器层次可以抽象为一座金字塔：越靠近塔尖（CPU），存储器越快、越小、越贵；越靠近塔底，越慢、越大、越便宜。从上到下依次为：</p>
+            <p><strong>寄存器（Registers）：</strong>容量极小（几百字节到几 KB），访问时间 &lt; 1 ns，与 CPU 同频。</p>
+            <p><strong>高速缓存（Cache）：</strong>L1（几十 KB，1–2 周期）、L2（几百 KB，5–10 周期）、L3（几 MB–几十 MB，20–40 周期），使用 SRAM。</p>
+            <p><strong>主存（Main Memory）：</strong>几 GB–几百 GB，使用 DRAM，访问时间约 50–100 ns。</p>
+            <p><strong>辅助存储（Secondary Storage）：</strong>SSD（微秒级）、HDD（毫秒级），TB 级容量。</p>
+            <p>这套层次能高效工作的前提是<strong>局部性原理（Principle of Locality）</strong>：</p>
+            <p><strong>时间局部性（Temporal Locality）：</strong>刚被访问的数据很可能在不久的将来再次被访问（如循环变量）。</p>
+            <p><strong>空间局部性（Spatial Locality）：</strong>与刚被访问的数据地址相邻的数据很可能也会被访问（如数组遍历）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>衡量存储器层次性能的核心指标是<strong>平均存储器访问时间</strong>（Average Memory Access Time, AMAT）：</p>
+            \[ \text{AMAT} = t_{\text{hit}} + r_{\text{miss}} \times t_{\text{miss}} \]
+            <p>其中 \(t_{\text{hit}}\) 是命中时间（每次访问都要付出的基本延迟），\(r_{\text{miss}}\) 是未命中率（Miss Rate），\(t_{\text{miss}}\) 是未命中惩罚（Miss Penalty，从下一层取数据的额外时间）。</p>
+            <p>对于多级层次，AMAT 可以递归展开。例如两级缓存系统：</p>
+            \[ \text{AMAT} = t_{\text{L1}} + r_{\text{L1}} \times \bigl( t_{\text{L2}} + r_{\text{L2}} \times t_{\text{mem}} \bigr) \]
+            <p>这里 \(r_{\text{L2}}\) 是 L2 的局部未命中率（Local Miss Rate），即在 L1 未命中的访问中有多少也在 L2 中未命中。</p>
+            <p><strong>为什么不能全用 SRAM？</strong>以 2024 年的工艺来估算：若需要 16 GB 的 SRAM 主存，按每 GB SRAM 约 $5000 计算，仅存储器成本就高达 $80,000，而 16 GB DRAM 仅需约 $30–$50。这就是层次结构存在的经济学基础。</p>
+            <div class="warning-box">⚠️ 注意：AMAT 公式假设命中时间是固定的，但实际中 Cache 的命中时间可能受到流水线深度、Bank 冲突等因素影响而波动。此外，未命中惩罚也不是常数——它取决于总线繁忙程度、DRAM 的行命中/行冲突状态等。在精确建模时需考虑这些二阶效应。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p>现代处理器的存储器层次已经发展到非常精细的程度。以典型的桌面处理器为例：</p>
+            <p>每个核心拥有私有的 L1I（指令缓存）和 L1D（数据缓存），通常各 32–64 KB；私有的 L2 Cache 约 256 KB–1 MB；所有核心共享的 L3 Cache 可达 16–64 MB。加上 16–128 GB 的 DDR5 主存和 1–4 TB 的 NVMe SSD。</p>
+            <p>操作系统的虚拟内存（Virtual Memory）机制进一步将主存作为磁盘/SSD 的"缓存"，使程序可以使用超过物理内存大小的地址空间。页表（Page Table）和 TLB（Translation Lookaside Buffer）则构成了地址转换的专用层次。</p>
+            <p>在数据中心场景，还会在存储层次中加入远端内存（Remote Memory，如 CXL 内存扩展）和分布式缓存（如 Redis、Memcached），形成更深的层次结构。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>某系统 L1 Cache 命中时间 1 ns，命中率 90%；L2 Cache 命中时间 5 ns，局部命中率 80%；主存访问时间 100 ns。求 AMAT。</p>
+            <p>❌ <strong>错误做法：</strong>将所有命中率和时间简单相加：\(1 + 5 + 100 = 106\,\text{ns}\)。这没有考虑各级的访问概率。</p>
+            <p>✅ <strong>正确做法：</strong>逐级展开 AMAT：</p>
+            \[ \text{AMAT} = t_{\text{L1}} + r_{\text{L1}} \times \bigl( t_{\text{L2}} + r_{\text{L2}} \times t_{\text{mem}} \bigr) \]
+            \[ = 1 + 0.10 \times (5 + 0.20 \times 100) \]
+            \[ = 1 + 0.10 \times (5 + 20) \]
+            \[ = 1 + 0.10 \times 25 = 1 + 2.5 = 3.5\,\text{ns} \]
+            <p>结果：AMAT = 3.5 ns。虽然主存需要 100 ns，但通过两级缓存，平均访问时间仅 3.5 ns，非常接近 L1 Cache 的速度。这充分体现了局部性原理的威力。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch03-kp4">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="16" class="fg" font-size="11" text-anchor="middle" font-weight="bold">存储器层次金字塔</text>
+          <!-- Pyramid layers -->
+          <polygon points="200,28 170,60 230,60" fill="#6366f1" opacity="0.9"/>
+          <text x="200" y="52" fill="white" font-size="7" text-anchor="middle">寄存器</text>
+          <polygon points="170,62 140,94 260,94 230,62" fill="#6366f1" opacity="0.7"/>
+          <text x="200" y="83" fill="white" font-size="8" text-anchor="middle">Cache (SRAM)</text>
+          <polygon points="140,96 100,128 300,128 260,96" fill="#6366f1" opacity="0.5"/>
+          <text x="200" y="117" fill="white" font-size="8" text-anchor="middle">主存 (DRAM)</text>
+          <polygon points="100,130 60,162 340,162 300,130" fill="#6366f1" opacity="0.35"/>
+          <text x="200" y="151" fill="white" font-size="8" text-anchor="middle">SSD / Flash</text>
+          <polygon points="60,164 30,196 370,196 340,164" fill="#6366f1" opacity="0.2"/>
+          <text x="200" y="185" class="fg" font-size="8" text-anchor="middle">磁盘 (HDD) / 磁带</text>
+          <!-- Left label: speed -->
+          <text x="18" y="55" class="accent" font-size="8" text-anchor="middle" font-weight="bold">快</text>
+          <text x="18" y="190" class="fg2" font-size="8" text-anchor="middle">慢</text>
+          <line x1="18" y1="60" x2="18" y2="182" class="line" stroke-width="0.8" stroke="#6366f1" marker-end="url(#arrowDown)"/>
+          <!-- Right label: capacity -->
+          <text x="385" y="55" class="fg2" font-size="8" text-anchor="middle">小</text>
+          <text x="385" y="190" class="accent" font-size="8" text-anchor="middle" font-weight="bold">大</text>
+          <line x1="385" y1="60" x2="385" y2="182" class="line" stroke-width="0.8" stroke="#6366f1" marker-end="url(#arrowDown)"/>
+          <!-- AMAT formula -->
+          <text x="200" y="215" class="fg" font-size="9" text-anchor="middle" font-weight="bold">AMAT = Hit Time + Miss Rate × Miss Penalty</text>
+          <text x="200" y="232" class="fg2" font-size="8" text-anchor="middle">局部性原理使得层次结构的 AMAT ≈ 最快层的延迟</text>
+          <defs><marker id="arrowDown" markerWidth="6" markerHeight="6" refX="3" refY="6" orient="auto"><polygon points="0 0, 6 0, 3 6" fill="#6366f1"/></marker></defs>
+        </svg>
+        <figcaption>图 3-4　存储器层次金字塔——速度、容量与成本的权衡</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">存储器层次结构能有效工作的根本原因是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '各层存储技术的速度差异很大，恰恰是层次结构存在的原因，不是它能工作的原因。')">A. 所有存储器速度差异不大</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！程序访问的时间局部性和空间局部性使得大部分访问集中在一小部分数据上，因此用少量高速存储就能覆盖大多数访问，从而使 AMAT 接近最快层的延迟。')">B. 程序访问具有局部性（Locality）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'SRAM 的成本远高于 DRAM，硬件成本绝不能忽略，正是成本约束催生了层次结构。')">C. 硬件成本可以忽略不计</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '操作系统管理虚拟内存等，但层次结构的有效性根源在于程序访问本身的局部性特征，而非调度算法。')">D. 操作系统能完美调度存储器访问</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ EXERCISES -->
+    <section id="exercises" class="exercises-section">
+      <h2 class="exercises-title">综合练习</h2>
+      <div id="quiz-container"></div>
+    </section>
+
+    <!-- ============================================================ NAV -->
+    <nav class="chapter-nav">
+      <a href="ch02.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-index">目录</a>
+      <a href="ch04.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
