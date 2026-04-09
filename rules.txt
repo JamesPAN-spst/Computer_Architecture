@@ -1,0 +1,385 @@
+████████████████████████████████████████████████████████████████████████
+█                                                                      █
+█   ARCHITECTURA · 计算机结构全景学习项目                                  █
+█   Project Rules · Teaching Guidelines · Curriculum Plan              █
+█                                                                      █
+████████████████████████████████████████████████████████████████████████
+
+═══════════════════════════════════════════════════════════════════════
+  §1  项目定位（Project Positioning）
+═══════════════════════════════════════════════════════════════════════
+
+本项目是一条从电子电路基础出发，抵达 GPU / 图形管线的完整自学路径。
+目标用户希望先深刻理解计算机硬件的工作原理，再继续学习 C++ / Rust
+以及人工智能，从而建立更坚实的底层认知基础。
+
+核心承诺：
+  ▸ 重点在于原理理解（Conceptual Understanding），而非代码编写
+  ▸ 每一个概念都有它被发明的"动机故事"
+  ▸ 每章围绕一个真实问题展开，知识是答案，而非起点
+  ▸ 语言以中文为主；关键术语标注英文，如「晶体管（Transistor）」
+
+═══════════════════════════════════════════════════════════════════════
+  §2  教学风格规则（Pedagogical Style Rules）
+═══════════════════════════════════════════════════════════════════════
+
+┌─ 引导式思维链（Chain of Thought）──────────────────────────────────┐
+│  每个 KP（知识点）通过三段式引导展开：                               │
+│    1. 为什么需要它？（Motivation — 动机）                           │
+│    2. 它怎么工作？  （How it works — 推导/抽象）                    │
+│    3. 它在系统中扮演什么角色？（System Role — 应用）                 │
+└───────────────────────────────────────────────────────────────────┘
+
+每个 KP 包含 5 张 step-card（步骤卡）：
+  [1] motivation    — 提出问题，建立动机，不要跳步
+  [2] abstraction   — 给出精确定义和数学/逻辑抽象
+  [3] derivation    — 分步推导，展示"如何得到"，不省略关键步
+  [4] application   — 在真实系统中的具体应用
+  [5] example       — 计算/分析示例 + 易错点对比（❌ vs ✅）
+
+禁止行为：
+  ✗ 不做填鸭式罗列——不允许无动机的知识清单
+  ✗ 不跳过推导步骤——每个公式都要"长"出来，不能凭空出现
+  ✗ 不使用模糊类比代替精确描述（类比可以作为引入，不能作为结论）
+
+必须行为：
+  ✓ 每个 KP 必须指出 ⚠️ 易错点和难点（用 warning-box 样式标注）
+  ✓ 对于器件类内容，使用可交互的 Canvas / SVG 动画进行演示
+  ✓ 每章末尾设置 8 道综合练习题（QUESTIONS 数组）
+  ✓ 每个 KP 内设置一道 inline-quiz（Quick Check）
+
+═══════════════════════════════════════════════════════════════════════
+  §3  技术规范（Technical Specifications）
+═══════════════════════════════════════════════════════════════════════
+
+技术栈：
+  ▸ 纯 HTML + CSS + JavaScript（无框架依赖）
+  ▸ 适合 GitHub Pages 静态部署
+  ▸ MathJax 3（tex-mml-chtml）用于数学公式渲染
+  ▸ Canvas 2D / SVG 用于器件交互动画
+
+主题系统（3套）：
+  ▸ 亮色（light）  — 默认
+  ▸ 暗色（dark）   — 低亮度护眼
+  ▸ 霓虹（neon）   — WebGL fBm 着色器动态背景
+
+Domain 颜色方案：
+  ▸ electronics    #10b981  （翠绿 · 阶段1）
+  ▸ logic          #f59e0b  （琥珀 · 阶段2）
+  ▸ memory         #8b5cf6  （紫罗兰 · 阶段3）
+  ▸ cpu            #f43f5e  （玫红 · 阶段4）
+  ▸ software       #06b6d4  （青蓝 · 阶段5）
+  ▸ bus-network    #3b82f6  （海蓝 · 阶段6）
+  ▸ gpu-graphics   #a78bfa  （薰衣草紫 · 阶段7）
+
+功能模块：
+  ▸ 全文搜索胶囊（浮动左侧，Ctrl+K 触发）
+  ▸ 错题本系统（FAB 按钮 + 侧滑面板）
+  ▸ 主题切换按钮（固定右上角，三态循环）
+  ▸ 页面过渡动画（250ms fade + translate）
+  ▸ 响应式布局（断点：900 / 600 / 380px）
+  ▸ TOC 侧边栏（章节页，scroll-spy 高亮）
+
+localStorage 前缀：architectura-
+
+═══════════════════════════════════════════════════════════════════════
+  §4  目录结构（Directory Structure）
+═══════════════════════════════════════════════════════════════════════
+
+/
+├── index.html                   首页路线图（7阶段横向滚动）
+├── rules.txt                    本文件
+├── shared/
+│   ├── theme.css                主题变量 + base styles
+│   ├── layout.css               topbar / sidebar / main 布局
+│   ├── components.css           step-card / quiz / 错题本 / 搜索
+│   ├── components.js            quiz渲染 / scroll-spy / 错题本UI / 搜索
+│   ├── storage.js               主题切换 + WebGL + progress存储 + 错题本
+│   └── search-data.js           全文搜索索引（var SEARCH_INDEX = []）
+├── stage-1-electronics/
+│   ├── index.html               阶段1 概览
+│   ├── ch01.html                电压、电流与电阻
+│   ├── ch02.html                电容与电感
+│   ├── ch03.html                二极管与晶体管
+│   └── ch04.html                从模拟到数字
+├── stage-2-logic/
+│   ├── index.html
+│   ├── ch01.html ~ ch04.html
+├── stage-3-memory/
+│   ├── index.html
+│   ├── ch01.html ~ ch04.html
+├── stage-4-cpu/
+│   ├── index.html
+│   ├── ch01.html ~ ch05.html
+├── stage-5-software-hardware/
+│   ├── index.html
+│   ├── ch01.html ~ ch04.html
+├── stage-6-bus-network/
+│   ├── index.html
+│   ├── ch01.html ~ ch04.html
+└── stage-7-gpu-graphics/
+    ├── index.html
+    └── ch01.html ~ ch05.html
+
+═══════════════════════════════════════════════════════════════════════
+  §5  教学计划（7阶段 · 30章）
+═══════════════════════════════════════════════════════════════════════
+
+────────────────────────────────────────────────────────────────────
+  阶段 1：电的语言 — 从电子到信号（stage-1-electronics）
+  核心问题：一个电子，怎么变成一个"1"？
+────────────────────────────────────────────────────────────────────
+
+  Ch.01 电压（Voltage）、电流（Current）与电阻（Resistance）
+    KP1  电荷（Charge）与电流——电子的集体行为
+         → I = dQ/dt → I = nqvA 推导
+         ⚠️ 电流方向与电子漂移方向相反
+    KP2  电压——推动电荷的"压力差"
+         → V = W/Q → V = −∫E·dl
+         ⚠️ 地（GND）的0V是人为约定，不是"不带电"
+    KP3  电阻（Resistance）与欧姆定律（Ohm's Law）
+         → R = V/I → R = ρL/A → Drude模型微观推导
+         ⚠️ 欧姆定律只适用于线性电阻
+    KP4  电功率（Power）与能量（Energy）
+         → P = IV = I²R = V²/R 三种等价形式推导
+         ⚠️ P=I²R 与 P=V²/R 不矛盾，I和V不独立
+
+  Ch.02 电容（Capacitance）与电感（Inductance）
+    KP1  电容——存储电场能量
+    KP2  RC 电路——时间的尺度
+    KP3  电感——存储磁场能量
+    KP4  LC 振荡——能量的摇摆
+
+  Ch.03 二极管（Diode）与晶体管（Transistor）
+    KP1  PN 结（PN Junction）的形成
+    KP2  二极管的单向导通
+    KP3  双极型晶体管（BJT）的放大与开关
+    KP4  场效应晶体管（MOSFET）——数字逻辑的基石
+         ⚠️ MOSFET 作为开关时处于线性区/饱和区边界
+
+  Ch.04 从模拟到数字（Analog to Digital）
+    KP1  为什么选择二进制？——噪声容限的精妙
+    KP2  采样（Sampling）与量化（Quantization）
+    KP3  ADC / DAC 原理
+    KP4  数字信号的逻辑电平与扇出（Fan-out）
+
+────────────────────────────────────────────────────────────────────
+  阶段 2：逻辑的诞生 — 从开关到思考（stage-2-logic）
+  核心问题：几个开关，怎么做加法？
+────────────────────────────────────────────────────────────────────
+
+  Ch.01 逻辑门（Logic Gates）的物理实现
+    KP1  NOT / NAND / NOR 的 MOSFET 实现
+    KP2  NAND 是万能门（Universal Gate）
+    KP3  传播延迟（Propagation Delay）与功耗（Power）
+    KP4  互补 CMOS（CMOS）逻辑家族
+
+  Ch.02 布尔代数（Boolean Algebra）与化简
+    KP1  布尔公理与定理
+    KP2  卡诺图（Karnaugh Map）化简
+    KP3  德摩根定律（De Morgan's Laws）
+    KP4  无关项（Don't Care）的利用
+
+  Ch.03 组合逻辑电路（Combinational Logic）
+    KP1  半加器（Half Adder）与全加器（Full Adder）
+    KP2  行波进位（Ripple Carry）与超前进位（Carry Lookahead）
+    KP3  多路复用器（Multiplexer）与解码器（Decoder）
+    KP4  比较器与奇偶校验
+
+  Ch.04 ALU 初探（Arithmetic Logic Unit）
+    KP1  ALU 的功能与接口
+    KP2  溢出（Overflow）检测
+    KP3  补码（Two's Complement）算术
+    KP4  移位与乘除法的初步实现
+
+────────────────────────────────────────────────────────────────────
+  阶段 3：记忆与时间 — 从瞬间到持久（stage-3-memory）
+  核心问题：电路怎么"记住"一个值？
+────────────────────────────────────────────────────────────────────
+
+  Ch.01 锁存器（Latch）与触发器（Flip-Flop）
+    KP1  SR 锁存器与禁止状态
+    KP2  D 触发器（D Flip-Flop）
+    KP3  建立时间（Setup Time）与保持时间（Hold Time）
+    KP4  亚稳态（Metastability）——真正的难点
+
+  Ch.02 寄存器（Register）与计数器（Counter）
+    KP1  N 位寄存器的构成
+    KP2  移位寄存器（Shift Register）
+    KP3  同步计数器与异步计数器
+    KP4  计数器的应用——分频与时序控制
+
+  Ch.03 存储器层次（Memory Hierarchy）
+    KP1  SRAM vs DRAM——速度与密度的权衡
+    KP2  DRAM 的刷新机制
+    KP3  ROM / Flash 的存储原理
+    KP4  存储器层次结构（Hierarchy）的必要性
+
+  Ch.04 时钟（Clock）与同步（Synchronization）
+    KP1  时钟信号的生成与分配
+    KP2  时钟歪斜（Clock Skew）与抖动（Jitter）
+    KP3  跨时钟域（Clock Domain Crossing）
+    KP4  同步器（Synchronizer）的设计
+
+────────────────────────────────────────────────────────────────────
+  阶段 4：计算的引擎 — 从指令到微架构（stage-4-cpu）
+  核心问题：CPU 执行一条指令，到底发生了什么？
+────────────────────────────────────────────────────────────────────
+
+  Ch.01 冯·诺依曼架构（Von Neumann Architecture）
+    KP1  存储程序（Stored Program）思想的革命
+    KP2  单周期 CPU 数据通路
+    KP3  取指-译码-执行-访存-写回（IF/ID/EX/MEM/WB）
+    KP4  控制器（Control Unit）的设计
+
+  Ch.02 流水线（Pipeline）
+    KP1  流水线的提速原理
+    KP2  数据冒险（Data Hazard）与转发（Forwarding）
+    KP3  控制冒险（Control Hazard）与流水线冲刷
+    KP4  结构冒险（Structural Hazard）与资源竞争
+
+  Ch.03 缓存（Cache）
+    KP1  局部性原理（Principle of Locality）
+    KP2  直接映射（Direct Mapped）vs 组相联（Set-Associative）
+    KP3  未命中的三类（冷启动 / 容量 / 冲突）
+    KP4  写策略（Write-Through / Write-Back）
+
+  Ch.04 分支预测（Branch Prediction）与乱序执行（Out-of-Order）
+    KP1  静态 vs 动态分支预测
+    KP2  两位饱和计数器预测器
+    KP3  Tomasulo 算法的直觉
+    KP4  重排序缓冲（ROB）与精确异常
+
+  Ch.05 多核（Multi-core）与一致性（Coherence）
+    KP1  SMP 与 NUMA 架构
+    KP2  MESI 协议
+    KP3  伪共享（False Sharing）的性能陷阱
+    KP4  内存模型（Memory Model）与内存屏障
+
+────────────────────────────────────────────────────────────────────
+  阶段 5：软硬交界 — 从机器码到高级语言（stage-5-software-hardware）
+  核心问题：C语言一行代码，硬件看到了什么？
+────────────────────────────────────────────────────────────────────
+
+  Ch.01 指令集架构（ISA）
+    KP1  ISA 是硬件与软件的契约
+    KP2  RISC vs CISC 的哲学之争
+    KP3  RISC-V 指令编码格式
+    KP4  寻址模式（Addressing Modes）
+
+  Ch.02 汇编（Assembly）与编译（Compilation）
+    KP1  从 C 到汇编——编译器做了什么
+    KP2  调用约定（Calling Convention）与栈帧（Stack Frame）
+    KP3  编译器优化——为什么你的"理解"可能失效
+    KP4  链接（Linking）与加载（Loading）
+
+  Ch.03 中断（Interrupt）与 I/O
+    KP1  轮询（Polling）vs 中断（Interrupt）vs DMA
+    KP2  中断处理流程与向量表
+    KP3  DMA（Direct Memory Access）原理
+    KP4  内存映射 I/O（Memory-Mapped I/O）
+
+  Ch.04 虚拟内存（Virtual Memory）
+    KP1  地址空间（Address Space）的抽象
+    KP2  页表（Page Table）与地址翻译
+    KP3  TLB（Translation Lookaside Buffer）
+    KP4  多级页表（Multi-level Page Table）
+
+────────────────────────────────────────────────────────────────────
+  阶段 6：互联的世界 — 总线与网络（stage-6-bus-network）
+  核心问题：芯片之间如何高速对话？
+────────────────────────────────────────────────────────────────────
+
+  Ch.01 总线协议（Bus Protocol）
+    KP1  总线的基本结构：地址/数据/控制
+    KP2  仲裁（Arbitration）机制
+    KP3  同步总线 vs 异步总线
+    KP4  I²C / SPI / UART 协议概览
+
+  Ch.02 PCIe 与高速互联
+    KP1  PCIe 的差分信号（Differential Signaling）
+    KP2  Lane / Link 的物理层
+    KP3  PCIe 事务层（Transaction Layer）
+    KP4  NVMe 与存储高速化
+
+  Ch.03 网络基础（Network Fundamentals）
+    KP1  OSI 7 层模型的硬件视角
+    KP2  以太网（Ethernet）帧格式与 MAC
+    KP3  交换机（Switch）与路由器（Router）的区别
+    KP4  TCP/IP 的可靠性机制
+
+  Ch.04 DMA 与 I/O 架构
+    KP1  北桥/南桥（Northbridge/Southbridge）历史
+    KP2  现代芯片组（PCH）架构
+    KP3  IOMMU 与设备虚拟化
+    KP4  中断重映射（Interrupt Remapping）
+
+────────────────────────────────────────────────────────────────────
+  阶段 7：看见的世界 — 从数字到像素（stage-7-gpu-graphics）
+  核心问题：GPU 怎么把三角形变成你看到的画面？
+────────────────────────────────────────────────────────────────────
+
+  Ch.01 GPU 架构
+    KP1  GPU vs CPU——吞吐量 vs 延迟的哲学分歧
+    KP2  SIMT（Single Instruction Multiple Threads）模型
+    KP3  流处理器（Streaming Multiprocessor / CU）
+    KP4  显存（VRAM）与带宽
+
+  Ch.02 图形管线（Graphics Pipeline）
+    KP1  顶点着色（Vertex Shading）阶段
+    KP2  光栅化（Rasterization）
+    KP3  片段着色（Fragment Shading）与深度测试
+    KP4  帧缓冲（Framebuffer）与显示输出
+
+  Ch.03 着色器（Shader）与并行计算
+    KP1  GLSL / HLSL 基础结构
+    KP2  Warp / Wavefront 与分支分歧（Divergence）
+    KP3  共享内存（Shared Memory）与同步
+    KP4  GPGPU（通用 GPU 计算）模型
+
+  Ch.04 显示输出（Display Output）
+    KP1  HDMI / DisplayPort 信号链路
+    KP2  垂直同步（V-Sync）与撕裂（Tearing）
+    KP3  G-Sync / FreeSync 的自适应刷新
+    KP4  HDR 与色彩空间（Color Space）
+
+  Ch.05 计算与图像的统一
+    KP1  Compute Shader 与 CUDA / OpenCL
+    KP2  光线追踪（Ray Tracing）硬件加速（RT Core）
+    KP3  DLSS / FSR——AI 超分辨率
+    KP4  现代 GPU 的统一着色器架构
+
+═══════════════════════════════════════════════════════════════════════
+  §6  SVG / Canvas 图例规范
+═══════════════════════════════════════════════════════════════════════
+
+SVG 规范：
+  ▸ 包裹在 <figure class="kp-figure"><svg>...</svg><figcaption></figcaption></figure>
+  ▸ viewBox="0 0 400 240"，width/height 由 CSS 控制
+  ▸ CSS 类：.fg（主文字 fill:#334155）、.fg2（辅助 fill:#64748b）
+              .line（主线 stroke:#334155）
+  ▸ 不写内联 font-family（由 components.css 统一管理）
+  ▸ 强调色：#6366f1（靛蓝）
+
+Canvas 动画规范：
+  ▸ 使用 requestAnimationFrame 循环
+  ▸ 提供 Play / Pause 按钮
+  ▸ 支持暗色/亮色主题适配（监听 data-theme 属性变化）
+
+警示框规范：
+  ▸ 使用 step-body 内的 <div class="warning-box"> 包裹
+  ▸ 以 ⚠️ 图标开头，橙色左边条
+
+═══════════════════════════════════════════════════════════════════════
+  §7  版本与维护
+═══════════════════════════════════════════════════════════════════════
+
+  版本：1.0.0
+  创建：2026-04
+  维护者：Pan
+  许可：Private
+
+  此文件是项目唯一权威规则文档。
+  所有新页面的创建均须遵循上述规则，不得偏离。
+
+████████████████████████████████████████████████████████████████████████
