@@ -298,21 +298,9 @@ const DOMAINS = {
   "gpu-graphics":{"color":"#a78bfa","label":"图形GPU (GPU/Graphics)"}
 };
 
-const NODE_ROUTE_BY_ID = {
-  "voltage-current": "stage-1-electronics/ch01.html",
-  "capacitance":     "stage-1-electronics/ch02.html",
-  "transistor":      "stage-1-electronics/ch03.html",
-  "analog-digital":  "stage-1-electronics/ch04.html"
-};
-
+// All 7 stages are complete — mark every node as active
 NODES.forEach(function(node) {
-  if (NODE_ROUTE_BY_ID[node.id]) {
-    node.link = NODE_ROUTE_BY_ID[node.id];
-    node.status = "active";
-  } else {
-    node.link = "#";
-    node.status = "locked";
-  }
+  node.status = "active";
 });
 
 // ═══ RENDER ═══
