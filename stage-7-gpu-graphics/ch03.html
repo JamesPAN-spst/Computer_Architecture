@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.3 着色器（Shader）与并行计算 — 看见的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s7-ch03-q1", question: "GLSL 中 uniform 变量的特点是什么？", options: ["每个顶点可以不同","在整个 Draw Call 期间保持不变","只能在片段着色器中使用","由 GPU 自动生成"], answer: 1, explanation: "uniform 变量是由 CPU 端设置的全局常量，在整个 Draw Call 的所有顶点和片段着色器调用中保持同一值。如需每顶点不同的数据，应使用 in（attribute）变量。" },
+      { id: "s7-ch03-q2", question: "当一个 Warp 中 32 个线程遇到分支分歧（Divergence）时，会发生什么？", options: ["只执行多数线程选择的路径","两条路径都执行，非活跃线程被掩码屏蔽","Warp 被拆分为两个独立的 Warp","GPU 抛出异常并终止"], answer: 1, explanation: "SIMT 架构下，当 Warp 内发生分支分歧时，GPU 会串行执行两条路径，每条路径上非活跃线程通过掩码屏蔽。总执行时间等于两条路径之和，而非取最大值。" },
+      { id: "s7-ch03-q3", question: "共享内存（Shared Memory）的典型访问延迟约为多少？", options: ["与全局内存相同（~400 周期）","约 100 周期","约 1-2 周期","约 20-30 周期"], answer: 2, explanation: "共享内存是位于每个 SM 内部的片上 SRAM，访问延迟仅约 1-2 个时钟周期，比全局内存（VRAM，~400 周期）快两个数量级。" },
+      { id: "s7-ch03-q4", question: "CUDA 编程模型中，Grid、Block、Thread 的层级关系是？", options: ["Thread → Block → Grid（从大到小）","Grid → Block → Thread（从大到小）","Grid → Thread → Block","Block → Grid → Thread"], answer: 1, explanation: "CUDA 的线程层级从大到小为：Grid（整个计算任务）→ Block（一组协作线程）→ Thread（最小执行单元）。一个 Grid 包含多个 Block，每个 Block 包含多个 Thread。" },
+      { id: "s7-ch03-q5", question: "GLSL 着色器源代码在 Vulkan 管线中首先被编译为什么中间表示？", options: ["直接编译为 GPU 机器码","SPIR-V","DXIL","LLVM IR"], answer: 1, explanation: "Vulkan 使用 SPIR-V（Standard Portable Intermediate Representation）作为着色器的中间表示。GLSL 源码先编译为 SPIR-V，再由 GPU 驱动 JIT 编译为特定 GPU 架构的 ISA。" },
+      { id: "s7-ch03-q6", question: "共享内存的 Bank Conflict 发生在什么情况下？", options: ["多个线程同时读取同一个 Bank 的同一地址","多个线程同时访问同一个 Bank 的不同地址","线程访问的地址超出共享内存范围","共享内存容量不足"], answer: 1, explanation: "Bank Conflict 发生在同一个时钟周期内，多个线程访问同一个 Bank 的不同地址时。此时访问被串行化。若所有线程访问同一地址（广播），反而不会冲突。" },
+      { id: "s7-ch03-q7", question: "GPU 占用率（Occupancy）的定义是什么？", options: ["GPU 功耗与最大功耗之比","活跃 Warp 数与 SM 最大支持 Warp 数之比","已使用显存与总显存之比","GPU 利用率百分比"], answer: 1, explanation: "Occupancy = active_warps / max_warps_per_SM。高占用率意味着 SM 有更多活跃 Warp 可供调度，能更好地隐藏内存延迟。占用率受寄存器用量、共享内存用量和线程块大小的共同限制。" },
+      { id: "s7-ch03-q8", question: "为什么将 __syncthreads() 放在分支分歧的代码块内部会导致死锁？", options: ["因为 __syncthreads() 不能在 if 语句中使用","因为部分线程永远不会到达同步点，导致其他线程无限等待","因为分支内不允许调用函数","因为 __syncthreads() 会重置分支状态"], answer: 1, explanation: "__syncthreads() 是块级屏障，要求块内所有线程都到达同步点才能继续。如果放在 if 分支中，未进入该分支的线程永远不会执行到同步点，导致已到达的线程无限等待——即死锁。" }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-7" data-module="ch03" style="--domain-color: var(--c-gpu-graphics);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 7</span><a href="index.html" class="module-name">看见的世界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.3 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · GLSL/HLSL 基础结构</a></li>
+      <li><a href="#kp2">02 · Warp/Wavefront 与分支分歧</a></li>
+      <li><a href="#kp3">03 · 共享内存与同步</a></li>
+      <li><a href="#kp4">04 · GPGPU 通用计算模型</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 3</p>
+      <h1>着色器（Shader）与并行计算</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · GLSL / HLSL 基础结构</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>早期 GPU 的渲染管线是完全固定的——开发者只能调整参数，无法改变光照计算逻辑。随着图形需求日益复杂（动态光影、风格化渲染、物理模拟），固定管线无法满足创意需求。</p>
+            <p><strong>着色器（Shader）</strong>使 GPU 管线变为可编程的：开发者编写运行在 GPU 上的小程序，控制每个顶点的位置和每个像素的颜色。问题是——GPU 拥有数千个核心，着色器代码如何在这些核心上并行执行？理解着色器语言的结构，是掌握 GPU 编程的第一步。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>着色器按管线阶段分为多种类型：</p>
+            <p><strong>① 顶点着色器（Vertex Shader）</strong>：对每个顶点执行，负责坐标变换（MVP）、法线变换等。输入：顶点属性（位置、法线、UV）；输出：裁剪空间坐标和插值变量。</p>
+            <p><strong>② 片段着色器（Fragment Shader）</strong>：对每个像素片段执行，负责计算最终颜色。输入：从顶点着色器插值得到的数据；输出：像素颜色和深度。</p>
+            <p><strong>③ 几何着色器（Geometry Shader）</strong>：可选阶段，对整个图元（三角形/线段/点）操作，可以增删顶点、生成新图元。</p>
+            <p><strong>④ 曲面细分着色器（Tessellation Shader）</strong>：将粗糙网格动态细分为更精细的几何体，由 Hull Shader 和 Domain Shader 两部分组成。</p>
+            <p><strong>⑤ 计算着色器（Compute Shader）</strong>：脱离图形管线，用于通用并行计算（物理模拟、后处理等）。</p>
+            <p>GLSL（OpenGL Shading Language）的基本结构：</p>
+            <p><strong>uniform</strong> — 全局常量，由 CPU 设置，在整个 Draw Call 期间不变（如变换矩阵、光源位置）。<strong>in / out</strong> — 每顶点或每片段的输入输出数据。<strong>main()</strong> — 着色器入口函数。</p>
+            <p>HLSL（High-Level Shading Language）使用类似结构但语法不同：<strong>cbuffer</strong> 替代 uniform block，<strong>SV_POSITION</strong> 等语义（Semantics）标注输出用途。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>着色器编译管线</strong>将高级代码变为 GPU 可执行的机器码，过程如下：</p>
+            <p>① <strong>源码 → 中间表示（IR）</strong>：GLSL 通过 glslangValidator 编译为 <strong>SPIR-V</strong>（Vulkan/OpenGL 4.6）；HLSL 通过 DXC 编译为 <strong>DXIL</strong>（DirectX 12）。WGSL（WebGPU Shading Language）编译为 SPIR-V 或平台特定 IR。</p>
+            <p>② <strong>IR → GPU ISA</strong>：GPU 驱动程序中的 JIT（Just-In-Time）编译器将 SPIR-V/DXIL 翻译为具体 GPU 架构的指令集（如 NVIDIA PTX → SASS，AMD GCN ISA）。</p>
+            <p>编译过程中的关键优化：</p>
+            \[
+            \text{寄存器分配} \rightarrow \text{指令调度} \rightarrow \text{循环展开} \rightarrow \text{死代码消除}
+            \]
+            <p>寄存器用量直接影响 GPU 占用率。若每线程使用 \(R\) 个寄存器，SM 有 \(R_{\max}\) 个寄存器，则每 SM 最多容纳 \(\lfloor R_{\max} / R \rfloor\) 个线程。编译器必须在寄存器用量和指令级并行之间权衡。</p>
+            <div class="warning-box">⚠️ uniform 变量在整个 Draw Call 期间保持不变——不能在着色器内部修改它，也不能用它传递逐顶点或逐像素不同的数据。初学者常犯的错误是试图在 uniform 中存储随顶点变化的信息，导致所有顶点看到相同的值。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>WebGL / WebGPU</strong>：Web 端 3D 渲染使用 GLSL ES（WebGL）或 WGSL（WebGPU）编写着色器。Three.js、Babylon.js 等框架在底层管理着色器编译和参数绑定。</p>
+            <p><strong>Pipeline State Object（PSO）预编译</strong>：现代 API（Vulkan、DX12、Metal）要求提前编译着色器并创建 PSO，将着色器状态、混合模式、渲染目标格式打包为不可变对象。这消除了运行时编译导致的卡顿（shader stutter），代价是启动时间更长。</p>
+            <p><strong>开发期热重载（Hot Reload）</strong>：工具如 ShaderToy、Unity Shader Graph 支持实时修改着色器并立即看到效果，极大提升迭代速度。底层原理是监控文件变化后重新编译着色器并替换 PSO。</p>
+            <p><strong>跨平台着色器方案</strong>：SPIRV-Cross 可将 SPIR-V 反编译为 GLSL、HLSL、MSL（Metal），实现"一次编写，多平台运行"。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>阅读以下 GLSL 顶点+片段着色器对，标注每个部分的作用。</p>
+            <p><strong>顶点着色器：</strong></p>
+            <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:13px;overflow-x:auto"><code>#version 330 core
+layout(location=0) in vec3 aPos;    // ← 顶点位置属性（CPU传入）
+layout(location=1) in vec3 aColor;  // ← 顶点颜色属性
+uniform mat4 uMVP;                  // ← MVP矩阵（Draw Call级常量）
+out vec3 vColor;                    // ← 传递给片段着色器的插值变量
+void main() {
+    gl_Position = uMVP * vec4(aPos, 1.0);  // 变换到裁剪空间
+    vColor = aColor;                        // 传递颜色
+}</code></pre>
+            <p><strong>片段着色器：</strong></p>
+            <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:13px;overflow-x:auto"><code>#version 330 core
+in vec3 vColor;              // ← 从顶点着色器插值而来
+out vec4 FragColor;          // ← 最终像素颜色输出
+void main() {
+    FragColor = vec4(vColor, 1.0);  // RGB + Alpha=1.0
+}</code></pre>
+            <p>关键注解：<code>in</code> 变量在顶点着色器中逐顶点不同；光栅化器在三角形内部自动对 <code>out/in</code> 变量进行<strong>透视校正插值</strong>；<code>uniform</code> 在整个 Draw Call 中恒定。</p>
+            <p>❌ <strong>常见错误：</strong>在片段着色器中直接使用 <code>aPos</code>（顶点属性），但它只对顶点着色器可见。</p>
+            <p>✅ <strong>正确做法：</strong>需要在片段着色器中使用的数据，必须通过顶点着色器的 <code>out</code> → 片段着色器的 <code>in</code> 传递。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch03-kp1">
+        <svg viewBox="0 0 420 220" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}.arrow{stroke:#334155;fill:#334155;stroke-width:1.5}</style>
+          <text class="fg" x="210" y="18" text-anchor="middle" font-size="12" font-weight="bold">着色器编译管线</text>
+          <!-- Source -->
+          <rect class="box" x="10" y="40" width="80" height="36"/>
+          <text class="fg" x="50" y="62" text-anchor="middle" font-size="10" font-weight="bold">GLSL/HLSL</text>
+          <text class="fg2" x="50" y="74" text-anchor="middle" font-size="8">源代码</text>
+          <!-- Arrow -->
+          <line x1="90" y1="58" x2="130" y2="58" class="line"/>
+          <polygon points="128,54 136,58 128,62" class="arrow"/>
+          <!-- IR -->
+          <rect class="box" x="138" y="40" width="80" height="36"/>
+          <text class="accent" x="178" y="62" text-anchor="middle" font-size="10" font-weight="bold">SPIR-V/DXIL</text>
+          <text class="fg2" x="178" y="74" text-anchor="middle" font-size="8">中间表示</text>
+          <!-- Arrow -->
+          <line x1="218" y1="58" x2="258" y2="58" class="line"/>
+          <polygon points="256,54 264,58 256,62" class="arrow"/>
+          <!-- Driver JIT -->
+          <rect class="box" x="266" y="40" width="80" height="36"/>
+          <text class="fg" x="306" y="62" text-anchor="middle" font-size="10" font-weight="bold">Driver JIT</text>
+          <text class="fg2" x="306" y="74" text-anchor="middle" font-size="8">驱动编译器</text>
+          <!-- Arrow -->
+          <line x1="346" y1="58" x2="370" y2="58" class="line"/>
+          <polygon points="368,54 376,58 368,62" class="arrow"/>
+          <!-- GPU ISA -->
+          <rect x="378" y="44" width="36" height="28" fill="#3b82f6" opacity="0.15" rx="4"/>
+          <text class="accent" x="396" y="62" text-anchor="middle" font-size="9" font-weight="bold">ISA</text>
+          <!-- Shader types -->
+          <text class="fg" x="210" y="110" text-anchor="middle" font-size="11" font-weight="bold">五种着色器类型</text>
+          <rect x="15" y="120" width="72" height="30" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <text class="accent" x="51" y="139" text-anchor="middle" font-size="9">Vertex</text>
+          <rect x="97" y="120" width="72" height="30" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <text class="accent" x="133" y="139" text-anchor="middle" font-size="9">Fragment</text>
+          <rect x="179" y="120" width="72" height="30" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <text class="accent" x="215" y="139" text-anchor="middle" font-size="9">Geometry</text>
+          <rect x="261" y="120" width="72" height="30" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <text class="accent" x="297" y="139" text-anchor="middle" font-size="9">Tessellation</text>
+          <rect x="343" y="120" width="72" height="30" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <text class="accent" x="379" y="139" text-anchor="middle" font-size="9">Compute</text>
+          <!-- GLSL structure -->
+          <text class="fg" x="210" y="175" text-anchor="middle" font-size="11" font-weight="bold">GLSL 变量类型</text>
+          <text class="fg2" x="70" y="195" text-anchor="middle" font-size="9">uniform → 全局常量</text>
+          <text class="fg2" x="210" y="195" text-anchor="middle" font-size="9">in/out → 逐顶点/片段</text>
+          <text class="fg2" x="350" y="195" text-anchor="middle" font-size="9">main() → 入口函数</text>
+          <text class="fg2" x="210" y="215" text-anchor="middle" font-size="9" font-style="italic">着色器源码经中间表示最终编译为GPU特定指令集</text>
+        </svg>
+        <figcaption>图 3-1 着色器编译管线与五种着色器类型</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在 GLSL 中，哪种变量类型用于传递 CPU 端设置的、整个 Draw Call 不变的数据？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'in 变量是每顶点/每片段的输入属性，逐调用不同。')">A. in</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'out 变量是着色器阶段的输出，传递给下一阶段。')">B. out</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！uniform 是全局常量，由 CPU 设置，在整个 Draw Call 期间保持不变。')">C. uniform</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'varying 是旧版 GLSL 语法，现代 GLSL 使用 in/out 替代。')">D. varying</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · Warp / Wavefront 与分支分歧（Divergence）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>GPU 采用 <strong>SIMT（Single Instruction, Multiple Threads）</strong>架构：一组线程（NVIDIA 称为 <strong>Warp</strong>，32 线程；AMD 称为 <strong>Wavefront</strong>，32 或 64 线程）共享同一条指令，在不同数据上并行执行。这是 GPU 高吞吐量的核心机制。</p>
+            <p>但真实程序中必然有 <code>if/else</code> 分支。当同一个 Warp 内的 32 个线程在分支条件上做出不同选择时——一些走 if 路径，另一些走 else 路径——会发生什么？这就是<strong>分支分歧（Branch Divergence）</strong>问题，它是 GPU 性能优化中最关键的概念之一。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>当一个 Warp 遇到分支分歧时，GPU 的处理方式如下：</p>
+            <p><strong>① 两条路径串行执行</strong>：GPU 没有能力让 Warp 内的不同线程同时执行不同指令。因此，它先执行 if 路径，再执行 else 路径（或反之）。</p>
+            <p><strong>② 活跃掩码（Active Mask）</strong>：在执行每条路径时，不属于该路径的线程被<strong>掩码屏蔽（masked off）</strong>——它们的执行单元被禁用，不会写入结果，但仍然"占座"。</p>
+            <p><strong>③ 重新汇合（Reconvergence）</strong>：两条路径执行完毕后，所有 32 个线程在汇合点重新同步，恢复全部活跃。</p>
+            <p>关键后果：<strong>分歧 Warp 的执行时间 = 两条路径时间之和</strong>，而非取最大值。在最坏情况下（50/50 分裂），执行时间翻倍。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>设 Warp 内 32 个线程中，比例 \(P\) 进入分支 A（耗时 \(C_A\) 周期），比例 \((1-P)\) 进入分支 B（耗时 \(C_B\) 周期）。</p>
+            <p><strong>无分歧时</strong>（所有线程走同一路径）：</p>
+            \[
+            T_{\text{no-div}} = \max(C_A, C_B)
+            \]
+            <p><strong>有分歧时</strong>（两条路径都必须执行）：</p>
+            \[
+            T_{\text{div}} = C_A + C_B
+            \]
+            <p><strong>分歧代价比</strong>：</p>
+            \[
+            \text{Slowdown} = \frac{C_A + C_B}{\max(C_A, C_B)}
+            \]
+            <p>当 \(C_A = C_B = C\) 时，\(\text{Slowdown} = 2\)——执行时间恰好翻倍。即使只有一个线程走不同路径，整个 Warp 都要付出两条路径的代价。</p>
+            <p>对于嵌套分支，代价可能更高。若有 \(k\) 层嵌套、每层二分，最坏情况下执行时间为所有 \(2^k\) 条路径之和。</p>
+            <div class="warning-box">⚠️ 即使 Warp 中仅有 1 个线程走了不同路径，所有 32 个线程都必须执行两条路径。分歧代价与"分歧线程数"无关，只要存在分歧就付出全部开销。因此 GPU 代码中应尽量避免线程间的条件分支。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>避免线程依赖分支</strong>：将 <code>if(threadIdx.x &lt; threshold)</code> 替换为数学运算（如 <code>step()</code>、<code>mix()</code>），使所有线程执行相同指令。</p>
+            <p><strong>短分支使用谓词化（Predication）</strong>：对于简短的 if/else（1-2 条指令），GPU 自动使用谓词寄存器：两条路径都执行，但只有满足条件的线程写入结果。开销 = 两条路径之和，但无分支指令开销。</p>
+            <p><strong>工作排序减少分歧</strong>：在渲染中，按材质（Material）分批渲染可以确保同一 Warp 内的片段执行相同的材质着色器，避免因不同材质触发不同分支。这就是<strong>材质批处理（Material Batching）</strong>。</p>
+            <p><strong>分支粒度对齐 Warp</strong>：如果分支边界恰好对齐 Warp 边界（例如 Warp 0-15 全走 A，Warp 16-31 全走 B），则不会产生分歧。将工作按 Warp 大小对齐是常见优化策略。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个内核包含以下代码，Warp 大小为 32：</p>
+            <pre style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:13px;overflow-x:auto"><code>if (threadIdx.x &lt; 16) {
+    A();  // 耗时 20 周期
+} else {
+    B();  // 耗时 10 周期
+}</code></pre>
+            <p>计算分歧版本与非分歧版本的执行时间差异。</p>
+            <p><em>解答：</em></p>
+            <p>分歧版本：线程 0-15 走 A，线程 16-31 走 B。一个 Warp 必须执行两条路径：</p>
+            \[
+            T_{\text{div}} = 20 + 10 = 30 \text{ 周期}
+            \]
+            <p>非分歧版本（所有线程走同一路径）：</p>
+            \[
+            T_{\text{no-div}} = \max(20, 10) = 20 \text{ 周期}
+            \]
+            <p>减速比 = \(30 / 20 = 1.5\times\)，性能损失 50%。</p>
+            <p>❌ <strong>常见错误：</strong>认为"16 个线程走 A、16 个走 B"所以总时间 = \(\max(20,10)=20\) 周期（误以为两路径并行执行）。</p>
+            <p>✅ <strong>正确理解：</strong>SIMT 架构下分歧路径是<strong>串行</strong>执行的，总时间是两路径之和。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch03-kp2">
+        <svg viewBox="0 0 420 230" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.warn{fill:#ef4444}</style>
+          <text class="fg" x="210" y="18" text-anchor="middle" font-size="12" font-weight="bold">Warp 分支分歧执行示意</text>
+          <!-- Timeline -->
+          <line x1="40" y1="40" x2="400" y2="40" class="line"/>
+          <text class="fg2" x="30" y="44" text-anchor="end" font-size="9">时间</text>
+          <!-- No divergence -->
+          <text class="fg" x="40" y="70" font-size="10" font-weight="bold">无分歧：</text>
+          <rect x="110" y="58" width="140" height="24" fill="#22c55e" opacity="0.25" rx="4"/>
+          <text class="fg2" x="180" y="74" text-anchor="middle" font-size="9">全部 32 线程执行路径 A（20 周期）</text>
+          <!-- With divergence -->
+          <text class="fg" x="40" y="115" font-size="10" font-weight="bold">有分歧：</text>
+          <!-- Path A -->
+          <rect x="110" y="100" width="140" height="24" fill="#3b82f6" opacity="0.25" rx="4"/>
+          <text class="fg2" x="180" y="116" text-anchor="middle" font-size="9">线程 0-15 执行 A（20 周期）</text>
+          <!-- Masked threads -->
+          <rect x="110" y="100" width="140" height="24" fill="none" stroke="#ef4444" stroke-width="1" stroke-dasharray="3" rx="4"/>
+          <text class="warn" x="355" y="116" text-anchor="middle" font-size="8">线程 16-31 ⛔ 掩码</text>
+          <!-- Path B -->
+          <rect x="255" y="130" width="70" height="24" fill="#f59e0b" opacity="0.25" rx="4"/>
+          <text class="fg2" x="290" y="146" text-anchor="middle" font-size="9">16-31 执行 B（10）</text>
+          <rect x="255" y="130" width="70" height="24" fill="none" stroke="#ef4444" stroke-width="1" stroke-dasharray="3" rx="4"/>
+          <text class="warn" x="355" y="146" text-anchor="middle" font-size="8">线程 0-15 ⛔ 掩码</text>
+          <!-- Reconverge -->
+          <line x1="330" y1="95" x2="330" y2="165" stroke="#334155" stroke-width="1" stroke-dasharray="4"/>
+          <text class="fg" x="340" y="175" font-size="9">汇合点</text>
+          <!-- Timing comparison -->
+          <line x1="110" y1="195" x2="250" y2="195" stroke="#22c55e" stroke-width="3"/>
+          <text style="fill:#22c55e" x="255" y="199" font-size="9">无分歧 = 20 周期</text>
+          <line x1="110" y1="210" x2="330" y2="210" stroke="#ef4444" stroke-width="3"/>
+          <text class="warn" x="335" y="214" font-size="9">有分歧 = 30 周期（+50%）</text>
+          <text class="fg2" x="210" y="228" text-anchor="middle" font-size="9" font-style="italic">分歧使执行时间变为两条路径之和</text>
+        </svg>
+        <figcaption>图 3-2 Warp 分支分歧：掩码机制与执行时间对比</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">一个 Warp 中 31 个线程走 if 路径（10 周期），1 个线程走 else 路径（5 周期）。总执行时间是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '10 周期只是 if 路径的时间，else 路径也必须执行。')">A. 10 周期</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '5 周期只是 else 路径的时间。')">B. 5 周期</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！即使只有 1 个线程走了不同路径，两条路径都必须执行：10 + 5 = 15 周期。')">C. 15 周期</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '320 周期可能是将每个线程的执行时间累加了，但 Warp 内同路径的线程并行执行。')">D. 320 周期</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 共享内存（Shared Memory）与同步</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>GPU 的全局内存（VRAM/Global Memory）容量大但延迟高——典型的 GDDR6/HBM 访问延迟约为 <strong>400-800 个时钟周期</strong>。虽然 GPU 通过大量线程切换来隐藏延迟，但如果同一个线程块内的多个线程需要反复读取相同的数据（如矩阵乘法中的共享 tile），每次都从全局内存取数据将严重浪费带宽。</p>
+            <p><strong>共享内存（Shared Memory）</strong>是 GPU 内每个 SM（流多处理器）上的一块片上 SRAM，容量较小（~48-164 KB）但延迟极低（~1-2 周期），允许线程块内的线程高效共享数据。理解共享内存的使用和同步机制，是 GPU 性能优化的核心。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>共享内存的物理组织</strong>：</p>
+            <p>共享内存被划分为 <strong>32 个 Bank</strong>（对应 Warp 的 32 个线程）。连续的 4 字节（32 位）字被交替分配到不同 Bank：地址 0-3 在 Bank 0，地址 4-7 在 Bank 1，……地址 124-127 在 Bank 31，地址 128-131 回到 Bank 0。</p>
+            <p><strong>Bank Conflict</strong>：当同一个时钟周期内，Warp 中的多个线程访问<strong>同一个 Bank 的不同地址</strong>时，访问被串行化。若 \(k\) 个线程冲突，访问时间变为 \(k\) 倍。但如果多个线程访问<strong>同一个 Bank 的同一地址</strong>，硬件会执行<strong>广播（Broadcast）</strong>，不产生冲突。</p>
+            <p><strong>同步机制</strong>：<code>__syncthreads()</code>（CUDA）/ <code>barrier()</code>（OpenCL/GLSL）是<strong>块级屏障</strong>——线程块内所有线程都到达该点后才能继续执行。这确保数据在共享内存中写入完成后再被其他线程读取。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>Bank Conflict 分析</strong>：线程 \(t\) 访问地址 \(\text{addr}(t)\)，对应的 Bank 编号为：</p>
+            \[
+            \text{bank}(t) = \left\lfloor \frac{\text{addr}(t)}{4} \right\rfloor \bmod 32
+            \]
+            <p>若步长 stride 恰好等于 Bank 数量（32），则所有线程访问同一 Bank，产生 32-way 冲突！</p>
+            <p><strong>Padding 技术</strong>：为避免 stride=32 的冲突，在每行末尾添加 1 个元素的 padding：</p>
+            \[
+            \text{声明: } \texttt{__shared__ float tile[32][32+1];}
+            \]
+            <p>这使得实际 stride = 33，不再是 32 的倍数，冲突消除。</p>
+            <p><strong>矩阵乘法的内存访问优化</strong>：朴素矩阵乘法 \(C = A \times B\)，计算 \(C[i][j]\) 需读取 A 的第 \(i\) 行和 B 的第 \(j\) 列（各 \(N\) 个元素）。总全局内存访问量 \(= 2N^3\)。</p>
+            <p>使用 \(T \times T\) 大小的 tile 加载到共享内存：每个 tile 从全局内存读取一次，被 \(T\) 个线程复用。全局内存访问减少为：</p>
+            \[
+            \text{访问量}_{\text{tiled}} = \frac{2N^3}{T}
+            \]
+            <p>加速比 = \(T\)。典型 \(T=32\) 时，全局内存访问减少 32 倍。</p>
+            <div class="warning-box">⚠️ <code>__syncthreads()</code> 是块级屏障——它要求块内<strong>所有</strong>线程都到达同步点。如果将它放在 <code>if</code> 分支内，部分线程永远不会执行到同步点，导致已到达的线程无限等待——这就是<strong>死锁（Deadlock）</strong>。永远确保 <code>__syncthreads()</code> 在所有线程都能到达的代码路径上！</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>矩阵乘法 Tiling</strong>：cuBLAS 和 cuDNN 底层大量使用共享内存 tiling。例如计算 1024×1024 矩阵乘法，tile 大小 32×32：先将 A 和 B 的子块加载到共享内存，在共享内存中完成局部乘累加，再写回全局内存。这将全局内存访问从 ~20 亿次减少到 ~6000 万次。</p>
+            <p><strong>并行归约（Parallel Reduction）</strong>：计算数组总和时，使用共享内存存储中间结果。每一轮将数据量减半（线程 i 将 <code>s[i]</code> 和 <code>s[i+stride]</code> 相加），\(\log_2 N\) 轮后得到最终结果。每轮之间使用 <code>__syncthreads()</code> 同步。</p>
+            <p><strong>直方图计算</strong>：使用共享内存中的私有直方图避免全局内存的原子操作冲突，最后再合并到全局直方图。</p>
+            <p><strong>卷积运算</strong>：将卷积核和输入 tile（包含 halo 区域）加载到共享内存，避免重复读取重叠区域的全局内存。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>两个 \(N \times N\) 矩阵相乘（\(N = 1024\)），比较朴素算法与 tile 大小 \(T = 32\) 的共享内存版本的全局内存访问量。</p>
+            <p><em>解答：</em></p>
+            <p><strong>朴素版本</strong>：计算 \(C[i][j]\) 需读取 A 的一行（\(N\) 次）和 B 的一列（\(N\) 次）。共 \(N^2\) 个输出元素：</p>
+            \[
+            \text{Accesses}_{\text{naive}} = N^2 \times 2N = 2N^3 = 2 \times 1024^3 \approx 2.15 \times 10^9
+            \]
+            <p><strong>Tiling 版本</strong>：每个 \(T \times T\) 的 tile 被整个线程块共享，每个元素只从全局内存加载一次。沿 K 维需要 \(N/T\) 次 tile 加载，每次加载 \(2 \times T^2\) 个元素：</p>
+            \[
+            \text{Accesses}_{\text{tiled}} = \frac{N^2}{T^2} \times \frac{N}{T} \times 2T^2 = \frac{2N^3}{T} = \frac{2 \times 1024^3}{32} \approx 6.71 \times 10^7
+            \]
+            <p>减少了 \(T = 32\) 倍！这就是共享内存的巨大价值。</p>
+            <p>❌ <strong>常见错误：</strong>在两次共享内存读写之间忘记调用 <code>__syncthreads()</code>，导致线程读到其他线程尚未写完的旧数据。</p>
+            <p>✅ <strong>正确模式：</strong>加载 tile → <code>__syncthreads()</code> → 计算 → <code>__syncthreads()</code> → 加载下一个 tile。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch03-kp3">
+        <svg viewBox="0 0 420 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}.good{fill:#22c55e}</style>
+          <text class="fg" x="210" y="18" text-anchor="middle" font-size="12" font-weight="bold">共享内存 Bank 与 Tiling 原理</text>
+          <!-- Banks -->
+          <text class="fg" x="100" y="42" text-anchor="middle" font-size="10" font-weight="bold">32 个 Bank</text>
+          <rect x="10" y="50" width="22" height="30" fill="#3b82f6" opacity="0.15" rx="2"/>
+          <text class="fg2" x="21" y="69" text-anchor="middle" font-size="7">B0</text>
+          <rect x="34" y="50" width="22" height="30" fill="#3b82f6" opacity="0.2" rx="2"/>
+          <text class="fg2" x="45" y="69" text-anchor="middle" font-size="7">B1</text>
+          <rect x="58" y="50" width="22" height="30" fill="#3b82f6" opacity="0.15" rx="2"/>
+          <text class="fg2" x="69" y="69" text-anchor="middle" font-size="7">B2</text>
+          <text class="fg2" x="95" y="69" font-size="10">…</text>
+          <rect x="110" y="50" width="22" height="30" fill="#3b82f6" opacity="0.2" rx="2"/>
+          <text class="fg2" x="121" y="69" text-anchor="middle" font-size="7">B30</text>
+          <rect x="134" y="50" width="22" height="30" fill="#3b82f6" opacity="0.15" rx="2"/>
+          <text class="fg2" x="145" y="69" text-anchor="middle" font-size="7">B31</text>
+          <!-- Bank conflict illustration -->
+          <text class="fg2" x="100" y="95" text-anchor="middle" font-size="9">无冲突: 线程 i → Bank i</text>
+          <text style="fill:#ef4444" x="100" y="108" text-anchor="middle" font-size="9">k-way 冲突: 延迟 × k</text>
+          <!-- Tiling diagram -->
+          <text class="fg" x="320" y="42" text-anchor="middle" font-size="10" font-weight="bold">矩阵乘法 Tiling</text>
+          <!-- Matrix A -->
+          <rect class="box" x="230" y="55" width="60" height="60"/>
+          <text class="fg2" x="260" y="78" text-anchor="middle" font-size="9">矩阵 A</text>
+          <rect x="230" y="55" width="20" height="20" fill="#3b82f6" opacity="0.3" rx="1"/>
+          <text class="fg2" x="240" y="68" text-anchor="middle" font-size="7">tile</text>
+          <!-- Matrix B -->
+          <rect class="box" x="310" y="55" width="60" height="60"/>
+          <text class="fg2" x="340" y="78" text-anchor="middle" font-size="9">矩阵 B</text>
+          <rect x="310" y="55" width="20" height="20" fill="#f59e0b" opacity="0.3" rx="1"/>
+          <text class="fg2" x="320" y="68" text-anchor="middle" font-size="7">tile</text>
+          <!-- Shared memory -->
+          <rect x="255" y="130" width="90" height="30" fill="#22c55e" opacity="0.2" rx="4"/>
+          <text class="good" x="300" y="149" text-anchor="middle" font-size="9" font-weight="bold">共享内存 (SM内)</text>
+          <!-- Arrows -->
+          <line x1="240" y1="75" x2="270" y2="132" class="line" stroke-dasharray="3"/>
+          <line x1="320" y1="75" x2="310" y2="132" class="line" stroke-dasharray="3"/>
+          <!-- Global vs Shared comparison -->
+          <text class="fg" x="210" y="185" text-anchor="middle" font-size="10" font-weight="bold">延迟对比</text>
+          <rect x="50" y="195" width="140" height="22" fill="#ef4444" opacity="0.15" rx="3"/>
+          <text style="fill:#ef4444" x="120" y="210" text-anchor="middle" font-size="9">全局内存：~400 周期</text>
+          <rect x="230" y="195" width="140" height="22" fill="#22c55e" opacity="0.15" rx="3"/>
+          <text class="good" x="300" y="210" text-anchor="middle" font-size="9">共享内存：~1-2 周期</text>
+          <text class="fg2" x="210" y="236" text-anchor="middle" font-size="9" font-style="italic">Tiling 将全局内存访问减少 T 倍（T = tile 边长）</text>
+        </svg>
+        <figcaption>图 3-3 共享内存 Bank 结构与矩阵乘法 Tiling 原理</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">将 __syncthreads() 放在 if 分支内部会导致什么问题？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '性能降低不是主要问题——程序正确性才是。')">A. 性能降低</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '不会导致编译错误，这使得这个 bug 更加隐蔽和危险。')">B. 编译错误</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！部分线程永远不会到达屏障，导致已到达的线程无限等待——死锁。')">C. 死锁（Deadlock）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '数据竞争是缺少同步时的问题，而非同步位置不当的问题。')">D. 数据竞争</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · GPGPU（通用 GPU 计算）模型</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>GPU 最初专为图形渲染设计，但其大规模并行架构（数千个核心、高内存带宽）使人们意识到：<strong>GPU 不仅能画画，更能"算数"</strong>。任何可以分解为大量独立并行任务的计算——矩阵运算、图像处理、物理模拟——都可能在 GPU 上获得数量级的加速。</p>
+            <p>这就是 <strong>GPGPU（General-Purpose computing on Graphics Processing Units）</strong>的思想。NVIDIA 的 <strong>CUDA</strong>（2007）和开放标准 <strong>OpenCL</strong> 为此提供了编程框架，将 GPU 从图形专用设备变成了通用并行计算平台。理解 GPGPU 的线程模型和内存层次，是深度学习、科学计算、高性能计算的基础。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>CUDA 线程层级</strong>（NVIDIA）：</p>
+            <p><strong>① Grid（网格）</strong>：代表整个计算任务，由多个 Block 组成。可以是 1D/2D/3D 结构。</p>
+            <p><strong>② Block（线程块）</strong>：一组可以协作的线程，映射到一个 SM 上执行。块内线程可通过共享内存通信和 <code>__syncthreads()</code> 同步。最大 1024 个线程。</p>
+            <p><strong>③ Thread（线程）</strong>：最小执行单元。每个线程有唯一的 <code>threadIdx</code>（块内）和 <code>blockIdx</code>（网格内）标识。</p>
+            <p><strong>OpenCL 对应术语</strong>：Grid → <strong>NDRange</strong>，Block → <strong>Work-group</strong>，Thread → <strong>Work-item</strong>。概念一一对应。</p>
+            <p><strong>内存层级</strong>（从快到慢）：</p>
+            <p>① <strong>寄存器（Registers）</strong>：每线程私有，最快（0 周期额外延迟），数量有限（~255 个/线程）。</p>
+            <p>② <strong>共享/本地内存（Shared/Local Memory）</strong>：每线程块共享，片上 SRAM，~1-2 周期。</p>
+            <p>③ <strong>全局内存（Global Memory）</strong>：整个 Grid 可见，即 VRAM，~400 周期。</p>
+            <p>④ <strong>主机内存（Host Memory）</strong>：CPU 端 RAM，需通过 PCIe/NVLink 传输，~μs 级延迟。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>占用率（Occupancy）</strong>是衡量 SM 资源利用率的核心指标：</p>
+            \[
+            \text{Occupancy} = \frac{\text{active\_warps}}{\text{max\_warps\_per\_SM}}
+            \]
+            <p>占用率受三个资源的共同限制：</p>
+            <p><strong>① 寄存器限制</strong>：每线程使用 \(R\) 个寄存器，每块 \(T\) 个线程，则每块需要 \(R \times T\) 个寄存器。SM 有 \(R_{\max}\) 个寄存器，最多容纳 \(\lfloor R_{\max} / (R \times T) \rfloor\) 个块。</p>
+            <p><strong>② 共享内存限制</strong>：每块使用 \(S\) 字节共享内存，SM 有 \(S_{\max}\) 字节，最多 \(\lfloor S_{\max} / S \rfloor\) 个块。</p>
+            <p><strong>③ 线程数限制</strong>：SM 最多支持 \(T_{\max}\) 个线程和 \(B_{\max}\) 个块。</p>
+            <p>实际块数 = 三个限制中的最小值：</p>
+            \[
+            B_{\text{actual}} = \min\!\left(\left\lfloor \frac{R_{\max}}{R \times T}\right\rfloor,\ \left\lfloor \frac{S_{\max}}{S}\right\rfloor,\ \left\lfloor \frac{T_{\max}}{T}\right\rfloor,\ B_{\max}\right)
+            \]
+            \[
+            \text{Occupancy} = \frac{B_{\text{actual}} \times T / 32}{\text{max\_warps\_per\_SM}}
+            \]
+            <div class="warning-box">⚠️ <strong>内存合并（Memory Coalescing）</strong>是 GPU 全局内存访问的关键优化。当 Warp 中 32 个线程访问连续的内存地址时，硬件将其合并为一次事务（128 字节）。若访问是随机的（非合并），每个线程可能触发独立的事务，浪费 80% 以上的带宽。确保数据布局使相邻线程访问相邻地址！</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>深度学习</strong>：NVIDIA CUDA 生态主导了 AI 训练和推理。cuDNN 库提供高度优化的卷积、GEMM（通用矩阵乘法）实现，PyTorch/TensorFlow 底层调用这些 CUDA 库。GPU 上矩阵乘法可比 CPU 快 100-1000 倍。</p>
+            <p><strong>科学计算</strong>：分子动力学模拟（GROMACS、AMBER）使用 GPU 计算粒子间的力；天气预报模型利用 GPU 加速流体动力学方程求解；基因组学中的序列比对（如 NVIDIA Parabricks）也大量使用 GPU。</p>
+            <p><strong>图像与视频处理</strong>：FFT（快速傅里叶变换）、图像滤波、视频编解码（NVENC/NVDEC）。GPU 的高带宽特别适合像素级并行操作。</p>
+            <p><strong>加密货币挖矿</strong>：早期比特币和以太坊挖矿大量使用 GPU 的并行算力计算哈希函数，推动了 GPU 市场需求（和价格）的飙升。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个 SM 的规格为：64K（65536）个寄存器、48 KB 共享内存、最多 2048 个线程、最多 32 个 Warp。一个内核每线程使用 32 个寄存器，每块 256 个线程，每块使用 8 KB 共享内存。求最大块数和占用率。</p>
+            <p><em>解答：</em></p>
+            <p><strong>① 寄存器限制</strong>：每块需 \(32 \times 256 = 8192\) 个寄存器。\(\lfloor 65536 / 8192 \rfloor = 8\) 个块。</p>
+            <p><strong>② 共享内存限制</strong>：\(\lfloor 49152 / 8192 \rfloor = 6\) 个块（48 KB = 49152 字节）。</p>
+            <p><strong>③ 线程数限制</strong>：\(\lfloor 2048 / 256 \rfloor = 8\) 个块。</p>
+            <p>取最小值：<strong>实际块数 = 6</strong>（受共享内存限制）。</p>
+            <p>活跃线程 = \(6 \times 256 = 1536\)，活跃 Warp = \(1536 / 32 = 48\)。</p>
+            <p>最大 Warp = \(2048 / 32 = 64\)。</p>
+            \[
+            \text{Occupancy} = \frac{48}{64} = 75\%
+            \]
+            <p>❌ <strong>常见错误：</strong>只考虑寄存器或只考虑线程数限制，忽略共享内存的约束。</p>
+            <p>✅ <strong>正确做法：</strong>必须同时检查所有资源限制，取最严格的那个。可使用 NVIDIA Nsight Compute 工具自动分析。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch03-kp4">
+        <svg viewBox="0 0 420 260" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}.arrow{stroke:#334155;fill:#334155;stroke-width:1.5}</style>
+          <text class="fg" x="210" y="18" text-anchor="middle" font-size="12" font-weight="bold">CUDA 线程层级与内存层次</text>
+          <!-- Grid -->
+          <rect x="15" y="30" width="190" height="120" fill="#3b82f6" opacity="0.06" rx="6" stroke="#3b82f6" stroke-width="1"/>
+          <text class="accent" x="110" y="45" text-anchor="middle" font-size="10" font-weight="bold">Grid（网格）</text>
+          <!-- Blocks -->
+          <rect x="25" y="52" width="82" height="90" fill="#3b82f6" opacity="0.1" rx="4" stroke="#3b82f6" stroke-width="0.8"/>
+          <text class="fg2" x="66" y="65" text-anchor="middle" font-size="8" font-weight="bold">Block (0,0)</text>
+          <!-- Threads -->
+          <rect x="30" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="47" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="64" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="81" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="30" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="47" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="64" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="81" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <text class="fg2" x="66" y="116" text-anchor="middle" font-size="7">共享内存</text>
+          <rect x="30" y="120" width="65" height="14" fill="#22c55e" opacity="0.2" rx="2"/>
+          <text style="fill:#22c55e" x="62" y="131" text-anchor="middle" font-size="7">Shared Mem</text>
+          <!-- Block 2 -->
+          <rect x="115" y="52" width="82" height="90" fill="#3b82f6" opacity="0.1" rx="4" stroke="#3b82f6" stroke-width="0.8"/>
+          <text class="fg2" x="156" y="65" text-anchor="middle" font-size="8" font-weight="bold">Block (1,0)</text>
+          <rect x="120" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="137" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="154" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="171" y="70" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="120" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="137" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="154" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <rect x="171" y="87" width="14" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <text class="fg2" x="156" y="116" text-anchor="middle" font-size="7">共享内存</text>
+          <rect x="120" y="120" width="65" height="14" fill="#22c55e" opacity="0.2" rx="2"/>
+          <text style="fill:#22c55e" x="152" y="131" text-anchor="middle" font-size="7">Shared Mem</text>
+          <!-- Memory hierarchy -->
+          <text class="fg" x="330" y="40" text-anchor="middle" font-size="10" font-weight="bold">内存层次</text>
+          <!-- Registers -->
+          <rect x="260" y="48" width="140" height="22" fill="#3b82f6" opacity="0.2" rx="3"/>
+          <text class="accent" x="330" y="63" text-anchor="middle" font-size="8" font-weight="bold">寄存器 (每线程) ~0 周期</text>
+          <!-- Shared -->
+          <rect x="260" y="76" width="140" height="22" fill="#22c55e" opacity="0.2" rx="3"/>
+          <text style="fill:#22c55e" x="330" y="91" text-anchor="middle" font-size="8" font-weight="bold">共享内存 (每块) ~1-2 周期</text>
+          <!-- Global -->
+          <rect x="260" y="104" width="140" height="22" fill="#f59e0b" opacity="0.2" rx="3"/>
+          <text style="fill:#f59e0b" x="330" y="119" text-anchor="middle" font-size="8" font-weight="bold">全局内存 (VRAM) ~400 周期</text>
+          <!-- Host -->
+          <rect x="260" y="132" width="140" height="22" fill="#ef4444" opacity="0.15" rx="3"/>
+          <text style="fill:#ef4444" x="330" y="147" text-anchor="middle" font-size="8" font-weight="bold">主机内存 (CPU RAM) ~μs</text>
+          <!-- Speed arrows -->
+          <text class="fg2" x="250" y="100" text-anchor="end" font-size="18">↕</text>
+          <text class="fg2" x="246" y="86" text-anchor="end" font-size="7">快</text>
+          <text class="fg2" x="246" y="114" text-anchor="end" font-size="7">慢</text>
+          <!-- Occupancy formula -->
+          <text class="fg" x="210" y="185" text-anchor="middle" font-size="10" font-weight="bold">占用率计算</text>
+          <text class="fg2" x="210" y="203" text-anchor="middle" font-size="9">Occupancy = active_warps / max_warps_per_SM</text>
+          <text class="fg2" x="210" y="218" text-anchor="middle" font-size="9">受限于：寄存器 · 共享内存 · 最大线程数</text>
+          <!-- Application areas -->
+          <text class="fg" x="210" y="240" text-anchor="middle" font-size="9" font-weight="bold">应用领域：深度学习 · 科学计算 · 图像处理 · 加密</text>
+          <text class="fg2" x="210" y="255" text-anchor="middle" font-size="9" font-style="italic">GPGPU 将 GPU 从图形专用变为通用并行计算平台</text>
+        </svg>
+        <figcaption>图 3-4 CUDA 线程层级与 GPU 内存层次结构</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">SM 有 65536 个寄存器，内核每线程用 64 个寄存器、每块 512 个线程。寄存器限制下最多几个块？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '每块需要 64×512=32768 个寄存器，65536/32768=2，不是 1。')">A. 1 个</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！每块需要 64×512=32768 个寄存器，65536/32768=2 个块。')">B. 2 个</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '4 个块需要 4×32768=131072 个寄存器，超出 65536 的限制。')">C. 4 个</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '8 个块需要 8×32768=262144 个寄存器，远超 SM 容量。')">D. 8 个</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch02.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch04.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
