@@ -88,10 +88,21 @@ html[data-theme="dark"] .kp-figure svg .fg2{fill:#94a3b8}
 html[data-theme="dark"] .kp-figure svg .line,
 html[data-theme="dark"] .kp-figure svg .dash{stroke:#e2e8f0}
 html[data-theme="dark"] .kp-figure svg .bg-box{fill:#1e293b;stroke:#334155}
+html[data-theme="dark"] .kp-figure svg .box{stroke:#e2e8f0}
+html[data-theme="dark"] .kp-figure svg .arrow{stroke:#e2e8f0;fill:#e2e8f0}
 html[data-theme="dark"] .kp-figure svg line[stroke="#334155"],
 html[data-theme="dark"] .kp-figure svg path[stroke="#334155"]{stroke:#e2e8f0}
+html[data-theme="dark"] .kp-figure svg rect[stroke="#334155"]{stroke:#94a3b8}
 html[data-theme="dark"] .kp-figure svg rect[stroke="#e2e8f0"]{stroke:#334155}
 html[data-theme="dark"] .kp-figure svg rect[fill="#f8fafc"]{fill:#1e293b}
+html[data-theme="dark"] .kp-figure svg rect[fill="#e0e7ff"]{fill:#312e81}
+html[data-theme="dark"] .kp-figure svg rect[fill="#f0f9ff"]{fill:#0c4a6e}
+html[data-theme="dark"] .kp-figure svg rect[fill="#ecfdf5"]{fill:#064e3b}
+html[data-theme="dark"] .kp-figure svg rect[fill="#fef3c7"]{fill:#78350f}
+html[data-theme="dark"] .kp-figure svg rect[fill="#fce7f3"]{fill:#831843}
+html[data-theme="dark"] .kp-figure svg rect[fill="#f5f3ff"]{fill:#3b0764}
+html[data-theme="dark"] .kp-figure svg polyline[class="line"],
+html[data-theme="dark"] .kp-figure svg polyline{stroke:#e2e8f0}
 
 html[data-theme="neon"] .kp-figure svg text,
 html[data-theme="neon"] .kp-figure svg .fg{fill:#e0ecff}
@@ -99,10 +110,21 @@ html[data-theme="neon"] .kp-figure svg .fg2{fill:#8aa4cc}
 html[data-theme="neon"] .kp-figure svg .line,
 html[data-theme="neon"] .kp-figure svg .dash{stroke:#e0ecff}
 html[data-theme="neon"] .kp-figure svg .bg-box{fill:rgba(10,15,40,.5);stroke:rgba(120,180,255,.15)}
+html[data-theme="neon"] .kp-figure svg .box{stroke:#e0ecff}
+html[data-theme="neon"] .kp-figure svg .arrow{stroke:#e0ecff;fill:#e0ecff}
 html[data-theme="neon"] .kp-figure svg line[stroke="#334155"],
 html[data-theme="neon"] .kp-figure svg path[stroke="#334155"]{stroke:#e0ecff}
+html[data-theme="neon"] .kp-figure svg rect[stroke="#334155"]{stroke:rgba(120,180,255,.3)}
 html[data-theme="neon"] .kp-figure svg rect[stroke="#e2e8f0"]{stroke:rgba(120,180,255,.15)}
 html[data-theme="neon"] .kp-figure svg rect[fill="#f8fafc"]{fill:rgba(10,15,40,.5)}
+html[data-theme="neon"] .kp-figure svg rect[fill="#e0e7ff"]{fill:rgba(49,46,129,.6)}
+html[data-theme="neon"] .kp-figure svg rect[fill="#f0f9ff"]{fill:rgba(12,74,110,.5)}
+html[data-theme="neon"] .kp-figure svg rect[fill="#ecfdf5"]{fill:rgba(6,78,59,.5)}
+html[data-theme="neon"] .kp-figure svg rect[fill="#fef3c7"]{fill:rgba(120,53,15,.5)}
+html[data-theme="neon"] .kp-figure svg rect[fill="#fce7f3"]{fill:rgba(131,24,67,.5)}
+html[data-theme="neon"] .kp-figure svg rect[fill="#f5f3ff"]{fill:rgba(59,7,100,.5)}
+html[data-theme="neon"] .kp-figure svg polyline[class="line"],
+html[data-theme="neon"] .kp-figure svg polyline{stroke:#e0ecff}
 html[data-theme="neon"] .kp-figure svg{
   background:rgba(10,15,40,.40);border-color:rgba(120,180,255,.12);
 }

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -35,7 +35,7 @@
   <main class="main-content">
     <header class="chapter-hero"><p class="chapter-label">Chapitre 2</p><h1>PCIe 与高速互联</h1></header>
 
-    <section id="kp1">
+    <section id="kp1" class="kp-section">
       <h2 class="kp-title">知识点 1 · PCIe 的差分信号（Differential Signaling）</h2>
       <div class="mental-chain">
         <div class="step-card step-motivation"><div class="step-label">🎯 为什么研究这个问题</div><div class="step-body"><p>随着数据率从百MHz级进入GHz级，传统的单端信号（Single-ended Signaling）面临严峻挑战：电磁干扰（EMI）、信号反射、串扰等问题使得信号完整性急剧恶化。在PCIe的工作频率下，PCB走线本身就像天线一样辐射和拾取噪声。</p>
@@ -85,7 +85,7 @@
       </div>
     </section>
     <hr class="kp-separator">
-    <section id="kp2">
+    <section id="kp2" class="kp-section">
       <h2 class="kp-title">知识点 2 · Lane / Link 的物理层</h2>
       <div class="mental-chain">
         <div class="step-card step-motivation"><div class="step-label">🎯 为什么研究这个问题</div><div class="step-body"><p>PCIe的物理层不再使用宽并行总线，而是采用<strong>窄而快</strong>的串行通道。一条<strong>Lane</strong>由一对差分信号对组成（一对TX、一对RX），支持全双工通信。多条Lane组合形成一个<strong>Link</strong>（x1、x2、x4、x8、x16等配置）。</p>
@@ -141,7 +141,7 @@
       </div>
     </section>
     <hr class="kp-separator">
-    <section id="kp3">
+    <section id="kp3" class="kp-section">
       <h2 class="kp-title">知识点 3 · PCIe 事务层（Transaction Layer）</h2>
       <div class="mental-chain">
         <div class="step-card step-motivation"><div class="step-label">🎯 为什么研究这个问题</div><div class="step-body"><p>PCIe不仅仅是物理层的高速信号——它有完整的分层协议栈，类似于网络协议。<strong>事务层（Transaction Layer）</strong>是最上层，负责将CPU的内存读写请求封装成<strong>事务层数据包（TLP, Transaction Layer Packet）</strong>进行传输。理解事务层是理解PCIe设备如何与CPU和内存交互的关键。</p></div></div>
@@ -187,7 +187,7 @@
       </div>
     </section>
     <hr class="kp-separator">
-    <section id="kp4">
+    <section id="kp4" class="kp-section">
       <h2 class="kp-title">知识点 4 · NVMe 与存储高速化</h2>
       <div class="mental-chain">
         <div class="step-card step-motivation"><div class="step-label">🎯 为什么研究这个问题</div><div class="step-body"><p>传统硬盘时代，SATA接口和AHCI（Advanced Host Controller Interface）协议足以匹配HDD的速度。但SSD的出现彻底改变了游戏规则——NAND Flash的随机读写速度比HDD快百倍以上，SATA 3.0的600 MB/s带宽和AHCI的单队列架构成为严重瓶颈。</p>

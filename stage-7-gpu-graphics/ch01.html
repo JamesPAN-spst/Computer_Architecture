@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
@@ -50,7 +50,7 @@
     </header>
 
     <!-- ════════════════ KP 1 ════════════════ -->
-    <section id="kp1">
+    <section id="kp1" class="kp-section">
       <h2 class="kp-title">知识点 1 · GPU vs CPU——吞吐量 vs 延迟的哲学分歧</h2>
       <div class="mental-chain">
 
@@ -218,7 +218,7 @@
 
     <hr class="kp-separator">
     <!-- ════════════════ KP 2 ════════════════ -->
-    <section id="kp2">
+    <section id="kp2" class="kp-section">
       <h2 class="kp-title">知识点 2 · SIMT（Single Instruction Multiple Threads）模型</h2>
       <div class="mental-chain">
 
@@ -276,9 +276,9 @@
       </div>
 
       <figure class="kp-figure" data-figure="s7-ch01-kp2">
-        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+        <svg viewBox="0 0 480 240" xmlns="http://www.w3.org/2000/svg">
           <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:4}.warn{fill:#ef4444}</style>
-          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">SIMT 执行模型：Warp 分支发散</text>
+          <text class="fg" x="240" y="16" text-anchor="middle" font-size="12" font-weight="bold">SIMT 执行模型：Warp 分支发散</text>
           <!-- Timeline axis -->
           <line x1="40" y1="40" x2="380" y2="40" class="line"/>
           <text class="fg2" x="210" y="35" text-anchor="middle" font-size="9">时间 →</text>
@@ -301,14 +301,14 @@
           <text class="accent" x="248" y="110" text-anchor="middle" font-size="8">汇合继续</text>
           <text class="warn" x="340" y="110" font-size="8">效率 50%↓</text>
           <!-- Mask illustration -->
-          <text class="fg" x="200" y="160" text-anchor="middle" font-size="10" font-weight="bold">活跃掩码（Active Mask）示意</text>
+          <text class="fg" x="240" y="160" text-anchor="middle" font-size="10" font-weight="bold">活跃掩码（Active Mask）示意</text>
           <text class="fg2" x="40" y="180" font-size="9">if 阶段:</text>
           <text class="accent" x="100" y="180" font-size="9">1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1</text>
-          <text class="fg2" x="310" y="180" font-size="9">0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</text>
+          <text class="fg2" x="300" y="180" font-size="9">0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</text>
           <text class="fg2" x="40" y="198" font-size="9">else阶段:</text>
           <text class="fg2" x="100" y="198" font-size="9">0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</text>
-          <text class="warn" x="310" y="198" font-size="9">1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1</text>
-          <text class="fg2" x="200" y="228" text-anchor="middle" font-size="9" font-style="italic">发散分支导致 SIMT 利用率下降——GPU 性能优化的首要关注点</text>
+          <text class="warn" x="300" y="198" font-size="9">1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1</text>
+          <text class="fg2" x="240" y="228" text-anchor="middle" font-size="9" font-style="italic">发散分支导致 SIMT 利用率下降——GPU 性能优化的首要关注点</text>
         </svg>
         <figcaption>图 1-2 SIMT 执行中的分支发散：Uniform vs Divergent 路径</figcaption>
       </figure>
@@ -327,7 +327,7 @@
 
     <hr class="kp-separator">
     <!-- ════════════════ KP 3 ════════════════ -->
-    <section id="kp3">
+    <section id="kp3" class="kp-section">
       <h2 class="kp-title">知识点 3 · 流处理器（Streaming Multiprocessor / Compute Unit）</h2>
       <div class="mental-chain">
 
@@ -460,7 +460,7 @@
 
     <hr class="kp-separator">
     <!-- ════════════════ KP 4 ════════════════ -->
-    <section id="kp4">
+    <section id="kp4" class="kp-section">
       <h2 class="kp-title">知识点 4 · 显存（VRAM）与带宽</h2>
       <div class="mental-chain">
 
