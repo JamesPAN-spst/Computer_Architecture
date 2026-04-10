@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.1 冯·诺依曼架构 — 计算的引擎 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s4-ch01-q1",
+        question: "冯·诺依曼架构的核心思想是什么？",
+        options: [
+          "数据和指令分别存储在不同的存储器中",
+          "程序和数据以相同的形式存储在同一存储器中",
+          "CPU 只能执行硬件直接连线的固定功能",
+          "每条指令必须由专用电路实现"
+        ],
+        answer: 1,
+        explanation: "冯·诺依曼架构的核心是「存储程序」概念：指令和数据以相同的二进制形式存储在同一存储器中，CPU 从存储器中顺序读取指令并执行。这使得通过修改存储器内容即可改变计算机行为，无需重新设计硬件。"
+      },
+      {
+        id: "s4-ch01-q2",
+        question: "在单周期 CPU 中，执行一条指令需要多少个时钟周期？",
+        options: [
+          "取决于指令类型",
+          "5 个周期",
+          "1 个周期",
+          "取决于操作数大小"
+        ],
+        answer: 2,
+        explanation: "单周期 CPU 的定义就是每条指令恰好在一个时钟周期内完成。时钟周期的长度必须满足最慢指令的执行时间，这也是单周期设计的主要缺点——所有指令被迫等待最慢的指令。"
+      },
+      {
+        id: "s4-ch01-q3",
+        question: "以下哪个不属于经典五级流水线的阶段？",
+        options: [
+          "取指（IF）",
+          "译码（ID）",
+          "缓存查找（CL）",
+          "写回（WB）"
+        ],
+        answer: 2,
+        explanation: "经典五级流水线阶段为：取指（IF）、译码（ID）、执行（EX）、访存（MEM）、写回（WB）。缓存查找不是标准流水线阶段的名称，虽然在 MEM 阶段会访问缓存。"
+      },
+      {
+        id: "s4-ch01-q4",
+        question: "在 R 型指令的数据通路中，ALU 的两个操作数分别来自？",
+        options: [
+          "两个都来自立即数",
+          "一个来自 PC，一个来自寄存器",
+          "两个都来自寄存器文件的读端口",
+          "一个来自寄存器，一个来自数据存储器"
+        ],
+        answer: 2,
+        explanation: "R 型指令（如 add rd, rs1, rs2）的两个操作数均来自寄存器文件。指令中的 rs1 和 rs2 字段指定两个源寄存器，寄存器文件通过两个读端口同时输出这两个值，送入 ALU 进行运算。"
+      },
+      {
+        id: "s4-ch01-q5",
+        question: "控制器根据什么信号来生成控制信号？",
+        options: [
+          "ALU 的运算结果",
+          "指令的操作码（opcode）字段",
+          "程序计数器的当前值",
+          "数据存储器的输出"
+        ],
+        answer: 1,
+        explanation: "控制器接收指令的操作码（opcode）字段作为输入，解析后生成一系列控制信号（如 RegWrite、MemRead、ALUSrc 等），这些信号决定数据通路中各多路选择器的选择、寄存器的写使能等。"
+      },
+      {
+        id: "s4-ch01-q6",
+        question: "冯·诺依曼瓶颈（Von Neumann Bottleneck）指的是？",
+        options: [
+          "ALU 运算速度不够快",
+          "寄存器数量太少",
+          "指令和数据共享同一总线导致的带宽限制",
+          "程序必须顺序执行"
+        ],
+        answer: 2,
+        explanation: "冯·诺依曼瓶颈是指 CPU 与存储器之间通过同一条总线传输指令和数据，导致总线带宽成为系统性能瓶颈。无论 CPU 速度多快，数据搬运的速率受限于总线带宽。这也是哈佛架构尝试解决的问题之一。"
+      },
+      {
+        id: "s4-ch01-q7",
+        question: "在 WB（写回）阶段，典型的操作是？",
+        options: [
+          "从指令存储器中取出指令",
+          "将 ALU 结果或内存读取值写入目标寄存器",
+          "计算分支跳转的目标地址",
+          "将数据写入数据存储器"
+        ],
+        answer: 1,
+        explanation: "WB（Write Back）阶段是五级流水线的最后阶段，负责将运算结果（来自 ALU）或从内存读取的数据写回到寄存器文件中的目标寄存器（rd）。这一步完成后，指令的执行才算真正结束。"
+      },
+      {
+        id: "s4-ch01-q8",
+        question: "单周期 CPU 的时钟频率受限于？",
+        options: [
+          "最快指令的执行时间",
+          "最慢指令的关键路径延迟",
+          "寄存器文件的读取速度",
+          "程序中指令的数量"
+        ],
+        answer: 1,
+        explanation: "单周期 CPU 中每条指令都必须在同一个时钟周期内完成，因此时钟周期长度必须大于等于最慢指令（通常是 load 指令，需要经过 ALU 计算地址再访问存储器）的关键路径延迟。这严重限制了时钟频率。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-4" data-module="ch01" style="--domain-color: var(--c-cpu);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 4</span><a href="index.html" class="module-name">计算的引擎</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.1 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 存储程序思想</a></li>
+      <li><a href="#kp2">02 · 单周期数据通路</a></li>
+      <li><a href="#kp3">03 · IF/ID/EX/MEM/WB</a></li>
+      <li><a href="#kp4">04 · 控制器设计</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 1</p>
+      <h1>冯·诺依曼架构</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 存储程序（Stored Program）思想的革命</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在冯·诺依曼之前，计算机如 ENIAC 需要通过重新连接电缆和开关来"编程"。每次换一个计算任务，工程师可能要花数天时间重新配线。这意味着<strong>硬件和软件无法分离</strong>——机器的"行为"被物理连线所决定。</p>
+            <p>存储程序思想的提出，是计算机历史上最关键的抽象突破之一。它让我们可以在<strong>不改变硬件</strong>的前提下，仅通过改变存储器中的内容就能让同一台机器完成截然不同的任务——从科学计算到文字处理，从图像渲染到网络通信。</p>
+            <p>理解这一思想，是理解现代通用计算机本质的起点。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>冯·诺依曼模型将计算机抽象为五大组件：<strong>运算器（ALU）</strong>、<strong>控制器（Control Unit）</strong>、<strong>存储器（Memory）</strong>、<strong>输入设备</strong>和<strong>输出设备</strong>。其中最革命性的一点是：指令和数据采用相同的编码方式存储在同一个存储器中。</p>
+            <p>这种统一存储的抽象带来了深刻的结果：程序本身变成了可操作的数据。编译器可以生成机器码并写入存储器；操作系统可以加载、切换、终止不同的程序；自修改代码（self-modifying code）甚至可以在运行时改变自身的指令。</p>
+            <p>与之对比的是<strong>哈佛架构（Harvard Architecture）</strong>，它将指令存储器和数据存储器物理分离，使得两者可以同时访问，消除了总线带宽瓶颈。现代处理器的 L1 缓存往往采用哈佛结构（分为 I-Cache 和 D-Cache），但在主存层面仍然是冯·诺依曼的统一存储。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>冯·诺依曼的执行模型可以用一个简单的循环来描述：</p>
+            \[
+            \textbf{while}\ (\text{halt} = 0)\ \{\ \text{IR} \leftarrow \text{Mem}[\text{PC}];\ \text{PC} \leftarrow \text{PC} + 4;\ \text{Execute}(\text{IR});\ \}
+            \]
+            <p>其中 \(\text{PC}\)（Program Counter）指向当前要执行的指令地址，\(\text{IR}\)（Instruction Register）保存取出的指令。每次循环：先取指、再更新 PC、然后执行。这就是<strong>取指-执行循环（Fetch-Execute Cycle）</strong>。</p>
+            <p>假设存储器带宽为 \(B\) bytes/s，每条指令平均 \(L\) 字节，平均需要搬运 \(D\) 字节数据，则处理器执行速率受限于：</p>
+            \[
+            \text{IPS}_{\max} = \frac{B}{L + D}
+            \]
+            <p>这就是<strong>冯·诺依曼瓶颈</strong>的量化表达——所有指令取指和数据搬运共享同一条总线，总线带宽成为性能天花板。</p>
+            <div class="warning-box">⚠️ 冯·诺依曼瓶颈不是说 CPU 不够快，而是指 CPU 和存储器之间的<strong>数据搬运速率</strong>跟不上 CPU 处理速度。现代体系结构通过多级缓存、预取、DMA 等技术来缓解这一瓶颈，但未从根本上消除。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>操作系统的多任务：</strong>正是因为程序存储在可读写的存储器中，操作系统才能将多个程序加载到内存的不同位置，通过切换 PC 的值来交替执行不同的程序，实现多任务。</p>
+            <p><strong>JIT 编译器：</strong>Java 虚拟机和 JavaScript 引擎中的即时编译器（JIT）在运行时将字节码编译为本地机器码，写入内存后直接跳转执行——这就是"指令即数据"的最佳体现。</p>
+            <p><strong>嵌入式系统的哈佛变体：</strong>许多微控制器（如 AVR、PIC）使用修改版的哈佛架构，将程序存储在 Flash 中，数据存储在 SRAM 中。但编程模型仍然保持冯·诺依曼的顺序执行语义。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一台冯·诺依曼结构计算机，存储器带宽为 8 GB/s，指令平均长度 4 字节，每条指令平均需搬运 4 字节数据。求理论最大指令执行速率。</p>
+            <p><em>解答：</em> \(\text{IPS}_{\max} = \frac{8 \times 10^9}{4 + 4} = 1 \times 10^9 = 1\text{ GIPS}\)</p>
+            <p>❌ <strong>常见错误：</strong>忽略数据搬运的带宽消耗，只用 \(B / L\) 计算，高估了实际性能。</p>
+            <p>✅ <strong>正确做法：</strong>必须同时考虑指令取指和数据传输对总线带宽的占用。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s4-ch01-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <rect class="box" x="150" y="10" width="100" height="36"/>
+          <text class="accent" x="200" y="33" text-anchor="middle" font-size="13" font-weight="bold">控制器 CU</text>
+          <rect class="box" x="30" y="90" width="90" height="36"/>
+          <text class="fg" x="75" y="113" text-anchor="middle" font-size="12">运算器 ALU</text>
+          <rect class="box" x="155" y="90" width="90" height="36"/>
+          <text class="fg" x="200" y="113" text-anchor="middle" font-size="12">存储器 Mem</text>
+          <rect class="box" x="280" y="70" width="80" height="30"/>
+          <text class="fg2" x="320" y="90" text-anchor="middle" font-size="11">输入设备</text>
+          <rect class="box" x="280" y="110" width="80" height="30"/>
+          <text class="fg2" x="320" y="130" text-anchor="middle" font-size="11">输出设备</text>
+          <line class="line" x1="175" y1="46" x2="75" y2="90" marker-end="url(#ah)"/>
+          <line class="line" x1="200" y1="46" x2="200" y2="90" marker-end="url(#ah)"/>
+          <line class="line" x1="120" y1="108" x2="155" y2="108" marker-end="url(#ah)"/>
+          <line class="line" x1="245" y1="100" x2="280" y2="85" marker-end="url(#ah)"/>
+          <line class="line" x1="245" y1="115" x2="280" y2="125" marker-end="url(#ah)"/>
+          <path class="line" d="M200 126 L200 170 L75 170 L75 126" stroke-dasharray="4,3"/>
+          <text class="fg2" x="140" y="185" text-anchor="middle" font-size="10">指令 + 数据共享同一存储器</text>
+          <text class="fg2" x="200" y="220" text-anchor="middle" font-size="11" font-style="italic">冯·诺依曼五大组件</text>
+          <defs><marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 1-1 冯·诺依曼架构五大组件与统一存储示意</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">冯·诺依曼架构中，程序和数据存储在哪里？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '哈佛架构才将指令和数据分开存储。')">A. 指令和数据分别在不同的存储器中</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！冯·诺依曼架构的核心就是指令和数据以相同形式存储在同一存储器中。')">B. 统一存储在同一个存储器中</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '寄存器用于临时存放数据，不是主要存储位置。')">C. 只存储在寄存器中</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '控制器负责指挥协调，不是存储程序的地方。')">D. 存储在控制器中</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 单周期 CPU 数据通路</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>冯·诺依曼模型只告诉我们"取指-执行"的抽象过程，但没有告诉我们硬件层面到底如何实现。数据通路（Datapath）就是这个抽象的硬件实现——它定义了指令在 CPU 内部的<strong>物理路径</strong>：从哪里取操作数、送到哪里运算、结果写到哪里。</p>
+            <p>理解数据通路是理解 CPU 设计的基础。无论是后续的流水线优化、乱序执行还是超标量设计，都是在单周期数据通路的基础上进行改进。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>单周期数据通路的核心组件包括：</p>
+            <p><strong>① 程序计数器（PC）</strong>：指向下一条要执行的指令地址。</p>
+            <p><strong>② 指令存储器（Instruction Memory）</strong>：根据 PC 输出当前指令。</p>
+            <p><strong>③ 寄存器文件（Register File）</strong>：提供两个读端口和一个写端口，支持同时读取两个源寄存器并写入一个目标寄存器。</p>
+            <p><strong>④ ALU</strong>：根据控制信号执行加、减、与、或等运算。</p>
+            <p><strong>⑤ 数据存储器（Data Memory）</strong>：执行 load/store 时访问。</p>
+            <p><strong>⑥ 多路选择器（MUX）</strong>：根据控制信号选择不同的数据源，如选择寄存器值还是立即数送入 ALU。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>对于一条 R 型指令（如 <code>add rd, rs1, rs2</code>），数据通路的执行过程可以形式化为：</p>
+            \[
+            \text{Reg}[rd] \leftarrow \text{Reg}[rs1] \mathbin{\oplus_{\text{ALU}}} \text{Reg}[rs2]
+            \]
+            <p>对于 load 指令（如 <code>lw rd, offset(rs1)</code>）：</p>
+            \[
+            \text{Reg}[rd] \leftarrow \text{Mem}\bigl[\text{Reg}[rs1] + \text{SignExt}(\text{offset})\bigr]
+            \]
+            <p>单周期时钟周期的确定取决于最长路径。假设各组件延迟为：取指 \(t_{IF}\)、寄存器读 \(t_{RF}\)、ALU \(t_{ALU}\)、存储器访问 \(t_{MEM}\)、寄存器写 \(t_{WB}\)，则时钟周期为：</p>
+            \[
+            T_{clk} \geq t_{IF} + t_{RF} + t_{ALU} + t_{MEM} + t_{WB}
+            \]
+            <div class="warning-box">⚠️ 单周期设计中，即使最简单的 R 型指令不需要访存，其时钟周期也必须等于最慢的 load 指令的延迟。这种"木桶效应"是单周期 CPU 效率低下的根本原因。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>教学处理器：</strong>单周期 CPU 虽然在实际产品中几乎不使用，但它是计算机组成原理课程的核心教学模型。RISC-V 和 MIPS 的教学版处理器通常从单周期开始设计。</p>
+            <p><strong>FPGA 原型验证：</strong>在 FPGA 上实现单周期 CPU 是验证指令集正确性的第一步。由于单周期设计逻辑简单、状态少，调试起来比流水线容易得多。</p>
+            <p><strong>理解关键路径：</strong>分析单周期数据通路的延迟，能帮助我们理解为什么后续要引入流水线——将长路径切分成多个短阶段，每个阶段的延迟更短，时钟频率因此可以大幅提升。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>假设取指 200ps、寄存器读 100ps、ALU 200ps、存储器访问 200ps、寄存器写 100ps。单周期 CPU 的最高时钟频率是多少？</p>
+            <p><em>解答：</em>最慢路径为 load 指令：\(T = 200 + 100 + 200 + 200 + 100 = 800\text{ps}\)。最高频率 \(f = 1/800\text{ps} = 1.25\text{ GHz}\)。</p>
+            <p>❌ <strong>常见错误：</strong>只算 R 型指令的路径（省略 MEM 阶段），得到 600ps、1.67 GHz。这是错误的，因为单周期 CPU 不能为不同指令分配不同周期。</p>
+            <p>✅ <strong>正确做法：</strong>总是以最慢的指令路径确定时钟周期。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s4-ch01-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:4}</style>
+          <rect class="box" x="10" y="100" width="44" height="40"/>
+          <text class="fg" x="32" y="124" text-anchor="middle" font-size="10">PC</text>
+          <rect class="box" x="70" y="85" width="60" height="70"/>
+          <text class="fg" x="100" y="118" text-anchor="middle" font-size="9">指令</text>
+          <text class="fg" x="100" y="130" text-anchor="middle" font-size="9">存储器</text>
+          <rect class="box" x="150" y="85" width="55" height="70"/>
+          <text class="fg" x="177" y="118" text-anchor="middle" font-size="9">寄存器</text>
+          <text class="fg" x="177" y="130" text-anchor="middle" font-size="9">文件</text>
+          <polygon points="225,95 260,120 225,145" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <text class="accent" x="242" y="124" text-anchor="middle" font-size="10" font-weight="bold">ALU</text>
+          <rect class="box" x="278" y="85" width="55" height="70"/>
+          <text class="fg" x="305" y="118" text-anchor="middle" font-size="9">数据</text>
+          <text class="fg" x="305" y="130" text-anchor="middle" font-size="9">存储器</text>
+          <rect class="box" x="350" y="100" width="40" height="40"/>
+          <text class="fg2" x="370" y="124" text-anchor="middle" font-size="9">WB</text>
+          <line class="line" x1="54" y1="120" x2="70" y2="120"/>
+          <line class="line" x1="130" y1="120" x2="150" y2="120"/>
+          <line class="line" x1="205" y1="120" x2="225" y2="120"/>
+          <line class="line" x1="260" y1="120" x2="278" y2="120"/>
+          <line class="line" x1="333" y1="120" x2="350" y2="120"/>
+          <path class="line" d="M370 140 L370 200 L32 200 L32 140" stroke-dasharray="4,3"/>
+          <text class="fg2" x="200" y="215" text-anchor="middle" font-size="10">写回到寄存器文件</text>
+          <text class="fg2" x="200" y="65" text-anchor="middle" font-size="11" font-style="italic">单周期数据通路（简化）</text>
+        </svg>
+        <figcaption>图 1-2 单周期 CPU 数据通路简化示意——从 PC 到写回的完整路径</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">单周期 CPU 的时钟周期由什么决定？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '最快的指令不是瓶颈，单周期设计的周期取决于最慢的路径。')">A. 最快指令的执行时间</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！单周期设计中所有指令共用同一时钟，因此必须满足最慢指令的关键路径延迟。')">B. 最慢指令的关键路径延迟</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '指令数量与时钟周期无关，它影响的是总执行时间。')">C. 程序中的指令总数</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '平均值不能保证最慢指令在一个周期内完成。')">D. 所有指令延迟的平均值</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 取指-译码-执行-访存-写回（IF/ID/EX/MEM/WB）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>理解了单周期数据通路之后，一个自然的问题是：能不能把一条指令的执行<strong>拆分成多个步骤</strong>，每个步骤在不同的硬件模块上完成？这样不仅能让不同指令使用不同数量的周期（多周期设计），还为后续的流水线打下基础。</p>
+            <p>五级划分（IF/ID/EX/MEM/WB）是 MIPS 和 RISC-V 经典教学模型的基础，也是理解现代处理器微架构的起点。即使现代处理器的流水线深度可能是 10-20 级甚至更多，核心功能仍然可以映射到这五个逻辑阶段。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>五个阶段的职责划分如下：</p>
+            <p><strong>IF（Instruction Fetch）</strong>：用 PC 的值从指令存储器中取出指令，同时计算 \(\text{PC} + 4\) 作为下一条指令的默认地址。</p>
+            <p><strong>ID（Instruction Decode / Register Read）</strong>：解析指令字段（opcode、rs1、rs2、rd、funct、immediate），同时从寄存器文件中读取源操作数。控制器在此阶段生成控制信号。</p>
+            <p><strong>EX（Execute / Address Calculation）</strong>：ALU 执行运算（算术逻辑运算或地址计算）。对于分支指令，ALU 判断分支条件是否成立。</p>
+            <p><strong>MEM（Memory Access）</strong>：load 指令读取数据存储器，store 指令写入数据存储器。其他指令在此阶段"空过"。</p>
+            <p><strong>WB（Write Back）</strong>：将结果（ALU 输出或内存读取值）写回寄存器文件中的目标寄存器。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>在多周期设计中，不同类型的指令使用不同数量的周期。设每阶段耗时为 \(t_s\)，各类指令的周期数为：</p>
+            \[
+            \begin{aligned}
+            \text{R-type} &: \text{IF} + \text{ID} + \text{EX} + \text{WB} = 4\,t_s \\
+            \text{Load}   &: \text{IF} + \text{ID} + \text{EX} + \text{MEM} + \text{WB} = 5\,t_s \\
+            \text{Store}  &: \text{IF} + \text{ID} + \text{EX} + \text{MEM} = 4\,t_s \\
+            \text{Branch} &: \text{IF} + \text{ID} + \text{EX} = 3\,t_s
+            \end{aligned}
+            \]
+            <p>多周期设计的平均 CPI（Cycles Per Instruction）取决于指令混合比例。若 R-type 占 40%、Load 占 20%、Store 占 10%、Branch 占 30%：</p>
+            \[
+            \text{CPI}_{\text{avg}} = 0.4 \times 4 + 0.2 \times 5 + 0.1 \times 4 + 0.3 \times 3 = 3.9
+            \]
+            <div class="warning-box">⚠️ 多周期设计虽然提高了时钟频率（每阶段更短），但 CPI &gt; 1。只有流水线才能同时做到高时钟频率和接近 1 的 CPI。切勿将多周期与流水线混淆！</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>RISC-V 教学处理器：</strong>许多 RISC-V 教材（如 Patterson & Hennessy 的《计算机组成与设计》）以这五个阶段为框架，逐步构建从单周期到流水线的处理器。</p>
+            <p><strong>现代处理器的超深流水线：</strong>Intel Pentium 4（NetBurst 架构）的流水线深达 20+ 级，本质上是将经典五阶段进一步细分。例如 IF 被拆成多个子阶段（预取、对齐、解码预处理等）。</p>
+            <p><strong>微操作（μop）分解：</strong>x86 处理器将复杂的 CISC 指令在 ID 阶段分解为多个 RISC 风格的微操作，后续阶段处理这些微操作而非原始指令。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一条 <code>lw x5, 8(x10)</code> 指令依次经历哪些阶段？每个阶段做什么？</p>
+            <p><em>解答：</em></p>
+            <p>① <strong>IF</strong>：从 Mem[PC] 取出指令 → IR。</p>
+            <p>② <strong>ID</strong>：解析得到 rs1=x10, rd=x5, offset=8；读取 Reg[x10]。</p>
+            <p>③ <strong>EX</strong>：ALU 计算地址 = Reg[x10] + 8。</p>
+            <p>④ <strong>MEM</strong>：用计算得到的地址访问数据存储器，读取 Mem[Reg[x10]+8]。</p>
+            <p>⑤ <strong>WB</strong>：将读取的值写入 Reg[x5]。</p>
+            <p>❌ <strong>常见错误：</strong>认为 store 指令也有 WB 阶段——store 不需要写回寄存器，它在 MEM 阶段完成写入存储器后即结束。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s4-ch01-kp3">
+        <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}.stagebox{fill:none;stroke:#f43f5e;stroke-width:2;rx:8}</style>
+          <rect class="stagebox" x="10" y="50" width="65" height="50"/>
+          <text class="accent" x="42" y="72" text-anchor="middle" font-size="13" font-weight="bold">IF</text>
+          <text class="fg2" x="42" y="88" text-anchor="middle" font-size="8">取指</text>
+          <rect class="stagebox" x="90" y="50" width="65" height="50"/>
+          <text class="accent" x="122" y="72" text-anchor="middle" font-size="13" font-weight="bold">ID</text>
+          <text class="fg2" x="122" y="88" text-anchor="middle" font-size="8">译码</text>
+          <rect class="stagebox" x="170" y="50" width="65" height="50"/>
+          <text class="accent" x="202" y="72" text-anchor="middle" font-size="13" font-weight="bold">EX</text>
+          <text class="fg2" x="202" y="88" text-anchor="middle" font-size="8">执行</text>
+          <rect class="stagebox" x="250" y="50" width="65" height="50"/>
+          <text class="accent" x="282" y="72" text-anchor="middle" font-size="13" font-weight="bold">MEM</text>
+          <text class="fg2" x="282" y="88" text-anchor="middle" font-size="8">访存</text>
+          <rect class="stagebox" x="330" y="50" width="65" height="50"/>
+          <text class="accent" x="362" y="72" text-anchor="middle" font-size="13" font-weight="bold">WB</text>
+          <text class="fg2" x="362" y="88" text-anchor="middle" font-size="8">写回</text>
+          <line class="line" x1="75" y1="75" x2="90" y2="75" marker-end="url(#ah2)"/>
+          <line class="line" x1="155" y1="75" x2="170" y2="75" marker-end="url(#ah2)"/>
+          <line class="line" x1="235" y1="75" x2="250" y2="75" marker-end="url(#ah2)"/>
+          <line class="line" x1="315" y1="75" x2="330" y2="75" marker-end="url(#ah2)"/>
+          <text class="fg2" x="200" y="140" text-anchor="middle" font-size="11" font-style="italic">经典五级阶段划分</text>
+          <text class="fg" x="200" y="25" text-anchor="middle" font-size="12">指令在五个阶段中顺序流过</text>
+          <defs><marker id="ah2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 1-3 经典五级阶段：IF → ID → EX → MEM → WB</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在哪个阶段，控制器解析 opcode 并生成控制信号？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'IF 阶段只负责取指和更新 PC。')">A. IF（取指）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！ID 阶段负责指令译码，解析 opcode、读寄存器、生成控制信号。')">B. ID（译码）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'EX 阶段是 ALU 执行运算，控制信号在此之前就已生成。')">C. EX（执行）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'WB 阶段是写回结果，不涉及指令解析。')">D. WB（写回）</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 控制器（Control Unit）的设计</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>数据通路就像一座城市的道路网络，而控制器是交通信号灯和调度中心。没有控制器，数据就不知道走哪条路、在哪里转弯。控制器通过分析指令中的 opcode 和 funct 字段，生成一组<strong>控制信号</strong>来指挥数据通路中各个组件的行为。</p>
+            <p>一个错误的控制信号就可能让 ALU 执行错误运算、将结果写入错误的寄存器、或在不该访存时访问存储器。因此，控制器的正确设计是 CPU 功能正确性的关键保障。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>控制器的设计有两种经典方法：</p>
+            <p><strong>① 硬布线控制（Hardwired Control）</strong>：使用组合逻辑电路（真值表 → 逻辑门）直接从 opcode 生成控制信号。速度快但修改困难——每次指令集变化都要重新设计电路。</p>
+            <p><strong>② 微程序控制（Microprogrammed Control）</strong>：将每条机器指令的执行步骤编码为微指令序列，存储在控制存储器（ROM）中。执行机器指令时，控制器从 ROM 中读取微指令并执行。灵活性强，修改指令行为只需修改微程序。</p>
+            <p>典型的控制信号包括：<code>RegWrite</code>（寄存器写使能）、<code>MemRead</code>/<code>MemWrite</code>（存储器读/写）、<code>ALUSrc</code>（ALU 第二操作数来源）、<code>MemtoReg</code>（写回值来源）、<code>Branch</code>（分支使能）等。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>以 RISC-V 为例，硬布线控制器的真值表可以形式化为布尔函数。假设 opcode 为 7 位，则控制信号是 opcode 的函数：</p>
+            \[
+            \text{RegWrite} = f_1(\text{opcode}), \quad \text{ALUSrc} = f_2(\text{opcode}), \quad \text{MemRead} = f_3(\text{opcode}), \ldots
+            \]
+            <p>例如对于 RISC-V 的三种典型指令：</p>
+            \[
+            \begin{array}{|c|c|c|c|c|c|}
+            \hline
+            \textbf{指令类型} & \text{RegWrite} & \text{ALUSrc} & \text{MemRead} & \text{MemWrite} & \text{Branch} \\
+            \hline
+            \text{R-type} & 1 & 0 & 0 & 0 & 0 \\
+            \text{lw} & 1 & 1 & 1 & 0 & 0 \\
+            \text{sw} & 0 & 1 & 0 & 1 & 0 \\
+            \text{beq} & 0 & 0 & 0 & 0 & 1 \\
+            \hline
+            \end{array}
+            \]
+            <div class="warning-box">⚠️ ALUOp 信号通常需要二级解码：先由主控制器根据 opcode 生成 ALUOp，再由 ALU 控制器结合 ALUOp 和 funct 字段生成最终的 ALU 运算选择信号。很多学生在考试中遗漏这一层级，导致对控制信号的理解不完整。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>x86 的微程序传统：</strong>Intel 从 386 时代起大量使用微程序控制。每条复杂的 CISC 指令被翻译为一系列微操作（μops），通过微程序序列器驱动执行。这也是 x86 能在保持向后兼容的同时不断添加新指令的秘密。</p>
+            <p><strong>RISC 的硬布线哲学：</strong>RISC 架构（ARM、RISC-V、MIPS）的指令格式规整、指令种类少，非常适合硬布线控制。这带来了更快的译码速度和更低的功耗。</p>
+            <p><strong>可重配置处理器：</strong>某些 FPGA 软核处理器（如 NIOS II）使用微程序控制，用户可以通过修改微程序来自定义指令行为，实现特定领域的加速指令。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>在执行 <code>sw x5, 12(x10)</code>（store word）时，以下控制信号哪个为 1？(A) RegWrite (B) MemWrite (C) MemtoReg (D) Branch</p>
+            <p><em>解答：</em>选 (B)。sw 需要写入数据存储器，所以 MemWrite = 1。sw 不写寄存器（RegWrite = 0），MemtoReg 无关紧要（因为不写寄存器），也不是分支指令（Branch = 0）。</p>
+            <p>❌ <strong>常见错误：</strong>混淆 load 和 store 的控制信号——load 需要 MemRead = 1 且 RegWrite = 1，而 store 只需要 MemWrite = 1。</p>
+            <p>✅ <strong>记忆口诀：</strong>Load 读存储器写寄存器，Store 读寄存器写存储器。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s4-ch01-kp4">
+        <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}.ctrl{fill:none;stroke:#f43f5e;stroke-width:2;rx:8}</style>
+          <rect class="ctrl" x="130" y="10" width="140" height="45"/>
+          <text class="accent" x="200" y="30" text-anchor="middle" font-size="12" font-weight="bold">主控制器</text>
+          <text class="fg2" x="200" y="45" text-anchor="middle" font-size="9">opcode → 控制信号</text>
+          <line class="line" x1="100" y1="100" x2="130" y2="33" marker-end="url(#ah3)"/>
+          <text class="fg2" x="95" y="100" text-anchor="end" font-size="9">opcode</text>
+          <line class="line" x1="200" y1="55" x2="80" y2="130" marker-end="url(#ah3)"/>
+          <text class="fg2" x="70" y="145" text-anchor="middle" font-size="8">RegWrite</text>
+          <line class="line" x1="200" y1="55" x2="140" y2="130" marker-end="url(#ah3)"/>
+          <text class="fg2" x="140" y="145" text-anchor="middle" font-size="8">ALUSrc</text>
+          <line class="line" x1="200" y1="55" x2="200" y2="130" marker-end="url(#ah3)"/>
+          <text class="fg2" x="200" y="145" text-anchor="middle" font-size="8">MemR/W</text>
+          <line class="line" x1="200" y1="55" x2="260" y2="130" marker-end="url(#ah3)"/>
+          <text class="fg2" x="260" y="145" text-anchor="middle" font-size="8">MemtoReg</text>
+          <line class="line" x1="200" y1="55" x2="320" y2="130" marker-end="url(#ah3)"/>
+          <text class="fg2" x="320" y="145" text-anchor="middle" font-size="8">Branch</text>
+          <rect class="box" x="150" y="158" width="100" height="30"/>
+          <text class="fg" x="200" y="178" text-anchor="middle" font-size="9">ALU 控制器</text>
+          <line class="line" x1="200" y1="130" x2="200" y2="158" marker-end="url(#ah3)"/>
+          <text class="fg2" x="200" y="200" text-anchor="middle" font-size="10" font-style="italic">二级控制解码结构</text>
+          <defs><marker id="ah3" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 1-4 控制器结构：主控制器生成全局控制信号，ALU 控制器进行二级解码</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">执行 <code>add x3, x1, x2</code> 时，ALUSrc 信号应该为？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！R 型指令的两个操作数都来自寄存器，ALUSrc=0 表示选择寄存器值（而非立即数）作为 ALU 第二输入。')">A. 0（选择寄存器值）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'ALUSrc=1 表示选择立即数，这用于 I 型指令如 lw、addi 等。')">B. 1（选择立即数）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '控制信号只能是 0 或 1，不存在无关态在硬件实现中（虽然真值表中可能标注 X）。')">C. 无关（don\'t care）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'ALUSrc 是单一位信号，不会取值为 2。')">D. 2（选择 PC 值）</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="#" class="nav-prev disabled">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch02.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.2 流水线 — 计算的引擎 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s4-ch02-q1", question: "理想 5 级流水线的加速比最高为？", options: ["3 倍","4 倍","5 倍","10 倍"], answer: 2, explanation: "理想情况下，\\(n\\) 级流水线的加速比趋近于 \\(n\\)。5 级流水线理论最大加速比为 5 倍，即吞吐率是单周期的 5 倍。" },
+      { id: "s4-ch02-q2", question: "数据冒险（Data Hazard）发生的根本原因是？", options: ["指令存储器带宽不足","后续指令依赖前序指令尚未写回的结果","分支指令改变了 PC 值","两条指令同时访问同一硬件资源"], answer: 1, explanation: "数据冒险源于指令之间的数据依赖：后一条指令需要读取前一条指令尚未写回寄存器文件的结果。在流水线中，写回发生在 WB 阶段，而读取在 ID 阶段，可能相隔若干周期。" },
+      { id: "s4-ch02-q3", question: "转发（Forwarding / Bypassing）技术的核心思路是？", options: ["将结果提前写入寄存器文件","将 ALU 输出直接旁路到后续指令的 ALU 输入","增加寄存器文件的端口数量","插入气泡等待结果写回"], answer: 1, explanation: "转发在 EX/MEM 或 MEM/WB 流水线寄存器中取出已计算好的结果，通过旁路路径直接送到需要该结果的指令的 ALU 输入端，无需等待 WB 阶段完成。" },
+      { id: "s4-ch02-q4", question: "Load-Use 冒险为什么即使有转发也需要一个气泡？", options: ["因为转发硬件不支持 load 指令","因为 load 的数据在 MEM 阶段末尾才可用，而下一条指令在 EX 阶段初就需要","因为寄存器文件只有一个写端口","因为 load 指令不经过 ALU"], answer: 1, explanation: "load 指令在 MEM 阶段才从数据存储器读出数据。如果紧接着的指令在 EX 阶段需要该数据，即使有转发也晚了一个周期——数据还没出来就要用了。因此必须插入一个气泡（stall 一个周期）。" },
+      { id: "s4-ch02-q5", question: "控制冒险的最简单处理方法是？", options: ["分支预测","流水线冲刷后 stall 直到分支结果确定","转发","增加 ALU 数量"], answer: 1, explanation: "最简单的方法是在遇到分支指令时暂停流水线（stall），等分支结果在 EX 或 MEM 阶段确定后再继续取指。但这会造成多个周期的停顿，严重损失性能。" },
+      { id: "s4-ch02-q6", question: "流水线冲刷（Pipeline Flush）发生在什么情况下？", options: ["每条指令执行完毕后","分支预测错误时","数据存储器满时","时钟频率过高时"], answer: 1, explanation: "当分支预测错误时，已经进入流水线的后续指令是基于错误路径取的，必须全部丢弃（冲刷），然后从正确的分支目标重新开始取指。冲刷的代价是浪费了若干个周期的工作。" },
+      { id: "s4-ch02-q7", question: "结构冒险的典型例子是？", options: ["两条指令有 RAW 依赖","同一周期内两条指令都要访问同一个存储器端口","分支指令导致取错指令","寄存器数量不足"], answer: 1, explanation: "结构冒险发生在硬件资源不足以支持所有流水线阶段同时工作时。经典例子是指令取指（IF）和数据访存（MEM）在同一周期竞争同一个存储器端口。分离 I-Cache 和 D-Cache 可以解决。" },
+      { id: "s4-ch02-q8", question: "流水线加速比公式 \\(S = \\frac{n \\cdot t_s}{t_s + (n-1)\\cdot t_s / n}\\) 在 \\(n \\to \\infty\\) 时趋近于？", options: ["1","\\(n\\)","\\(n^2\\)","无穷大"], answer: 1, explanation: "当流水线级数 \\(n\\) 增加且指令数量足够多时，加速比趋近于 \\(n\\)。但实际中冒险、气泡和冲刷会使真实加速比远低于理论值。" }
+    ];
+  </script>
+  <script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre']}};</script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-4" data-module="ch02" style="--domain-color: var(--c-cpu);">
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 4</span><a href="index.html" class="module-name">计算的引擎</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.2 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 流水线提速原理</a></li>
+      <li><a href="#kp2">02 · 数据冒险与转发</a></li>
+      <li><a href="#kp3">03 · 控制冒险与冲刷</a></li>
+      <li><a href="#kp4">04 · 结构冒险与资源竞争</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+  <main class="main-content">
+    <header class="chapter-hero"><p class="chapter-label">Chapitre 2</p><h1>流水线（Pipeline）</h1></header>
+
+    <!-- ════════ KP 1 ════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 流水线的提速原理</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>单周期 CPU 中每个时钟周期只执行一条指令，大量硬件在大部分时间是空闲的——当 ALU 在工作时，取指单元闲置；当存储器被访问时，ALU 又无事可做。这种<strong>资源利用率极低</strong>的状况显然是可以优化的。</p>
+            <p>流水线的灵感来自工业生产中的装配线：把制造过程分成多个工位，每个工位只负责一道工序。虽然单个产品的生产时间不变，但<strong>吞吐率</strong>（单位时间内产出的产品数）大幅提升。处理器流水线用同样的思路，将指令执行分成多个阶段，让多条指令<strong>重叠执行</strong>。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>将指令执行划分为 \(k\) 个等长阶段（stage），每个阶段耗时 \(t_s\)。阶段之间插入<strong>流水线寄存器（Pipeline Register）</strong>来锁存中间结果，使得第 \(i\) 条指令在第 \(j\) 阶段工作时，第 \(i+1\) 条指令可以同时在第 \(j-1\) 阶段工作。</p>
+            <p>理想情况下，经过 \(k\) 个周期的启动（filling）后，每个时钟周期都能完成一条指令的最后阶段——即<strong>吞吐率提升为 \(k\) 倍</strong>，但每条指令的延迟（latency）并没有减少。</p>
+            <p>流水线寄存器本身也有延迟 \(t_r\)，因此实际时钟周期为 \(\max(t_{s_i}) + t_r\) 而非理想的 \(t_s\)。当阶段划分不均匀时，最慢的阶段成为瓶颈，限制整体时钟频率。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>设非流水线执行 \(N\) 条指令需时 \(N \cdot k \cdot t_s\)；\(k\) 级流水线需时 \(k \cdot t_s + (N-1) \cdot t_s\)（启动时间 + 稳态产出）。加速比为：</p>
+            \[
+            S = \frac{N \cdot k \cdot t_s}{k \cdot t_s + (N-1)\cdot t_s} = \frac{N \cdot k}{k + N - 1}
+            \]
+            <p>当 \(N \gg k\) 时：</p>
+            \[
+            S \approx k
+            \]
+            <p>即理想加速比等于流水线级数。实际中由于冒险（hazard）导致的停顿（stall）和冲刷（flush），真实 CPI &gt; 1：</p>
+            \[
+            \text{CPI}_{\text{real}} = 1 + \text{stall cycles per instruction}
+            \]
+            <div class="warning-box">⚠️ 流水线提高的是<strong>吞吐率（throughput）</strong>而非单条指令的<strong>延迟（latency）</strong>。实际上由于流水线寄存器的开销，单条指令的延迟反而略有增加。这是很多初学者的误区。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>经典五级流水线：</strong>MIPS R2000/R3000 和早期 RISC-V 实现采用 5 级流水线（IF/ID/EX/MEM/WB），在教学和工业中都产生了深远影响。</p>
+            <p><strong>超深流水线（Superpipelining）：</strong>Intel Pentium 4 将流水线拆到 20-31 级，目标是极大提升时钟频率（达到 3.8 GHz+）。但过深的流水线使分支预测错误的代价急剧增加。</p>
+            <p><strong>超标量（Superscalar）：</strong>现代处理器不仅用流水线，还在每个阶段放置多条并行路径，每周期可以发射（issue）2-8 条指令，进一步提升吞吐率。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>5 级流水线执行 100 条指令，无冒险。计算加速比。</p>
+            <p><em>解答：</em>非流水线时间 = \(100 \times 5 = 500\) 个阶段时间；流水线时间 = \(5 + 99 = 104\) 个阶段时间。\(S = 500 / 104 \approx 4.81\)。</p>
+            <p>❌ <strong>常见错误：</strong>直接写 \(S = 5\)，忽略流水线启动的开销。当指令数少时启动代价不可忽略。</p>
+            <p>✅ <strong>正确做法：</strong>始终用完整公式计算，只在 \(N \gg k\) 时才近似为 \(k\)。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch02-kp1">
+        <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1}.accent{fill:#f43f5e}.cell{stroke:#334155;stroke-width:1;rx:2}</style>
+          <text class="fg" x="10" y="28" font-size="9">I1</text><text class="fg" x="10" y="52" font-size="9">I2</text><text class="fg" x="10" y="76" font-size="9">I3</text><text class="fg" x="10" y="100" font-size="9">I4</text>
+          <text class="fg2" x="50" y="12" font-size="8">T1</text><text class="fg2" x="95" y="12" font-size="8">T2</text><text class="fg2" x="140" y="12" font-size="8">T3</text><text class="fg2" x="185" y="12" font-size="8">T4</text><text class="fg2" x="230" y="12" font-size="8">T5</text><text class="fg2" x="275" y="12" font-size="8">T6</text><text class="fg2" x="320" y="12" font-size="8">T7</text><text class="fg2" x="365" y="12" font-size="8">T8</text>
+          <rect class="cell" x="35" y="18" width="42" height="18" fill="#fecdd3"/><text class="accent" x="56" y="31" text-anchor="middle" font-size="8">IF</text>
+          <rect class="cell" x="80" y="18" width="42" height="18" fill="#fde68a"/><text class="fg" x="101" y="31" text-anchor="middle" font-size="8">ID</text>
+          <rect class="cell" x="125" y="18" width="42" height="18" fill="#bbf7d0"/><text class="fg" x="146" y="31" text-anchor="middle" font-size="8">EX</text>
+          <rect class="cell" x="170" y="18" width="42" height="18" fill="#bfdbfe"/><text class="fg" x="191" y="31" text-anchor="middle" font-size="8">MEM</text>
+          <rect class="cell" x="215" y="18" width="42" height="18" fill="#e9d5ff"/><text class="fg" x="236" y="31" text-anchor="middle" font-size="8">WB</text>
+          <rect class="cell" x="80" y="42" width="42" height="18" fill="#fecdd3"/><text class="accent" x="101" y="55" text-anchor="middle" font-size="8">IF</text>
+          <rect class="cell" x="125" y="42" width="42" height="18" fill="#fde68a"/><text class="fg" x="146" y="55" text-anchor="middle" font-size="8">ID</text>
+          <rect class="cell" x="170" y="42" width="42" height="18" fill="#bbf7d0"/><text class="fg" x="191" y="55" text-anchor="middle" font-size="8">EX</text>
+          <rect class="cell" x="215" y="42" width="42" height="18" fill="#bfdbfe"/><text class="fg" x="236" y="55" text-anchor="middle" font-size="8">MEM</text>
+          <rect class="cell" x="260" y="42" width="42" height="18" fill="#e9d5ff"/><text class="fg" x="281" y="55" text-anchor="middle" font-size="8">WB</text>
+          <rect class="cell" x="125" y="66" width="42" height="18" fill="#fecdd3"/><text class="accent" x="146" y="79" text-anchor="middle" font-size="8">IF</text>
+          <rect class="cell" x="170" y="66" width="42" height="18" fill="#fde68a"/><text class="fg" x="191" y="79" text-anchor="middle" font-size="8">ID</text>
+          <rect class="cell" x="215" y="66" width="42" height="18" fill="#bbf7d0"/><text class="fg" x="236" y="79" text-anchor="middle" font-size="8">EX</text>
+          <rect class="cell" x="260" y="66" width="42" height="18" fill="#bfdbfe"/><text class="fg" x="281" y="79" text-anchor="middle" font-size="8">MEM</text>
+          <rect class="cell" x="305" y="66" width="42" height="18" fill="#e9d5ff"/><text class="fg" x="326" y="79" text-anchor="middle" font-size="8">WB</text>
+          <rect class="cell" x="170" y="90" width="42" height="18" fill="#fecdd3"/><text class="accent" x="191" y="103" text-anchor="middle" font-size="8">IF</text>
+          <rect class="cell" x="215" y="90" width="42" height="18" fill="#fde68a"/><text class="fg" x="236" y="103" text-anchor="middle" font-size="8">ID</text>
+          <rect class="cell" x="260" y="90" width="42" height="18" fill="#bbf7d0"/><text class="fg" x="281" y="103" text-anchor="middle" font-size="8">EX</text>
+          <rect class="cell" x="305" y="90" width="42" height="18" fill="#bfdbfe"/><text class="fg" x="326" y="103" text-anchor="middle" font-size="8">MEM</text>
+          <rect class="cell" x="350" y="90" width="42" height="18" fill="#e9d5ff"/><text class="fg" x="371" y="103" text-anchor="middle" font-size="8">WB</text>
+          <text class="fg2" x="200" y="140" text-anchor="middle" font-size="10" font-style="italic">4 条指令在 5 级流水线中重叠执行</text>
+          <text class="fg2" x="200" y="160" text-anchor="middle" font-size="9">稳态后每周期完成 1 条指令</text>
+        </svg>
+        <figcaption>图 2-1 流水线时空图：4 条指令在 5 级流水线中的重叠执行</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">流水线提高的是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'单条指令延迟不变甚至略增（因为流水线寄存器开销）。')">A. 单条指令的执行延迟</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,true,'正确！流水线通过让多条指令重叠执行，提高了单位时间内完成指令的数量，即吞吐率。')">B. 指令吞吐率（throughput）</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'存储容量与流水线无关。')">C. 存储器容量</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'寄存器数量由 ISA 决定，不受流水线影响。')">D. 寄存器数量</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 2 ════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 数据冒险（Data Hazard）与转发（Forwarding）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>流水线让多条指令同时执行，但指令之间往往存在数据依赖关系。考虑这样的代码：</p>
+            <p><code>add x1, x2, x3</code> 之后紧接 <code>sub x4, x1, x5</code>。第二条指令需要读取 x1，而 x1 的新值在第一条指令的 WB 阶段才写回。但在流水线中，sub 的 ID 阶段可能在 add 的 WB 之前就执行了——读到的是 x1 的<strong>旧值</strong>！</p>
+            <p>这就是<strong>数据冒险</strong>，是流水线设计中最常见也最需要精心处理的问题。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>数据冒险按依赖类型分为三类：</p>
+            <p><strong>RAW（Read After Write）</strong>：后序指令读取前序指令要写的寄存器。这是最常见且真正需要处理的冒险。</p>
+            <p><strong>WAR（Write After Read）</strong>：后序指令写入前序指令要读的寄存器。在顺序流水线中不会出问题，但在乱序执行中需要处理。</p>
+            <p><strong>WAW（Write After Write）</strong>：两条指令写同一寄存器。在顺序流水线中不会出问题，但在乱序执行中必须保证最终结果来自程序顺序中较晚的指令。</p>
+            <p><strong>转发（Forwarding / Bypassing）</strong>是解决 RAW 冒险的关键技术：不等结果写回寄存器文件，而是在数据产生的那个阶段就通过旁路通道传给需要它的后续指令。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>转发条件的形式化描述。设当前在 EX 阶段的指令需要操作数 rs，前面的指令写 rd：</p>
+            \[
+            \text{Forward from EX/MEM}: \text{if } (\text{EX/MEM.rd} = \text{ID/EX.rs}) \wedge (\text{EX/MEM.RegWrite} = 1)
+            \]
+            \[
+            \text{Forward from MEM/WB}: \text{if } (\text{MEM/WB.rd} = \text{ID/EX.rs}) \wedge (\text{MEM/WB.RegWrite} = 1)
+            \]
+            <p>对于 Load-Use 冒险（前一条是 load，后一条立刻使用其结果），转发也无法完全解决，因为数据在 MEM 阶段末才可用：</p>
+            \[
+            \text{Stall if } (\text{ID/EX.MemRead} = 1) \wedge (\text{ID/EX.rd} = \text{IF/ID.rs})
+            \]
+            <p>需要插入一个气泡（bubble），即强制 stall 一个周期。</p>
+            <div class="warning-box">⚠️ 转发只能解决 ALU 指令之间的 RAW 冒险。Load-Use 冒险即使有转发也需要一个 stall。编译器优化（指令调度）可以通过重排无关指令来填充这个气泡，避免性能损失。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>编译器指令调度：</strong>GCC 和 LLVM 的指令调度器会分析数据依赖关系，将无关的指令调整到 load 和 use 之间，填充 stall 周期。这是软件和硬件协同优化的经典案例。</p>
+            <p><strong>硬件互锁（Interlock）：</strong>MIPS R4000 引入了硬件互锁机制，自动检测数据冒险并插入气泡，程序员和编译器无需手动管理。早期 MIPS R2000 使用"延迟槽"让编译器负责，后来被证明得不偿失。</p>
+            <p><strong>寄存器重命名：</strong>现代乱序执行处理器使用寄存器重命名来彻底消除 WAR 和 WAW 冒险，只留下真正的 RAW 依赖需要转发或等待。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>以下代码在无转发的 5 级流水线中需要几个 stall？</p>
+            <p><code>add x1, x2, x3; sub x4, x1, x5; and x6, x1, x7</code></p>
+            <p><em>解答：</em>sub 在 add 后第 1 条，需等 2 个周期（add 的结果在第 5 周期 WB，sub 在第 3 周期 ID 就要读）→ 2 stall。and 在 add 后第 2 条，需等 1 周期 → 但如果 sub 已经 stall 了 2 周期，and 会被推后，可能不需要额外 stall。需要仔细画流水线时空图分析。</p>
+            <p>❌ <strong>常见错误：</strong>独立计算每对指令的 stall 后简单相加，忽略了 stall 的传播效应。</p>
+            <p>✅ <strong>正确做法：</strong>画出完整的流水线时空图，标注每条指令在每个周期所处的阶段。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch02-kp2">
+        <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}.fwd{stroke:#f43f5e;fill:none;stroke-width:2;stroke-dasharray:5,3}</style>
+          <text class="fg" x="10" y="50" font-size="10">add x1,x2,x3</text>
+          <text class="fg" x="10" y="90" font-size="10">sub x4,x1,x5</text>
+          <rect x="130" y="35" width="40" height="20" fill="#bbf7d0" stroke="#334155" rx="3"/>
+          <text class="fg" x="150" y="49" text-anchor="middle" font-size="8">EX</text>
+          <rect x="175" y="35" width="40" height="20" fill="#bfdbfe" stroke="#334155" rx="3"/>
+          <text class="fg" x="195" y="49" text-anchor="middle" font-size="8">MEM</text>
+          <rect x="175" y="75" width="40" height="20" fill="#bbf7d0" stroke="#334155" rx="3"/>
+          <text class="fg" x="195" y="89" text-anchor="middle" font-size="8">EX</text>
+          <path class="fwd" d="M170 55 Q180 65 180 75" marker-end="url(#ahf)"/>
+          <text class="accent" x="260" y="65" font-size="9" font-weight="bold">转发旁路</text>
+          <text class="fg2" x="200" y="130" text-anchor="middle" font-size="10" font-style="italic">EX/MEM → EX 转发路径示意</text>
+          <defs><marker id="ahf" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#f43f5e"/></marker></defs>
+        </svg>
+        <figcaption>图 2-2 转发（Forwarding）：将 EX/MEM 寄存器中的 ALU 结果直接旁路到后续指令的 EX 输入</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">Load-Use 冒险在有转发的流水线中需要几个 stall？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'即使有转发，load 的数据在 MEM 末才出来，仍需等一个周期。')">A. 0 个</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,true,'正确！load 在 MEM 阶段末才获得数据，而后续指令在 EX 初就需要，转发也弥补不了这一个周期的差距。')">B. 1 个</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'2 个 stall 是在没有转发时的情况。')">C. 2 个</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'3 个 stall 太多了，转发大大减少了需要的等待。')">D. 3 个</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 3 ════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 控制冒险（Control Hazard）与流水线冲刷</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>流水线依赖一个假设：下一条指令总是 PC+4。但<strong>分支指令</strong>和<strong>跳转指令</strong>会打破这个假设——它们可能让 PC 跳到完全不同的地址。在分支结果确定之前，流水线已经在继续取后续指令了，如果最终发现分支应该跳转，那些已经取进来的指令就是<strong>无效的</strong>。</p>
+            <p>控制冒险是影响流水线性能的关键因素。统计显示，一般程序中约 15-25% 的指令是分支指令，如果每次遇到分支都要 stall，性能损失将非常严重。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>处理控制冒险有三种基本策略：</p>
+            <p><strong>① Stall（暂停）</strong>：遇到分支时冻结流水线，等分支结果确定后再取指。简单但代价大——每次分支损失 1-3 个周期。</p>
+            <p><strong>② 预测（Prediction）</strong>：猜测分支的方向（taken or not taken），按猜测继续取指执行。如果猜错就冲刷流水线。猜测准确率越高，性能越好。</p>
+            <p><strong>③ 延迟分支（Delayed Branch）</strong>：MIPS 等架构在分支指令后放一个"延迟槽（delay slot）"，这条指令无论分支是否跳转都会执行。编译器负责将有用的指令放入延迟槽。</p>
+            <p>流水线<strong>冲刷（Flush）</strong>是预测错误后的修正动作：丢弃流水线中已经取进来的错误路径上的指令，将 PC 设为正确的分支目标地址，重新开始取指。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>设分支指令比例为 \(f_b\)，分支预测准确率为 \(p\)，预测错误的惩罚为 \(c\) 个周期。则分支导致的 CPI 增量为：</p>
+            \[
+            \Delta \text{CPI}_{\text{branch}} = f_b \times (1 - p) \times c
+            \]
+            <p>例如 \(f_b = 20\%\)、\(p = 90\%\)、\(c = 3\) 周期：</p>
+            \[
+            \Delta \text{CPI} = 0.2 \times 0.1 \times 3 = 0.06
+            \]
+            <p>若提高准确率到 95%：\(\Delta \text{CPI} = 0.2 \times 0.05 \times 3 = 0.03\)，CPI 改善了 50%！</p>
+            <div class="warning-box">⚠️ 分支惩罚 \(c\) 与流水线深度正相关。超深流水线（如 20+ 级）的分支错误代价可达 15-20 周期，这使得分支预测准确率对性能影响极其显著。Intel Pentium 4 正是因此遭受了严重的分支代价问题。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>静态预测"总是不跳转"：</strong>最简单的策略是假设分支不跳转（predict not taken），继续顺序取指。对于循环的最后一次迭代，这个预测是正确的；但对于循环体内的回跳分支，预测几乎总是错的。</p>
+            <p><strong>动态预测：</strong>现代处理器使用两位饱和计数器、GShare、TAGE 等复杂算法，根据分支历史动态调整预测结果，准确率可达 95% 以上（详见第 4 章）。</p>
+            <p><strong>推测执行（Speculative Execution）：</strong>处理器不仅预测分支方向，还<strong>提前执行</strong>预测路径上的指令。如果预测正确，结果直接提交；如果错误，丢弃所有推测结果并回滚。这是现代高性能处理器的标准做法。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个 10 级流水线处理器，分支惩罚为 4 周期，分支比例 20%，预测准确率 85%。计算实际 CPI。</p>
+            <p><em>解答：</em>\(\text{CPI} = 1 + 0.2 \times 0.15 \times 4 = 1 + 0.12 = 1.12\)</p>
+            <p>❌ <strong>常见错误：</strong>将分支惩罚设为整个流水线深度（10）而非实际冲刷的级数（4）。分支惩罚取决于分支结果在哪个阶段确定。</p>
+            <p>✅ <strong>关键理解：</strong>分支惩罚 = 分支结果确定的阶段数 - 1（因为取指阶段已在执行中）。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch02-kp3">
+        <svg viewBox="0 0 400 160" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1}.accent{fill:#f43f5e}.flush{fill:#fee2e2;stroke:#ef4444;stroke-width:1.5;rx:3}</style>
+          <text class="fg" x="5" y="35" font-size="9">beq</text>
+          <text class="fg" x="5" y="60" font-size="9">I(错)</text>
+          <text class="fg" x="5" y="85" font-size="9">I(错)</text>
+          <text class="fg" x="5" y="110" font-size="9">I(正确)</text>
+          <rect x="50" y="22" width="36" height="18" fill="#fecdd3" stroke="#334155" rx="2"/><text class="fg" x="68" y="35" text-anchor="middle" font-size="7">IF</text>
+          <rect x="90" y="22" width="36" height="18" fill="#fde68a" stroke="#334155" rx="2"/><text class="fg" x="108" y="35" text-anchor="middle" font-size="7">ID</text>
+          <rect x="130" y="22" width="36" height="18" fill="#bbf7d0" stroke="#334155" rx="2"/><text class="fg" x="148" y="35" text-anchor="middle" font-size="7">EX</text>
+          <rect class="flush" x="90" y="47" width="36" height="18"/><text class="accent" x="108" y="60" text-anchor="middle" font-size="7">IF ✗</text>
+          <rect class="flush" x="130" y="47" width="36" height="18"/><text class="accent" x="148" y="60" text-anchor="middle" font-size="7">ID ✗</text>
+          <rect class="flush" x="130" y="72" width="36" height="18"/><text class="accent" x="148" y="85" text-anchor="middle" font-size="7">IF ✗</text>
+          <rect x="170" y="97" width="36" height="18" fill="#fecdd3" stroke="#334155" rx="2"/><text class="fg" x="188" y="110" text-anchor="middle" font-size="7">IF</text>
+          <text class="accent" x="250" y="60" font-size="10" font-weight="bold">← 冲刷</text>
+          <text class="fg2" x="200" y="145" text-anchor="middle" font-size="10" font-style="italic">分支预测错误后的流水线冲刷（2 周期惩罚）</text>
+        </svg>
+        <figcaption>图 2-3 控制冒险：分支预测错误后冲刷已取的无效指令</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">分支预测错误时，流水线需要做什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'暂停取指只是 stall 策略，不是预测错误后的处理。')">A. 暂停取指等待</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,true,'正确！预测错误后必须丢弃（冲刷）流水线中基于错误路径取进来的指令，然后从正确的目标地址重新取指。')">B. 冲刷流水线中的无效指令，从正确地址重新取指</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'继续执行错误路径的指令会导致程序结果错误。')">C. 继续执行已取的指令</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'整个程序重启太极端了，只需冲刷受影响的几条指令。')">D. 重启整个程序</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 4 ════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 结构冒险（Structural Hazard）与资源竞争</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>流水线让多条指令同时处于不同阶段，但如果两个阶段需要同时使用<strong>同一个硬件资源</strong>，就会产生冲突。例如，IF 阶段需要从存储器取指令，而 MEM 阶段需要访问数据存储器——如果两者共享同一个存储器端口，就无法同时进行。</p>
+            <p>结构冒险是最"物理"的冒险类型，它直接反映了硬件资源的不足。解决方案通常是<strong>增加硬件资源</strong>（如分离缓存、增加端口），但这会增加面积和功耗。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>结构冒险的常见场景包括：</p>
+            <p><strong>① 统一存储器（Unified Memory）</strong>：取指和数据访问竞争同一存储端口。解决方案：分离指令缓存（I-Cache）和数据缓存（D-Cache）。</p>
+            <p><strong>② 单端口寄存器文件</strong>：ID 阶段读寄存器和 WB 阶段写寄存器竞争同一端口。解决方案：使用双端口或多端口寄存器文件；或在时钟周期前半段写、后半段读。</p>
+            <p><strong>③ 功能单元不足</strong>：在超标量处理器中，多条指令可能同时需要使用浮点乘法器等稀缺资源。解决方案：增加功能单元数量，或在指令调度时避开冲突。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>结构冒险导致的 stall 率可以建模为：设资源 \(R\) 被阶段 \(A\) 和阶段 \(B\) 共享，两者同时需要 \(R\) 的概率为 \(p_{AB}\)，则结构冒险导致的 CPI 增量为：</p>
+            \[
+            \Delta \text{CPI}_{\text{struct}} = p_{AB} \times c_{\text{stall}}
+            \]
+            <p>增加一份硬件资源的成本为 \(C_{\text{hw}}\)。是否值得复制资源取决于性能收益与面积/功耗代价的权衡：</p>
+            \[
+            \text{值得复制} \iff \frac{\Delta \text{CPI}_{\text{struct}} \times f_{\text{clk}}}{\text{baseline IPC}} \times \text{性能价值} > C_{\text{hw}}
+            \]
+            <div class="warning-box">⚠️ 在简单的 5 级流水线教学模型中，假设分离 I-Cache 和 D-Cache、多端口寄存器文件后，结构冒险被完全消除。但在实际的超标量和乱序处理器中，结构冒险仍然存在（如有限的 ALU 数量、加载/存储单元端口等）。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>分离缓存（Split Cache）</strong>：几乎所有现代处理器的 L1 缓存都分为 I-Cache 和 D-Cache，这正是为了消除取指和数据访问之间的结构冒险。</p>
+            <p><strong>多端口寄存器文件：</strong>ARM Cortex-A77 的整数寄存器文件支持 10+ 个读端口和 5+ 个写端口，以支撑每周期发射多条指令的需求。多端口设计的面积大致按端口数的平方增长。</p>
+            <p><strong>功能单元复制：</strong>Intel Core 系列处理器通常有 3-4 个整数 ALU、2 个浮点/SIMD 单元、2 个 load 端口和 1 个 store 端口，通过资源冗余最大化流水线利用率。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个没有分离缓存的 5 级流水线处理器，IF 和 MEM 阶段共享同一存储端口。若 30% 的指令是 load/store，计算结构冒险导致的 CPI 增量。</p>
+            <p><em>解答：</em>每当 MEM 阶段执行 load/store 时，IF 阶段必须 stall。\(\Delta \text{CPI} = 0.3 \times 1 = 0.3\)。</p>
+            <p>❌ <strong>常见错误：</strong>忘记 store 指令也需要访问存储器——不仅 load，store 在 MEM 阶段也需要写数据存储器。</p>
+            <p>✅ <strong>正确做法：</strong>统计所有需要在 MEM 阶段访问存储器的指令（load + store）。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch02-kp4">
+        <svg viewBox="0 0 400 160" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}.conflict{stroke:#ef4444;stroke-width:2.5;fill:none}</style>
+          <rect x="80" y="20" width="100" height="40" fill="none" stroke="#334155" stroke-width="1.5" rx="6"/>
+          <text class="fg" x="130" y="45" text-anchor="middle" font-size="11">统一存储器</text>
+          <text class="accent" x="40" y="35" font-size="10" font-weight="bold">IF</text>
+          <line class="line" x1="55" y1="32" x2="80" y2="38" marker-end="url(#ahs)"/>
+          <text class="accent" x="40" y="55" font-size="10" font-weight="bold">MEM</text>
+          <line class="line" x1="55" y1="52" x2="80" y2="45" marker-end="url(#ahs)"/>
+          <ellipse class="conflict" cx="70" cy="43" rx="18" ry="18"/>
+          <text class="accent" x="70" y="78" text-anchor="middle" font-size="9">冲突!</text>
+          <text class="fg2" x="280" y="30" font-size="10">解决方案：</text>
+          <rect x="250" y="40" width="65" height="28" fill="#dbeafe" stroke="#334155" rx="4"/>
+          <text class="fg" x="282" y="58" text-anchor="middle" font-size="9">I-Cache</text>
+          <rect x="325" y="40" width="65" height="28" fill="#dcfce7" stroke="#334155" rx="4"/>
+          <text class="fg" x="357" y="58" text-anchor="middle" font-size="9">D-Cache</text>
+          <text class="fg2" x="310" y="90" text-anchor="middle" font-size="9">分离缓存消除冲突</text>
+          <text class="fg2" x="200" y="140" text-anchor="middle" font-size="10" font-style="italic">结构冒险：IF 与 MEM 争用同一存储端口</text>
+          <defs><marker id="ahs" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 2-4 结构冒险示意：统一存储器导致 IF 与 MEM 冲突，分离缓存可解决</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">以下哪项不是解决结构冒险的方法？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'分离 I-Cache 和 D-Cache 正是解决取指/访存冲突的标准方法。')">A. 分离指令缓存和数据缓存</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'增加端口可以消除寄存器文件的访问冲突。')">B. 使用多端口寄存器文件</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,true,'正确！分支预测解决的是控制冒险（分支导致的不确定性），而非硬件资源竞争的结构冒险。')">C. 分支预测</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'增加 ALU 数量可以减少功能单元竞争。')">D. 复制功能单元</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="exercises" class="exercises-section"><h2>🧩 综合练习</h2><div id="quiz-zone"></div></section>
+    <nav class="chapter-nav">
+      <a href="ch01.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch03.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

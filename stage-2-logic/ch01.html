@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.1 逻辑门的物理实现 — 逻辑的诞生 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s2-ch01-q1",
+        question: "在 CMOS NOT 门中，当输入为逻辑 1（高电平）时，哪个晶体管导通？",
+        options: [
+          "PMOS 导通，输出接 VDD",
+          "NMOS 导通，输出接 GND",
+          "PMOS 和 NMOS 同时导通",
+          "两个都不导通，输出浮空"
+        ],
+        answer: 1,
+        explanation: "当输入为高电平时，NMOS 栅极为高，满足导通条件（\\(V_{GS} > V_{th}\\)），将输出拉至 GND（逻辑 0）。同时 PMOS 栅极为高，不满足导通条件（需要 \\(V_{GS} < -|V_{tp}|\\)），截止。因此只有 NMOS 导通，输出为 0。这就是互补 CMOS 的核心：任何时刻只有一个网络导通。"
+      },
+      {
+        id: "s2-ch01-q2",
+        question: "CMOS NAND 门中，NMOS 晶体管的连接方式是？",
+        options: [
+          "并联（Parallel），连接在 VDD 和输出之间",
+          "串联（Series），连接在输出和 GND 之间",
+          "并联（Parallel），连接在输出和 GND 之间",
+          "串联（Series），连接在 VDD 和输出之间"
+        ],
+        answer: 1,
+        explanation: "在 CMOS NAND 门中，NMOS 晶体管串联在输出和 GND 之间。只有当所有输入都为 1 时，所有 NMOS 都导通，才能形成从输出到 GND 的通路，将输出拉低。而 PMOS 则并联在 VDD 和输出之间，只要有任何一个输入为 0，对应的 PMOS 就导通，将输出拉高。这正是 NAND（与非）的逻辑含义。"
+      },
+      {
+        id: "s2-ch01-q3",
+        question: "用 NAND 门实现 NOT 功能，最少需要几个 NAND 门？",
+        options: [
+          "2 个",
+          "3 个",
+          "1 个",
+          "无法实现"
+        ],
+        answer: 2,
+        explanation: "只需 1 个 NAND 门：将两个输入端连接在一起（即 \\(A = B\\)），则 \\(\\text{NAND}(A,A) = \\overline{A \\cdot A} = \\overline{A}\\)，这就是 NOT 运算。这是 NAND 作为万能门的最基本应用，也是构建其他复合门的第一步。"
+      },
+      {
+        id: "s2-ch01-q4",
+        question: "用 NAND 门构建 OR 门，\\(A + B\\) 的正确实现是？",
+        options: [
+          "\\(\\text{NAND}(A, B)\\)",
+          "\\(\\text{NAND}(\\text{NAND}(A,A),\\;\\text{NAND}(B,B))\\)",
+          "\\(\\text{NAND}(\\text{NAND}(A,B),\\;\\text{NAND}(A,B))\\)",
+          "无法用 NAND 实现 OR"
+        ],
+        answer: 1,
+        explanation: "根据德摩根定律：\\(A + B = \\overline{\\overline{A} \\cdot \\overline{B}}\\)。先用两个 NAND 门分别实现 \\(\\overline{A}\\) 和 \\(\\overline{B}\\)（将输入短接），再用第三个 NAND 门对这两个结果取 NAND，即 \\(\\overline{\\overline{A} \\cdot \\overline{B}} = A + B\\)。共需 3 个 NAND 门。"
+      },
+      {
+        id: "s2-ch01-q5",
+        question: "某逻辑门的 \\(R_{on} = 2\\,\\text{k}\\Omega\\)，负载电容 \\(C_L = 100\\,\\text{fF}\\)，其传播延迟 \\(t_p\\) 约为？",
+        options: [
+          "\\(200\\,\\text{fs}\\)",
+          "\\(138\\,\\text{ps}\\)",
+          "\\(200\\,\\text{ps}\\)",
+          "\\(138\\,\\text{ns}\\)"
+        ],
+        answer: 1,
+        explanation: "传播延迟 \\(t_p \\approx 0.69 \\cdot R \\cdot C = 0.69 \\times 2 \\times 10^3 \\times 100 \\times 10^{-15} = 0.69 \\times 200 \\times 10^{-12} = 138 \\times 10^{-12}\\,\\text{s} = 138\\,\\text{ps}\\)。这里 0.69 来自 RC 电路充放电到 50% 点的时间常数：\\(t_{50\\%} = \\tau \\cdot \\ln 2 \\approx 0.693\\tau\\)。"
+      },
+      {
+        id: "s2-ch01-q6",
+        question: "如果将工作电压 \\(V_{DD}\\) 从 1.2 V 降低到 0.8 V，动态功耗变为原来的多少？",
+        options: [
+          "\\(\\frac{2}{3}\\)",
+          "\\(\\frac{4}{9}\\)",
+          "\\(\\frac{1}{2}\\)",
+          "\\(\\frac{8}{27}\\)"
+        ],
+        answer: 1,
+        explanation: "动态功耗 \\(P_{dyn} = \\alpha C_L V_{DD}^2 f\\)，与 \\(V_{DD}^2\\) 成正比。电压比为 \\(0.8/1.2 = 2/3\\)，功耗比为 \\((2/3)^2 = 4/9 \\approx 0.444\\)。这意味着降压 33% 可以减少约 56% 的动态功耗，但代价是电路速度变慢（因为驱动能力下降）。"
+      },
+      {
+        id: "s2-ch01-q7",
+        question: "CMOS 相比 TTL 最大的优势是什么？",
+        options: [
+          "开关速度更快",
+          "静态功耗极低",
+          "制造成本更低",
+          "输出电压更高"
+        ],
+        answer: 1,
+        explanation: "CMOS 的核心优势是静态功耗极低。在稳态下，PMOS 和 NMOS 互补导通，不存在从 VDD 到 GND 的直流通路，静态电流仅为纳安级漏电流。TTL 内部有常导通电阻，每个门都有毫安级静态电流。当芯片集成数十亿晶体管时，这个差异决定了芯片是否能正常散热。"
+      },
+      {
+        id: "s2-ch01-q8",
+        question: "CMOS 反相器的电压传输特性（VTC）中，噪声容限 \\(NM_H\\) 的定义是？",
+        options: [
+          "\\(V_{OH} - V_{IH}\\)",
+          "\\(V_{IL} - V_{OL}\\)",
+          "\\(V_{OH} - V_{OL}\\)",
+          "\\(V_{IH} - V_{IL}\\)"
+        ],
+        answer: 0,
+        explanation: "高电平噪声容限定义为 \\(NM_H = V_{OH} - V_{IH}\\)，表示输出高电平（\\(V_{OH}\\)）距离下一级输入判定阈值（\\(V_{IH}\\)）的裕量。类似地，低电平噪声容限 \\(NM_L = V_{IL} - V_{OL}\\)。噪声容限越大，电路抗干扰能力越强。CMOS 因为有轨到轨（rail-to-rail）输出摆幅，噪声容限优于 TTL。"
+      }
+    ];
+  </script>
+
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+
+<body class="chapter-page" data-category="stage-2" data-module="ch01"
+      style="--domain-color: var(--c-logic);">
+
+  <!-- ═══════════ TOPBAR ═══════════ -->
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 2</span>
+      <a href="index.html" class="module-name">逻辑的诞生</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.1 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <!-- ═══════════ TOC SIDEBAR ═══════════ -->
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · NOT/NAND/NOR的MOSFET实现</a></li>
+      <li><a href="#kp2">02 · NAND万能门</a></li>
+      <li><a href="#kp3">03 · 传播延迟与功耗</a></li>
+      <li><a href="#kp4">04 · CMOS逻辑家族</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <!-- ═══════════ MAIN CONTENT ═══════════ -->
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 1</p>
+      <h1>逻辑门的物理实现</h1>
+    </header>
+
+    <!-- ═══════════ KP 1 ═══════════ -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">01</span>NOT / NAND / NOR 的 MOSFET 实现
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在 Stage 1 中，我们学习了 MOSFET 晶体管——这种神奇的电控开关可以用电压信号控制电流的通断。但一个开关本身并不能"思考"。如果我们想让电路做出逻辑判断——比如"只有当 A <strong>且</strong> B 同时为真时，输出才为真"——就需要将多个晶体管组合起来，形成<strong>逻辑门（Logic Gate）</strong>。</p>
+            <p>逻辑门是数字电路的原子操作。就像化学中的原子组成分子，逻辑门组成加法器、存储器、乃至整个 CPU。理解逻辑门如何由晶体管物理实现，是从模拟电子学迈向数字计算的关键一步。这一节，我们从最简单的 NOT 门开始，逐步推导 NAND 和 NOR 门的 CMOS 实现。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>MOSFET 的核心行为可以抽象为两条规则：</p>
+            <p><strong>NMOS（N 沟道 MOSFET）：</strong>栅极（Gate）为高电平时导通，充当连接到 GND 的开关。即"高电平打开，拉到地"。</p>
+            <p><strong>PMOS（P 沟道 MOSFET）：</strong>栅极为低电平时导通，充当连接到 VDD 的开关。即"低电平打开，拉到电源"。</p>
+            <p>互补 CMOS（Complementary MOS）的设计哲学是：用 PMOS 构建<strong>上拉网络（Pull-Up Network, PUN）</strong>连接 VDD 与输出，用 NMOS 构建<strong>下拉网络（Pull-Down Network, PDN）</strong>连接输出与 GND。两个网络互补——当上拉导通时下拉截止，反之亦然——确保输出始终有确定的逻辑电平。</p>
+            <p>我们用真值表（Truth Table）来定义逻辑门的行为规范：</p>
+            <p><strong>NOT 门：</strong>输入 0 → 输出 1；输入 1 → 输出 0。</p>
+            <p><strong>NAND 门：</strong>只有当所有输入都为 1 时，输出为 0；否则输出为 1。</p>
+            <p><strong>NOR 门：</strong>只要有任何一个输入为 1，输出为 0；所有输入都为 0 时输出为 1。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>NOT 门（反相器, Inverter）的构建：</strong></p>
+            <p>NOT 门是最简单的 CMOS 逻辑门，仅需 1 个 PMOS + 1 个 NMOS。PMOS 源极接 VDD，漏极接输出；NMOS 源极接 GND，漏极接输出。两个晶体管的栅极共同接输入 \(A\)。</p>
+            <p>当 \(A = 0\)（低电平）：PMOS 栅极为低 → PMOS 导通，上拉网络将输出连接到 VDD → 输出 = 1。NMOS 栅极为低 → NMOS 截止，下拉网络断开。</p>
+            <p>当 \(A = 1\)（高电平）：PMOS 栅极为高 → PMOS 截止，上拉网络断开。NMOS 栅极为高 → NMOS 导通，下拉网络将输出连接到 GND → 输出 = 0。</p>
+            \[Y = \overline{A}\]
+
+            <p><strong>NAND 门（与非门）的构建：</strong></p>
+            <p>2 输入 NAND 门需要 2 个 PMOS（并联，构成上拉网络）+ 2 个 NMOS（串联，构成下拉网络），共 4 个晶体管。</p>
+            <p>下拉网络中两个 NMOS 串联：只有当 \(A=1\) <strong>且</strong> \(B=1\) 时，两个 NMOS 都导通，形成从输出到 GND 的通路 → 输出 = 0。</p>
+            <p>上拉网络中两个 PMOS 并联：只要 \(A=0\) <strong>或</strong> \(B=0\)，至少一个 PMOS 导通，输出连接到 VDD → 输出 = 1。</p>
+            <p>逐行验证真值表：</p>
+            <p>\(A=0, B=0\)：两个 PMOS 都导通 → 输出 = 1。两个 NMOS 都截止 → 无下拉通路。✓</p>
+            <p>\(A=0, B=1\)：PMOS-A 导通 → 输出 = 1。NMOS-B 导通但 NMOS-A 截止，串联链断开。✓</p>
+            <p>\(A=1, B=0\)：PMOS-B 导通 → 输出 = 1。NMOS-A 导通但 NMOS-B 截止。✓</p>
+            <p>\(A=1, B=1\)：两个 PMOS 都截止。两个 NMOS 都导通，串联链完整 → 输出 = 0。✓</p>
+            \[Y = \overline{A \cdot B}\]
+
+            <p><strong>NOR 门（或非门）的构建：</strong></p>
+            <p>NOR 门是 NAND 门的"对偶"：2 个 PMOS 串联（上拉）+ 2 个 NMOS 并联（下拉）。</p>
+            <p>下拉网络中两个 NMOS 并联：只要 \(A=1\) <strong>或</strong> \(B=1\)，至少一个 NMOS 导通 → 输出 = 0。</p>
+            <p>上拉网络中两个 PMOS 串联：只有当 \(A=0\) <strong>且</strong> \(B=0\) 时，两个 PMOS 都导通 → 输出 = 1。</p>
+            \[Y = \overline{A + B}\]
+
+            <div class="warning-box">
+              ⚠️ <strong>NMOS 拉低，PMOS 拉高——不要搞反！</strong>NMOS 导通时将输出拉向 GND（逻辑 0），PMOS 导通时将输出拉向 VDD（逻辑 1）。串联 NMOS 意味着"所有输入都为 1 才能拉低"（AND 条件），并联 NMOS 意味着"任意一个输入为 1 就拉低"（OR 条件）。PMOS 网络恰好相反。
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>在现代芯片中的角色：</strong>当今的处理器芯片（如 Apple M 系列、AMD Zen 架构）集成了数百亿个 CMOS 晶体管，这些晶体管组成的逻辑门是所有计算的物理基础。</p>
+            <p><strong>NOT 门（反相器）</strong>是最基本的逻辑单元，在时钟信号生成、信号缓冲、电平转换中无处不在。在 SRAM 存储单元中，两个交叉耦合的反相器构成一个锁存器（Latch），保存 1 bit 数据。</p>
+            <p><strong>NAND 门与 NAND Flash：</strong>闪存（Flash Memory）之所以叫"NAND Flash"，正是因为其存储单元阵列的结构类似串联的 NAND 门。在 NAND Flash 中，多个浮栅晶体管串联连接，通过检测串联链的导通状态来读取数据。这种串联结构极大提高了存储密度。</p>
+            <p><strong>NOR Flash</strong>的存储单元并联连接，读取速度快但密度低，常用于存储需要快速随机访问的固件代码（如 BIOS/UEFI）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>给定一个 CMOS NAND 门，输入 \(A=1, B=0\)，分析每个晶体管的状态并确定输出。</p>
+            <p><strong>✅ 正确分析：</strong></p>
+            <p>上拉网络（PMOS 并联）：PMOS-A 栅极 = 1 → PMOS-A 截止。PMOS-B 栅极 = 0 → PMOS-B 导通，输出通过 PMOS-B 连接到 VDD。</p>
+            <p>下拉网络（NMOS 串联）：NMOS-A 栅极 = 1 → NMOS-A 导通。NMOS-B 栅极 = 0 → NMOS-B 截止。串联链不完整，输出无法拉低。</p>
+            <p>结论：输出 = VDD = 逻辑 1。与 NAND 真值表一致：\(\overline{1 \cdot 0} = \overline{0} = 1\)。</p>
+            <p><strong>❌ 常见错误：</strong>混淆 NMOS 的串联与并联。有些初学者认为"只要一个 NMOS 导通，输出就被拉低"——这对并联 NMOS（NOR 门）成立，但对串联 NMOS（NAND 门）不成立。串联要求<strong>所有</strong> NMOS 都导通才能形成完整的通路。</p>
+            <div class="warning-box">
+              ⚠️ <strong>切勿让上拉和下拉同时导通！</strong>如果设计错误导致 PMOS 和 NMOS 同时导通，VDD 和 GND 之间会形成短路，产生巨大的"穿通电流"（Shoot-through Current），导致功耗激增甚至烧毁芯片。正确的 CMOS 设计确保互补——永远只有一个网络导通。
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch01-kp1">
+        <svg viewBox="0 0 400 280" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+          <!-- VDD rail -->
+          <line x1="80" y1="20" x2="320" y2="20" class="line"/>
+          <text x="200" y="14" text-anchor="middle" class="fg" font-size="11" font-weight="bold">VDD</text>
+          <!-- GND rail -->
+          <line x1="80" y1="260" x2="320" y2="260" class="line"/>
+          <text x="200" y="275" text-anchor="middle" class="fg" font-size="11" font-weight="bold">GND</text>
+
+          <!-- PMOS symbol -->
+          <line x1="200" y1="20" x2="200" y2="60" class="line"/>
+          <rect x="170" y="60" width="60" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="200" y="84" text-anchor="middle" class="fg" font-size="12" font-weight="bold">PMOS</text>
+          <circle cx="165" cy="80" r="5" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <line x1="200" y1="100" x2="200" y2="130" class="line"/>
+
+          <!-- Output node -->
+          <circle cx="200" cy="140" r="5" class="accent"/>
+          <line x1="205" y1="140" x2="300" y2="140" class="accentStroke"/>
+          <text x="310" y="144" class="accent" font-size="13" font-weight="bold">Y (输出)</text>
+
+          <!-- NMOS symbol -->
+          <line x1="200" y1="145" x2="200" y2="170" class="line"/>
+          <rect x="170" y="170" width="60" height="40" rx="4" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="200" y="194" text-anchor="middle" class="fg" font-size="12" font-weight="bold">NMOS</text>
+          <line x1="200" y1="210" x2="200" y2="260" class="line"/>
+
+          <!-- Input line -->
+          <line x1="40" y1="80" x2="160" y2="80" class="accentStroke"/>
+          <line x1="160" y1="80" x2="160" y2="190" class="accentStroke"/>
+          <line x1="160" y1="190" x2="170" y2="190" class="accentStroke"/>
+          <text x="30" y="84" class="accent" font-size="13" font-weight="bold">A</text>
+
+          <!-- Labels -->
+          <text x="70" y="50" class="fg2" font-size="10">A=0 → PMOS 导通</text>
+          <text x="70" y="240" class="fg2" font-size="10">A=1 → NMOS 导通</text>
+        </svg>
+        <figcaption>图 1-1：CMOS NOT 门（反相器）电路结构 — PMOS 在上连 VDD，NMOS 在下连 GND</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在 CMOS NAND 门中，当两个输入都为 1 时，电路会发生什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '不对。PMOS 并联，但两个栅极都为高电平，所以两个 PMOS 都截止，上拉网络断开。')">
+            A. 两个 PMOS 都导通，输出为 1
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！两个 NMOS 都导通（栅极为高），串联链完整，输出被拉至 GND = 0。同时两个 PMOS 都截止（栅极为高），无上拉通路。')">
+            B. 两个 NMOS 都导通，输出为 0
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '不对。互补 CMOS 设计保证任何时刻只有上拉或下拉网络导通，不会同时导通。')">
+            C. 所有晶体管都导通，发生短路
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '不对。输出不会浮空——下拉网络的两个 NMOS 都导通，将输出确定地拉至 GND。')">
+            D. 所有晶体管都截止，输出浮空
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 2 ═══════════ -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">02</span>NAND 是万能门（Universal Gate）
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>假设你是一个芯片工厂的工程师，需要在硅片上制造各种逻辑门：NOT、AND、OR、XOR……每种门的晶体管排列方式不同，制造流程也不同。如果能找到一种"万能门"——仅用这一种门就能构建任意逻辑功能——那么工厂只需要优化一种门的制造工艺，大幅简化生产流程、降低成本、提高良率。</p>
+            <p>这就是万能门（Universal Gate）的概念：一种门类型，能够单独实现所有布尔逻辑运算。NAND 门和 NOR 门都是万能门，而 AND、OR、NOT 单独使用时都<strong>不是</strong>万能门。这个看似理论化的性质，实际上深刻影响了整个半导体工业的设计方法学。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>万能门的定义：</strong>如果仅使用某一种逻辑门及其组合，可以实现任意布尔函数（Boolean Function），则称该门为万能门（Universal Gate）。</p>
+            <p>任意布尔函数都可以用 AND、OR、NOT 三种基本运算的组合来表达（这是布尔代数的完备性定理）。因此，要证明某个门是万能门，只需证明它能实现 NOT、AND、OR 这三种基本运算即可。</p>
+            <p><strong>为什么 AND 不是万能门？</strong>AND 门的输出永远 ≤ 输入（从 1→1 或 1→0，不可能从 0→1 "创造"高电平），因此无法实现 NOT 的"反转"功能。同理，OR 门也无法实现反转。只有具有<strong>反相能力</strong>（Inverting Capability）的门才可能是万能门。</p>
+            <p>NAND（与非）和 NOR（或非）都自带反相功能（输出是输入的"非"某种组合），因此它们都是万能门的候选者。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>第一步：用 NAND 实现 NOT</strong></p>
+            <p>将 NAND 门的两个输入连接在一起（短接）：</p>
+            \[\text{NAND}(A, A) = \overline{A \cdot A} = \overline{A} = \text{NOT}(A)\]
+            <p>只需 <strong>1 个 NAND 门</strong>即可实现 NOT。</p>
+
+            <p><strong>第二步：用 NAND 实现 AND</strong></p>
+            <p>先做 NAND，再对结果取 NOT（用上一步的方法）：</p>
+            \[\text{AND}(A, B) = \overline{\overline{A \cdot B}} = \text{NOT}(\text{NAND}(A, B))\]
+            <p>需要 <strong>2 个 NAND 门</strong>：第一个计算 \(\overline{A \cdot B}\)，第二个将结果取反。</p>
+
+            <p><strong>第三步：用 NAND 实现 OR</strong></p>
+            <p>利用德摩根定律（De Morgan's Law）：</p>
+            \[A + B = \overline{\overline{A + B}} = \overline{\overline{A} \cdot \overline{B}}\]
+            <p>分解为 NAND 操作：先分别取反 \(\overline{A} = \text{NAND}(A,A)\)，\(\overline{B} = \text{NAND}(B,B)\)，然后对两个结果做 NAND：</p>
+            \[\text{OR}(A,B) = \text{NAND}\big(\text{NAND}(A,A),\;\text{NAND}(B,B)\big)\]
+            <p>需要 <strong>3 个 NAND 门</strong>。</p>
+
+            <p><strong>门数统计：</strong></p>
+            <p>NOT = 1 个 NAND，AND = 2 个 NAND，OR = 3 个 NAND。由此证明 NAND 可以实现 NOT、AND、OR，因此 NAND 是万能门。同样的推导可以对 NOR 做一遍，证明 NOR 也是万能门。</p>
+
+            <div class="warning-box">
+              ⚠️ <strong>AND 和 OR 单独都不是万能门！</strong>它们缺乏反相能力。AND 门无论怎么组合，输出只要某个输入为 0 就为 0——永远无法从全 0 输入得到 1 输出（这是 NOT(0)=1 的要求）。必须要有至少一个能"反转"信号的门。
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>标准单元库（Standard Cell Library）：</strong>在现代 VLSI 设计中，芯片制造商（如 TSMC、Samsung）提供的标准单元库以 NAND 和 NOR 门为核心。设计工具（EDA 工具如 Synopsys Design Compiler）在逻辑综合（Logic Synthesis）阶段，会将 RTL 代码自动映射到这些基本门单元上。</p>
+            <p><strong>为什么偏好 NAND 而非 NOR？</strong>在 CMOS 工艺中，NMOS 的迁移率（Mobility）约为 PMOS 的 2-3 倍，意味着相同尺寸下 NMOS 的驱动能力更强。NAND 门的关键路径经过串联 NMOS（速度较快）和并联 PMOS，而 NOR 门的关键路径经过串联 PMOS（速度较慢）。因此，在同等面积约束下，NAND 门通常比 NOR 门速度更快，功耗更低。这就是为什么实际芯片设计中 NAND 门的使用频率远高于 NOR 门。</p>
+            <p><strong>FPGA 与查找表（LUT）：</strong>FPGA（现场可编程门阵列）将万能门的思想推向了极致——其基本逻辑单元是查找表（Look-Up Table），本质上是一个小型存储器，可以实现任意 N 输入布尔函数。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>仅使用 NAND 门实现 XOR（异或）功能：\(Y = A \oplus B = A\overline{B} + \overline{A}B\)</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>XOR 的表达式变换：</p>
+            \[A \oplus B = \overline{\overline{A \oplus B}} = \overline{\overline{A\bar{B} + \bar{A}B}}\]
+            <p>利用 NAND 的性质，一种高效实现方式是：</p>
+            <p>令 \(P = \text{NAND}(A, B)\)，则 \(P = \overline{AB}\)。</p>
+            <p>令 \(Q = \text{NAND}(A, P) = \overline{A \cdot \overline{AB}}\)，令 \(R = \text{NAND}(B, P) = \overline{B \cdot \overline{AB}}\)，最后 \(Y = \text{NAND}(Q, R)\)。</p>
+            <p>展开为标准 NAND 链表达式：</p>
+            \[A \oplus B = \text{NAND}\big(\text{NAND}(A, \text{NAND}(A,B)),\;\text{NAND}(B, \text{NAND}(A,B))\big)\]
+            <p>这需要 <strong>4 个 NAND 门</strong>，是 XOR 的最优 NAND 实现。验证：当 \(A=1, B=0\) 时，\(\text{NAND}(1,0)=1\)，\(\text{NAND}(1,1)=0\)，\(\text{NAND}(0,1)=1\)，\(\text{NAND}(0,1)=1\)。最终 \(\text{NAND}(0,1)=1\)。✓</p>
+            <p><strong>❌ 常见错误：</strong>不少学生直接用 \(\text{NAND}(A,B)\) 来代替 XOR——两者的真值表完全不同！NAND(0,0)=1 而 XOR(0,0)=0。记住：NAND 不等于 XOR。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch01-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+          <!-- NAND gate symbol -->
+          <text x="20" y="20" class="fg" font-size="12" font-weight="bold">NAND 构建 NOT / AND / OR</text>
+
+          <!-- NOT from NAND -->
+          <text x="20" y="55" class="fg2" font-size="10">NOT = NAND(A,A)</text>
+          <rect x="80" y="42" width="50" height="30" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="105" y="61" text-anchor="middle" class="fg" font-size="9" font-weight="bold">NAND</text>
+          <circle cx="135" cy="57" r="4" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <line x1="30" y1="52" x2="80" y2="52" class="line"/>
+          <line x1="30" y1="62" x2="80" y2="62" class="line"/>
+          <line x1="30" y1="52" x2="30" y2="62" class="accentStroke"/>
+          <text x="18" y="60" class="accent" font-size="10" font-weight="bold">A</text>
+          <line x1="139" y1="57" x2="170" y2="57" class="line"/>
+          <text x="175" y="61" class="fg" font-size="10">= NOT A</text>
+
+          <!-- AND from NAND -->
+          <text x="20" y="110" class="fg2" font-size="10">AND = NOT(NAND(A,B))</text>
+          <rect x="60" y="117" width="50" height="30" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="85" y="136" text-anchor="middle" class="fg" font-size="9" font-weight="bold">NAND</text>
+          <circle cx="115" cy="132" r="4" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <line x1="20" y1="127" x2="60" y2="127" class="line"/>
+          <text x="12" y="130" class="accent" font-size="10" font-weight="bold">A</text>
+          <line x1="20" y1="137" x2="60" y2="137" class="line"/>
+          <text x="12" y="140" class="accent" font-size="10" font-weight="bold">B</text>
+          <line x1="119" y1="132" x2="150" y2="132" class="line"/>
+          <rect x="150" y="117" width="50" height="30" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="175" y="136" text-anchor="middle" class="fg" font-size="9" font-weight="bold">NAND</text>
+          <circle cx="205" cy="132" r="4" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <line x1="150" y1="127" x2="150" y2="137" class="line" stroke-width="0"/>
+          <line x1="209" y1="132" x2="240" y2="132" class="line"/>
+          <text x="245" y="136" class="fg" font-size="10">= A·B</text>
+
+          <!-- OR from NAND -->
+          <text x="20" y="185" class="fg2" font-size="10">OR = NAND(NOT A, NOT B)</text>
+          <rect x="60" y="192" width="40" height="24" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.2"/>
+          <text x="80" y="208" text-anchor="middle" class="fg" font-size="8">NAND</text>
+          <rect x="60" y="220" width="40" height="24" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.2"/>
+          <text x="80" y="236" text-anchor="middle" class="fg" font-size="8">NAND</text>
+          <line x1="20" y1="204" x2="60" y2="204" class="line"/>
+          <text x="12" y="208" class="accent" font-size="10" font-weight="bold">A</text>
+          <line x1="20" y1="232" x2="60" y2="232" class="line"/>
+          <text x="12" y="236" class="accent" font-size="10" font-weight="bold">B</text>
+          <line x1="100" y1="204" x2="140" y2="218" class="line"/>
+          <line x1="100" y1="232" x2="140" y2="218" class="line"/>
+          <rect x="140" y="205" width="50" height="26" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="165" y="222" text-anchor="middle" class="fg" font-size="9" font-weight="bold">NAND</text>
+          <circle cx="195" cy="218" r="4" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <line x1="199" y1="218" x2="230" y2="218" class="line"/>
+          <text x="235" y="222" class="fg" font-size="10">= A+B</text>
+        </svg>
+        <figcaption>图 1-2：用 NAND 门构建 NOT（1 门）、AND（2 门）、OR（3 门）</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">用 NAND 门实现 NOT 功能，最少需要几个 NAND 门？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '不需要 2 个。将一个 NAND 门的两个输入短接，就相当于 NOT。')">
+            A. 2 个
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！将 NAND 门两个输入连在一起：NAND(A,A) = NOT(A·A) = NOT(A)。只需 1 个门。')">
+            B. 1 个
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '不需要 3 个。NAND 本身就自带反相功能，只需输入短接即可。')">
+            C. 3 个
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'NAND 门完全可以实现 NOT 功能，这正是它作为万能门的基础。')">
+            D. 无法实现
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 3 ═══════════ -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">03</span>传播延迟（Propagation Delay）与功耗（Power）
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在理想的逻辑世界中，门的输出在输入改变的瞬间就立刻跟着变化。但在真实的物理世界中，每个逻辑门都有一个微小但不可忽略的<strong>传播延迟（Propagation Delay）</strong>。当一个现代 CPU 包含数十亿个门，这些微小的延迟累积起来，就决定了芯片能跑多快——即最大时钟频率。</p>
+            <p>与此同时，每次逻辑门切换状态都会消耗能量。当数十亿个门以 GHz 频率不停翻转时，<strong>功耗（Power Dissipation）</strong>成为巨大的工程挑战。一颗高性能 CPU 可以消耗 100-300 瓦的功率——相当于一个小型电暖器！理解延迟和功耗的物理机制，是优化芯片性能的基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>传播延迟的定义：</strong></p>
+            <p>\(t_{pHL}\)：输出从高电平跳变到低电平的延迟（High-to-Low），测量输入变化到输出跨过 50% VDD 的时间。</p>
+            <p>\(t_{pLH}\)：输出从低电平跳变到高电平的延迟（Low-to-High）。</p>
+            <p>平均传播延迟：</p>
+            \[t_p = \frac{t_{pHL} + t_{pLH}}{2}\]
+
+            <p><strong>功耗的两大分量：</strong></p>
+            <p><strong>静态功耗（Static Power）</strong> \(P_{static}\)：即使电路不切换，晶体管的漏电流也会消耗能量。在理想 CMOS 中可忽略，但在纳米工艺中越来越显著。</p>
+            <p><strong>动态功耗（Dynamic Power）</strong> \(P_{dynamic}\)：每次门的输出切换时，需要对负载电容充放电，消耗能量。这是数字电路功耗的主要来源。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>传播延迟的 RC 模型：</strong></p>
+            <p>将导通的 MOSFET 近似为一个等效电阻 \(R_{on}\)，将门的输出节点上的所有电容（包括自身漏极电容、连线电容、下一级栅极电容）合并为负载电容 \(C_L\)。输出电压的变化就是一个 RC 电路的充放电过程：</p>
+            \[V_{out}(t) = V_{final} + (V_{initial} - V_{final}) \cdot e^{-t/\tau}, \quad \tau = R_{on} \cdot C_L\]
+            <p>传播延迟定义为输出达到 50% 点的时间，即 \(e^{-t_p/\tau} = 0.5\)：</p>
+            \[t_p = \tau \cdot \ln 2 \approx 0.69 \cdot R_{on} \cdot C_L\]
+            <p>这就是著名的 <strong>0.69RC 延迟公式</strong>——数字电路设计中最基本的延迟估算工具。</p>
+
+            <p><strong>动态功耗的推导：</strong></p>
+            <p>每次输出从 0 跳到 1（充电）：电源对 \(C_L\) 充电，输入能量 \(E_{charge} = C_L \cdot V_{DD}^2\)。其中一半存储在电容中 \(\frac{1}{2}C_L V_{DD}^2\)，另一半消耗在 PMOS 的等效电阻上。</p>
+            <p>每次输出从 1 跳到 0（放电）：电容通过 NMOS 放电到 GND，存储的 \(\frac{1}{2}C_L V_{DD}^2\) 全部消耗在 NMOS 上。</p>
+            <p>因此，一个完整的 0→1→0 周期总共消耗能量 \(C_L \cdot V_{DD}^2\)。如果以频率 \(f\) 切换，且活动因子（Activity Factor）为 \(\alpha\)（表示每个周期实际翻转的概率），则：</p>
+            \[P_{dynamic} = \alpha \cdot C_L \cdot V_{DD}^2 \cdot f\]
+
+            <div class="warning-box">
+              ⚠️ <strong>动态功耗与 \(V_{DD}^2\) 成正比！</strong>这意味着将电压降低一半，动态功耗减少到原来的 \(1/4\)。这就是为什么现代芯片的工作电压从早期的 5V 逐步降低到 1V 甚至更低。但降压同时会增加延迟（因为 \(R_{on}\) 增大），这就是速度与功耗之间的根本权衡（Speed-Power Tradeoff）。
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>关键路径（Critical Path）决定时钟频率：</strong>CPU 中从一个寄存器到下一个寄存器之间最长的门延迟累积路径叫做"关键路径"。时钟周期必须大于关键路径延迟，否则数据来不及稳定。优化关键路径是芯片后端设计的核心工作。</p>
+            <p><strong>电压频率动态调整（DVFS）：</strong>现代处理器可以动态调整 \(V_{DD}\) 和 \(f\)：轻负载时降低电压和频率（省电），重负载时提高电压和频率（提速）。笔记本电脑从满载到空闲，CPU 频率可能从 5 GHz 降到 0.8 GHz，功耗从 65W 降到不到 5W。</p>
+            <p><strong>时钟门控（Clock Gating）：</strong>对于不活跃的模块，关闭其时钟信号，使 \(\alpha = 0\)，彻底消除动态功耗。这是现代 SoC 功耗管理的关键技术。</p>
+            <p><strong>散热设计功耗（TDP）：</strong>芯片厂商标注的 TDP（如 Intel Core i9 的 125W TDP）是散热系统需要处理的最大持续功耗，主要由动态功耗贡献。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题 1：计算传播延迟</strong></p>
+            <p>某 CMOS 门的 \(R_{on} = 1\,\text{k}\Omega\)，负载电容 \(C_L = 50\,\text{fF}\)，求传播延迟 \(t_p\)。</p>
+            <p><strong>✅ 解答：</strong></p>
+            \[t_p = 0.69 \times R_{on} \times C_L = 0.69 \times 1 \times 10^3 \times 50 \times 10^{-15}\]
+            \[= 0.69 \times 50 \times 10^{-12} = 34.5\,\text{ps}\]
+
+            <p><strong>例题 2：计算动态功耗</strong></p>
+            <p>某芯片有 \(10^9\) 个门，每个门的负载电容 \(C_L = 10\,\text{fF}\)，\(V_{DD} = 1\,\text{V}\)，时钟频率 \(f = 3\,\text{GHz}\)，平均活动因子 \(\alpha = 0.1\)，求总动态功耗。</p>
+            <p><strong>✅ 解答：</strong></p>
+            \[P_{total} = N \cdot \alpha \cdot C_L \cdot V_{DD}^2 \cdot f\]
+            \[= 10^9 \times 0.1 \times 10 \times 10^{-15} \times 1^2 \times 3 \times 10^9\]
+            \[= 10^9 \times 0.1 \times 10^{-14} \times 3 \times 10^9 = 3\,\text{W}\]
+            <p>（这只是动态功耗部分，实际芯片还有静态漏电功耗。）</p>
+
+            <p><strong>❌ 常见错误：</strong>忘记 \(V_{DD}\) 是平方关系。有学生计算降压后的功耗时直接用线性比例——将电压减半后说功耗变为 1/2，实际应为 1/4。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch01-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+          <text x="200" y="16" text-anchor="middle" class="fg" font-size="12" font-weight="bold">传播延迟波形图</text>
+
+          <!-- Time axis -->
+          <line x1="40" y1="220" x2="380" y2="220" class="line"/>
+          <text x="385" y="224" class="fg2" font-size="10">t</text>
+
+          <!-- Input waveform -->
+          <text x="10" y="75" class="fg" font-size="10">Input</text>
+          <polyline points="40,90 120,90 120,40 280,40 280,90 380,90" class="line" stroke-width="2"/>
+          <!-- 50% line for input -->
+          <line x1="40" y1="65" x2="380" y2="65" stroke="#94a3b8" stroke-width="0.5" stroke-dasharray="4"/>
+          <text x="385" y="68" class="fg2" font-size="8">50%</text>
+
+          <!-- Output waveform (inverted, delayed) -->
+          <text x="10" y="165" class="fg" font-size="10">Output</text>
+          <polyline points="40,130 130,130 145,180 270,180 285,130 380,130" class="accentStroke" stroke-width="2"/>
+          <!-- 50% line for output -->
+          <line x1="40" y1="155" x2="380" y2="155" stroke="#94a3b8" stroke-width="0.5" stroke-dasharray="4"/>
+          <text x="385" y="158" class="fg2" font-size="8">50%</text>
+
+          <!-- t_pHL arrow -->
+          <line x1="120" y1="200" x2="120" y2="195" class="line"/>
+          <line x1="137" y1="200" x2="137" y2="195" class="line"/>
+          <line x1="120" y1="198" x2="137" y2="198" class="accentStroke"/>
+          <text x="128" y="212" text-anchor="middle" class="accent" font-size="9" font-weight="bold">t_pHL</text>
+
+          <!-- t_pLH arrow -->
+          <line x1="280" y1="200" x2="280" y2="195" class="line"/>
+          <line x1="297" y1="200" x2="297" y2="195" class="line"/>
+          <line x1="280" y1="198" x2="297" y2="198" class="accentStroke"/>
+          <text x="288" y="212" text-anchor="middle" class="accent" font-size="9" font-weight="bold">t_pLH</text>
+
+          <!-- Labels VDD and GND for signals -->
+          <text x="25" y="43" class="fg2" font-size="8">VDD</text>
+          <text x="25" y="93" class="fg2" font-size="8">0</text>
+          <text x="25" y="133" class="fg2" font-size="8">VDD</text>
+          <text x="25" y="183" class="fg2" font-size="8">0</text>
+        </svg>
+        <figcaption>图 1-3：传播延迟示意图 — 输入变化后，输出经过 \(t_p\) 才到达 50% 点</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">如果将 \(V_{DD}\) 从 1.0 V 降低到 0.7 V，动态功耗变为原来的多少倍？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '功耗与 V_DD 的平方成正比，不是线性关系。0.7/1.0 = 0.7，但功耗比应为 0.7² = 0.49。')">
+            A. 0.70 倍
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！P_dynamic ∝ V_DD²，所以功耗比 = (0.7/1.0)² = 0.49。降压 30% 可减少约 51% 的动态功耗！')">
+            B. 0.49 倍
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '0.30 意味着功耗减少了 70%，这太乐观了。记住是平方关系。')">
+            C. 0.30 倍
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '功耗应该减少而不是增加。降低电压一定会降低动态功耗。')">
+            D. 1.43 倍
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 4 ═══════════ -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">04</span>互补 CMOS（CMOS）逻辑家族
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在数字电路的发展历史中，出现过多种逻辑家族（Logic Family）：RTL（电阻-晶体管逻辑）、DTL（二极管-晶体管逻辑）、TTL（晶体管-晶体管逻辑）、ECL（发射极耦合逻辑）、CMOS（互补 MOS 逻辑）。为什么最终是 CMOS 几乎一统天下？</p>
+            <p>答案在于 CMOS 独特的互补结构带来了一个革命性优势：<strong>几乎为零的静态功耗</strong>。当芯片集成度从几百个晶体管暴增到数百亿个，这个优势变得不可替代。理解 CMOS 为什么赢，就是理解现代半导体产业的底层逻辑。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>CMOS 的四大核心特性：</strong></p>
+            <p><strong>1. 互补结构（Complementary Structure）：</strong>上拉网络由 PMOS 构成，下拉网络由 NMOS 构成。在任何稳态下，恰好只有一个网络导通，另一个截止。</p>
+            <p><strong>2. 无直流通路（No DC Path）：</strong>由于互补导通，稳态下 VDD 到 GND 之间没有直流电流通路，静态功耗仅为晶体管漏电流（理想情况下为零）。</p>
+            <p><strong>3. 轨到轨输出摆幅（Rail-to-Rail Swing）：</strong>输出高电平 \(V_{OH} = V_{DD}\)，输出低电平 \(V_{OL} = 0\,\text{V (GND)}\)。输出可以完全摆到电源轨，不像 TTL 那样 \(V_{OH} \approx 3.4\,\text{V}\)（低于 VDD=5V）。</p>
+            <p><strong>4. 高噪声容限（High Noise Margin）：</strong>正因为轨到轨摆幅，CMOS 的噪声容限（Noise Margin）很大，抗干扰能力强。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>电压传输特性（VTC, Voltage Transfer Characteristic）：</strong></p>
+            <p>VTC 是 CMOS 反相器最重要的静态特性曲线，描述输出电压 \(V_{out}\) 与输入电压 \(V_{in}\) 的关系。</p>
+            <p>对 CMOS 反相器，VTC 呈现为一条陡峭的 S 形（或反 S 形）曲线，有五个关键区域：</p>
+            <p><strong>区域 1：</strong>\(V_{in} < V_{IL}\) — PMOS 完全导通，NMOS 截止，\(V_{out} = V_{OH} \approx V_{DD}\)。</p>
+            <p><strong>区域 2：</strong>\(V_{in} \approx V_{IL}\) — NMOS 开始导通（进入饱和区），PMOS 仍在线性区。</p>
+            <p><strong>区域 3：</strong>\(V_{in} \approx V_{DD}/2\)（切换点）— 两个晶体管都在饱和区，\(V_{out}\) 急剧下降，增益最大。</p>
+            <p><strong>区域 4：</strong>\(V_{in} \approx V_{IH}\) — PMOS 开始截止，NMOS 在线性区。</p>
+            <p><strong>区域 5：</strong>\(V_{in} > V_{IH}\) — NMOS 完全导通，PMOS 截止，\(V_{out} = V_{OL} \approx 0\)。</p>
+
+            <p><strong>噪声容限（Noise Margin）的计算：</strong></p>
+            \[NM_H = V_{OH} - V_{IH}\]
+            \[NM_L = V_{IL} - V_{OL}\]
+            <p>其中 \(V_{IL}\) 和 \(V_{IH}\) 是 VTC 曲线上斜率（增益）为 −1 的两个点。</p>
+
+            <p><strong>与 TTL 的静态功耗对比：</strong></p>
+            <p>TTL 门内部有从 VDD 经电阻到 GND 的常导通电流路径，每个门的静态电流约 1-4 mA。如果芯片集成 \(10^9\) 个 TTL 门：</p>
+            \[P_{static,\text{TTL}} = 10^9 \times 2\,\text{mA} \times 5\,\text{V} = 10^{10}\,\text{W} = 10\,\text{GW}\]
+            <p>这显然是不可能的——所以 TTL 技术根本无法支持大规模集成。而 CMOS 的静态电流在微安甚至纳安级别，使大规模集成成为可能。</p>
+
+            <div class="warning-box">
+              ⚠️ <strong>"CMOS 零静态功耗"是一种理想化！</strong>在 45nm 以下的先进工艺中，晶体管的亚阈值漏电流（Subthreshold Leakage）和栅极隧穿电流（Gate Tunneling）变得不可忽略。例如在 5nm 工艺中，漏电功耗可能占总功耗的 30-50%。这就是为什么芯片设计中需要功率门控（Power Gating）等技术来关断不活跃模块的供电。
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>CMOS 工艺节点的演进：</strong>半导体行业按照摩尔定律（Moore's Law）持续缩小晶体管尺寸，从早期的 10μm 工艺到如今的 3nm/2nm 工艺。每一代工艺节点都提升了集成度和性能，同时降低了每个晶体管的功耗。</p>
+            <p><strong>74HC 系列：</strong>74HC（High-speed CMOS）系列是经典的 CMOS 逻辑芯片家族，与 TTL 的 74LS 系列引脚兼容，但功耗低得多。至今仍广泛用于教学和小规模数字电路设计。</p>
+            <p><strong>电池供电设备：</strong>CMOS 的低功耗特性使其成为电池供电设备的唯一选择。从手表、手机到物联网传感器，所有需要长时间电池续航的设备都依赖 CMOS 技术。一颗 CMOS 实时时钟芯片的待机电流仅有几十纳安，一枚纽扣电池可以驱动它运行数年。</p>
+            <p><strong>工艺节点里程碑：</strong>180nm（2000 年，互联网时代初期）→ 65nm（2006 年，智能手机起步）→ 14nm（2014 年，FinFET 开始）→ 7nm（2018 年，EUV 光刻）→ 3nm（2022 年，GAA 晶体管）。每一代都是 CMOS 技术的延续和革新。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>某 CMOS 反相器的参数为 \(V_{DD} = 3.3\,\text{V}\)，\(V_{IL} = 1.4\,\text{V}\)，\(V_{IH} = 1.8\,\text{V}\)，\(V_{OL} = 0.1\,\text{V}\)，\(V_{OH} = 3.2\,\text{V}\)。计算高电平和低电平噪声容限。</p>
+            <p><strong>✅ 解答：</strong></p>
+            \[NM_H = V_{OH} - V_{IH} = 3.2 - 1.8 = 1.4\,\text{V}\]
+            \[NM_L = V_{IL} - V_{OL} = 1.4 - 0.1 = 1.3\,\text{V}\]
+            <p>这意味着高电平信号可以承受高达 1.4V 的噪声干扰而不被误判，低电平信号可以承受 1.3V 的噪声干扰。噪声容限大约是 \(V_{DD}\) 的 40%，这是非常健壮的抗干扰能力。</p>
+
+            <p><strong>对比 TTL 参数：</strong>\(V_{DD}=5\,\text{V}\)，\(V_{OH}=2.7\,\text{V}\)，\(V_{OL}=0.4\,\text{V}\)，\(V_{IH}=2.0\,\text{V}\)，\(V_{IL}=0.8\,\text{V}\)。TTL 的噪声容限：\(NM_H = 2.7-2.0 = 0.7\,\text{V}\)，\(NM_L = 0.8-0.4 = 0.4\,\text{V}\)。CMOS 的噪声容限远优于 TTL。</p>
+
+            <p><strong>❌ 常见错误：</strong>混淆 \(NM_H = V_{OH} - V_{IH}\) 和 \(NM_L = V_{IL} - V_{OL}\) 的公式。一些学生把 \(NM_H\) 写成 \(V_{IH} - V_{OH}\)（结果为负数），或者把 \(V_{OL}\) 和 \(V_{IL}\) 搞混。记忆技巧：噪声容限 = "输出保证" − "输入要求"，结果必须为正。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch01-kp4">
+        <svg viewBox="0 0 400 280" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">CMOS 反相器电压传输特性（VTC）</text>
+
+          <!-- Axes -->
+          <line x1="60" y1="250" x2="370" y2="250" class="line"/>
+          <line x1="60" y1="250" x2="60" y2="30" class="line"/>
+          <text x="220" y="272" class="fg" font-size="10">V_in</text>
+          <text x="30" y="140" class="fg" font-size="10" transform="rotate(-90 30 140)">V_out</text>
+
+          <!-- VDD labels -->
+          <text x="42" y="45" class="fg2" font-size="9">VDD</text>
+          <line x1="55" y1="42" x2="65" y2="42" class="line" stroke-dasharray="2"/>
+          <text x="355" y="264" class="fg2" font-size="9">VDD</text>
+          <line x1="360" y1="250" x2="360" y2="245" class="line"/>
+
+          <!-- VTC curve (S-shape inverted) -->
+          <path d="M 60,42 C 100,42 140,42 175,45 C 200,50 205,80 210,140 C 215,200 220,230 245,245 C 260,248 320,250 360,250"
+                class="accentStroke" stroke-width="2.5"/>
+
+          <!-- V_IL line -->
+          <line x1="160" y1="250" x2="160" y2="42" stroke="#3b82f6" stroke-width="1" stroke-dasharray="4"/>
+          <text x="155" y="264" fill="#3b82f6" font-size="9" text-anchor="middle">V_IL</text>
+
+          <!-- V_IH line -->
+          <line x1="240" y1="250" x2="240" y2="42" stroke="#3b82f6" stroke-width="1" stroke-dasharray="4"/>
+          <text x="240" y="264" fill="#3b82f6" font-size="9" text-anchor="middle">V_IH</text>
+
+          <!-- V_OH line -->
+          <line x1="60" y1="48" x2="370" y2="48" stroke="#10b981" stroke-width="1" stroke-dasharray="4"/>
+          <text x="375" y="52" fill="#10b981" font-size="9">V_OH</text>
+
+          <!-- V_OL line -->
+          <line x1="60" y1="245" x2="370" y2="245" stroke="#10b981" stroke-width="1" stroke-dasharray="4"/>
+          <text x="375" y="248" fill="#10b981" font-size="9">V_OL</text>
+
+          <!-- NM_H bracket -->
+          <line x1="380" y1="48" x2="390" y2="48" stroke="#ef4444" stroke-width="1.5"/>
+          <line x1="380" y1="100" x2="390" y2="100" stroke="#ef4444" stroke-width="1.5"/>
+          <line x1="385" y1="48" x2="385" y2="100" stroke="#ef4444" stroke-width="1.5"/>
+          <text x="393" y="78" fill="#ef4444" font-size="8" font-weight="bold">NM_H</text>
+
+          <!-- Transition region label -->
+          <rect x="175" y="105" width="50" height="20" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="200" y="119" text-anchor="middle" class="fg" font-size="8">过渡区</text>
+
+          <!-- Origin -->
+          <text x="50" y="264" class="fg2" font-size="9">0</text>
+        </svg>
+        <figcaption>图 1-4：CMOS 反相器电压传输特性（VTC）曲线 — 标注了 \(V_{IL}\)、\(V_{IH}\)、\(V_{OH}\)、\(V_{OL}\) 和噪声容限</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">CMOS 相比 TTL 最大的优势是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'ECL（发射极耦合逻辑）的速度通常更快，不过功耗极高。CMOS 的核心优势在于功耗。')">
+            A. 开关速度最快
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！CMOS 的互补结构确保稳态下无直流通路，静态功耗极低。这使得数十亿晶体管的集成成为可能。')">
+            B. 静态功耗极低
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '制造成本取决于很多因素，CMOS 的核心优势是功耗特性而非成本。')">
+            C. 制造成本最低
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'CMOS 的工作电压范围广，但这不是其最大的优势。')">
+            D. 工作电压范围最宽
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ EXERCISES ═══════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <!-- ═══════════ CHAPTER NAV ═══════════ -->
+    <nav class="chapter-nav">
+      <a href="#" class="nav-prev"></a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch02.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

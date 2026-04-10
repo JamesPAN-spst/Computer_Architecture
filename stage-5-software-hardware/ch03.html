@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.3 中断与I/O — 软硬交界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s5-ch03-q1",
+        question: "轮询（Polling）方式的主要缺点是什么？",
+        options: [
+          "实现复杂度高，需要中断控制器配合",
+          "浪费 CPU 时间，CPU 不断循环检查设备状态",
+          "无法用于低速设备，只适用于高速设备",
+          "需要 DMA 控制器才能工作"
+        ],
+        answer: 1,
+        explanation: "轮询（Polling）的主要缺点是浪费 CPU 时间。CPU 必须不断循环检查设备状态寄存器，即使设备没有数据准备好，CPU 也在做无用功（busy waiting）。这些浪费的 CPU 周期本可以用来执行有用的计算任务。相比之下，中断方式让 CPU 在设备未就绪时可以去做其他工作。"
+      },
+      {
+        id: "s5-ch03-q2",
+        question: "在什么场景下，轮询可能比中断更合适？",
+        options: [
+          "低速键盘输入",
+          "磁盘 I/O 操作",
+          "非常高频率的事件（如万兆网卡每秒数百万数据包）",
+          "打印机输出"
+        ],
+        answer: 2,
+        explanation: "当事件频率极高时（例如万兆网卡每秒接收数百万个数据包），如果每个数据包都触发一次中断，中断处理的开销（保存/恢复上下文、向量表查找等）会压垮 CPU，导致中断活锁（Interrupt Livelock）。此时使用轮询或轮询-中断混合模式（如 Linux 的 NAPI）反而更高效。对于低速设备（键盘、打印机），中断方式更好。"
+      },
+      {
+        id: "s5-ch03-q3",
+        question: "RISC-V 中，mtvec 寄存器存储的是什么？",
+        options: [
+          "当前正在执行的指令地址",
+          "中断向量表的基地址（中断服务程序入口）",
+          "上一次中断的原因编码",
+          "全局中断使能位"
+        ],
+        answer: 1,
+        explanation: "mtvec（Machine Trap-Vector Base-Address）寄存器存储中断/异常处理程序的基地址。在直接模式下，所有中断跳转到同一地址 mtvec.BASE；在向量模式下，不同中断跳转到 mtvec.BASE + 4 × cause。mepc 存储被中断指令的地址，mcause 存储中断原因，mstatus 包含全局中断使能位。"
+      },
+      {
+        id: "s5-ch03-q4",
+        question: "以下关于中断处理流程的步骤排序，哪个是正确的？",
+        options: [
+          "保存上下文 → 完成当前指令 → 读取中断向量 → 执行 ISR → 恢复上下文",
+          "完成当前指令 → 保存 PC 和状态 → 查中断向量表 → 跳转执行 ISR → 恢复上下文 → 返回",
+          "直接跳转 ISR → 保存上下文 → 执行 ISR → 恢复上下文 → 完成被中断的指令",
+          "读取中断向量 → 停止当前指令 → 保存 PC → 执行 ISR → 恢复上下文"
+        ],
+        answer: 1,
+        explanation: "正确的中断处理流程为：① CPU 完成当前正在执行的指令（不能中途打断）；② 硬件自动保存 PC（到 mepc）和状态寄存器（mstatus）；③ 读取中断向量号，通过向量表确定 ISR 地址；④ 跳转到 ISR 执行（ISR 中还需软件保存其他寄存器）；⑤ ISR 完成后恢复上下文；⑥ 执行 mret 返回被中断的程序继续执行。"
+      },
+      {
+        id: "s5-ch03-q5",
+        question: "DMA 控制器在启动传输前，需要 CPU 提供哪些信息？",
+        options: [
+          "仅需要源地址",
+          "源地址、目标地址和传输字节数",
+          "仅需要传输字节数和中断号",
+          "设备驱动程序的完整代码"
+        ],
+        answer: 1,
+        explanation: "CPU 在启动 DMA 传输前需要向 DMA 控制器编程写入三个关键参数：① 源地址（Source Address）——数据从哪里读取；② 目标地址（Destination Address）——数据写到哪里；③ 传输字节数（Byte Count）——总共传输多少数据。此外通常还需设置控制寄存器来指定传输方向和模式。DMA 控制器随后独立完成数据传输，完成后通过中断通知 CPU。"
+      },
+      {
+        id: "s5-ch03-q6",
+        question: "DMA 传输会导致什么缓存一致性（Cache Coherency）问题？",
+        options: [
+          "DMA 会自动刷新所有缓存行",
+          "DMA 直接写入内存，但 CPU 缓存中可能持有旧数据，导致 CPU 读到过期值",
+          "DMA 传输只能绕过 L1 缓存，不影响 L2 缓存",
+          "缓存一致性问题只在多核系统中出现，与 DMA 无关"
+        ],
+        answer: 1,
+        explanation: "DMA 控制器直接在设备和内存之间传输数据，不经过 CPU 缓存。这导致两类问题：① DMA 写入内存后，CPU 的缓存中可能保留着该地址的旧数据（stale data），CPU 读取时会得到过时的值；② CPU 修改了缓存中的数据但还未写回内存，此时 DMA 从内存读取会得到旧值。解决方案包括：DMA 读取前刷新缓存（cache flush）、DMA 写入后无效化缓存（cache invalidate），或使用硬件一致性协议（snooping）。"
+      },
+      {
+        id: "s5-ch03-q7",
+        question: "在内存映射 I/O（MMIO）中，CPU 如何访问设备寄存器？",
+        options: [
+          "使用专门的 IN/OUT 指令访问独立的 I/O 地址空间",
+          "使用普通的 load/store 指令访问映射到物理地址的设备寄存器",
+          "通过 DMA 控制器间接访问",
+          "通过中断机制请求设备发送数据"
+        ],
+        answer: 1,
+        explanation: "内存映射 I/O（Memory-Mapped I/O, MMIO）将设备寄存器映射到物理地址空间中的特定区域。CPU 使用与访问内存完全相同的 load/store 指令（如 RISC-V 的 lw/sw）来读写设备寄存器。这种方式不需要特殊的 I/O 指令（不像 x86 的 IN/OUT），简化了指令集设计，也使得任何编程语言（如 C 的指针操作）都能直接控制硬件设备。RISC-V 主要采用这种方式。"
+      },
+      {
+        id: "s5-ch03-q8",
+        question: "在 C 语言中操作 MMIO 地址时，为什么必须使用 volatile 关键字？",
+        options: [
+          "volatile 让变量存储在寄存器中而非内存中，提高访问速度",
+          "volatile 告诉编译器该地址的值可能被外部改变，禁止编译器优化掉对它的读写操作",
+          "volatile 将变量标记为只读，防止意外写入",
+          "volatile 使变量的访问变为原子操作，避免竞态条件"
+        ],
+        answer: 1,
+        explanation: "volatile 关键字告诉编译器：这个变量的值可能在程序控制流之外被改变（例如被硬件设备修改）。没有 volatile，编译器可能会"优化"掉对 MMIO 地址的重复读取（认为值没变，直接使用缓存在寄存器中的旧值）或删除看似无效的写入。这会导致严重错误——例如轮询设备状态时，编译器可能只读一次状态寄存器就永远使用那个值，导致无法检测到设备就绪。volatile 强制编译器每次都生成实际的 load/store 指令。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-5" data-module="ch03" style="--domain-color: var(--c-software);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 5</span><a href="index.html" class="module-name">软硬交界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.3 / 4</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 轮询 vs 中断 vs DMA</a></li>
+      <li><a href="#kp2">02 · 中断处理流程</a></li>
+      <li><a href="#kp3">03 · DMA 原理</a></li>
+      <li><a href="#kp4">04 · 内存映射 I/O</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 3</p>
+      <h1>中断与 I/O</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 轮询（Polling）vs 中断（Interrupt）vs DMA</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>CPU 需要与各种 I/O 设备（键盘、磁盘、网卡、显示器……）进行通信。但 CPU 运行速度极快（GHz 级别），而大多数 I/O 设备的速度要慢几个数量级——一次磁盘访问耗时约 10ms，相当于 CPU 执行数千万条指令的时间。如何高效地协调这种巨大的速度差异？</p>
+            <p>计算机体系结构提供了三种根本不同的 I/O 交互方式：<strong>轮询（Polling）</strong>、<strong>中断（Interrupt）</strong>和 <strong>DMA（Direct Memory Access）</strong>。它们在 CPU 利用率、延迟、复杂度方面有截然不同的特征。理解这三种方式的优劣和适用场景，是系统编程和操作系统设计的基础。</p>
+            <p>更重要的是，现代高性能系统往往<strong>混合使用</strong>这三种方式——例如 Linux 网络子系统的 NAPI 机制就在中断和轮询之间动态切换，以应对从低负载到线速的不同流量场景。只有深刻理解每种方式的本质，才能做出正确的设计权衡。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>三种 I/O 交互方式的核心思想可以用日常类比理解：</p>
+            <p><strong>① 轮询（Polling）——"不停看手机"：</strong>CPU 反复检查设备的状态寄存器（Status Register），看数据是否准备好。如果没有，继续检查；如果有，读取数据。这就像你每隔几秒看一次手机，等待消息到来。实现简单，但在等待期间 CPU 完全被占用（busy waiting），无法做其他工作。</p>
+            <p><strong>② 中断（Interrupt）——"开通知推送"：</strong>CPU 告诉设备"数据好了就通知我"，然后去做其他任务。当设备准备好数据后，通过中断信号通知 CPU，CPU 暂停当前任务、处理 I/O 数据、再恢复原任务。就像手机推送通知——你专心做事，消息来了手机震动提醒你。效率高，但中断处理有上下文切换的开销。</p>
+            <p><strong>③ DMA（Direct Memory Access）——"快递直送"：</strong>对于大块数据传输，让专门的 DMA 控制器在设备和内存之间直接搬运数据，<strong>完全不经过 CPU</strong>。CPU 只需告诉 DMA 控制器"从哪搬、搬到哪、搬多少"，然后就可以去做其他工作。传输完成后 DMA 用中断通知 CPU。就像网购——你下单（CPU 编程 DMA），快递公司直接把货送到家（DMA 传输到内存），送达后通知你（中断）。</p>
+            <p>核心对比：轮询 = 忙等待（busy waiting），中断 = 事件驱动（event-driven），DMA = 硬件卸载（hardware offloading）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>我们可以定量分析三种方式对 CPU 利用率的影响。假设设备每 \(T_d\) 个时钟周期产生一次数据：</p>
+            <p><strong>轮询方式：</strong>每次轮询检查花费 \(t_p\) 个周期。如果 CPU 持续轮询，则：</p>
+            \[
+            \text{CPU 利用率}_{\text{poll}} = 1 - \frac{t_p}{T_d}
+            \]
+            <p>当设备很慢（\(T_d\) 很大）时，大部分时间在无效检查上浪费——利用率接近 0。</p>
+            <p><strong>中断方式：</strong>每次中断处理花费 \(t_{\text{int}}\) 个周期（包括上下文保存/恢复）。中断只在数据就绪时触发：</p>
+            \[
+            \text{CPU 利用率}_{\text{int}} = 1 - \frac{t_{\text{int}}}{T_d}
+            \]
+            <p>当 \(T_d\) 较大时（慢速设备），\(t_{\text{int}} / T_d\) 很小，CPU 利用率很高——中断远优于轮询。但当 \(T_d\) 很小时（高速设备），频繁的中断开销 \(t_{\text{int}}\) 可能大于轮询开销 \(t_p\)，此时轮询反而更好。</p>
+            <p><strong>DMA 方式：</strong>CPU 只需花费 DMA 设置时间 \(t_{\text{setup}}\) 和传输完成后的中断处理时间 \(t_{\text{int}}\)。数据传输时间由总线带宽决定：</p>
+            \[
+            T_{\text{transfer}} = \frac{n \times \text{word\_size}}{B_{\text{bus}}}
+            \]
+            <p>CPU 在整个 \(T_{\text{transfer}}\) 期间都是空闲的，可以执行其他任务。这使 DMA 成为大块数据传输的最佳选择。</p>
+            <div class="warning-box">⚠️ <strong>中断并不总是比轮询好！</strong>对于极高频事件（例如万兆网卡以 10 Gbps 速率每秒接收数百万个数据包），每个包都触发中断会导致中断处理开销压垮 CPU，产生<strong>中断活锁（Interrupt Livelock）</strong>——CPU 把所有时间都花在处理中断上，无法执行实际的网络协议栈代码。现代系统使用混合方法：Linux 的 NAPI 机制在低流量时使用中断，高流量时切换为轮询，实现最优平衡。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>网络数据包处理（NAPI）：</strong>Linux 内核的 NAPI（New API）是中断与轮询的混合方案。收到第一个包时触发中断，然后关闭中断、切换到轮询模式批量处理后续数据包。当队列清空后重新启用中断。这种方式在低延迟和高吞吐之间取得了优秀的平衡。</p>
+            <p><strong>键盘输入（中断驱动）：</strong>键盘是典型的低速设备——用户每秒最多按几十次键。用中断方式最合适：CPU 平时执行其他任务，按键时硬件触发中断，CPU 读取键码后立即恢复原任务。用轮询方式完全是浪费。</p>
+            <p><strong>磁盘 I/O（DMA）：</strong>磁盘每次读取以扇区（512 字节或 4KB）为单位，让 CPU 逐字搬运极其浪费。DMA 控制器直接将数据从磁盘控制器传输到内存缓冲区，传输完成后中断通知 CPU。现代 NVMe SSD 也使用 DMA 进行高带宽数据传输。</p>
+            <p><strong>实时系统（轮询优先）：</strong>在对延迟有严格要求的实时系统中（如飞控系统），轮询的确定性响应时间可能比中断的不确定延迟更可取。中断的响应时间取决于当前指令完成时间和中断优先级，而轮询的延迟是可预测的。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个磁盘控制器每 10ms 产生 1 个数据块。轮询检查一次花费 100ns，中断处理一次花费 5μs。分别计算两种方式下 CPU 的利用率，并判断哪种更优。</p>
+            <p><em>解答：</em></p>
+            <p>首先统一单位。\(T_d = 10\,\text{ms} = 10{,}000{,}000\,\text{ns}\)，\(t_p = 100\,\text{ns}\)，\(t_{\text{int}} = 5{,}000\,\text{ns}\)。</p>
+            <p>但注意：轮询方式下 CPU 必须在整个 \(T_d\) 期间持续检查（busy waiting），不仅仅是一次检查。CPU 一直在轮询循环中，因此在等待期间 CPU 利用率（做有用工作）接近 0%。严格来说：</p>
+            \[
+            \text{CPU 利用率}_{\text{poll}} \approx 0\%\;(\text{忙等待期间完全浪费})
+            \]
+            <p>中断方式：CPU 只在中断发生时花费 5μs 处理，其余时间自由：</p>
+            \[
+            \text{CPU 利用率}_{\text{int}} = 1 - \frac{5{,}000}{10{,}000{,}000} = 1 - 0.0005 = 99.95\%
+            \]
+            <p>结论：对于这种慢速设备，中断方式远优于轮询——CPU 利用率从接近 0% 提升到 99.95%。</p>
+            <p>❌ <strong>常见错误：</strong>混淆"轮询一次的时间"和"轮询等待期间的总开销"。轮询的问题不是单次检查费时，而是 CPU 被<strong>锁定在轮询循环中</strong>无法做其他工作。</p>
+            <p>✅ <strong>正确理解：</strong>评估 I/O 方式时，关键指标是 CPU 可以用于其他任务的时间比例，而非单次操作的开销。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch03-kp1">
+        <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp1" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <!-- Title -->
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">三种 I/O 方式对比</text>
+          <!-- Column headers -->
+          <text x="120" y="50" text-anchor="middle" class="accent" font-size="12" font-weight="bold">轮询（Polling）</text>
+          <text x="350" y="50" text-anchor="middle" class="accent" font-size="12" font-weight="bold">中断（Interrupt）</text>
+          <text x="580" y="50" text-anchor="middle" class="accent" font-size="12" font-weight="bold">DMA</text>
+          <!-- Polling column -->
+          <rect x="40" y="65" width="160" height="30" class="box" fill="#fef3c7"/>
+          <text x="120" y="84" text-anchor="middle" class="fg" font-size="10">CPU：检查状态</text>
+          <rect x="40" y="98" width="160" height="30" class="box" fill="#fef3c7"/>
+          <text x="120" y="117" text-anchor="middle" class="fg" font-size="10">CPU：检查状态</text>
+          <rect x="40" y="131" width="160" height="30" class="box" fill="#fef3c7"/>
+          <text x="120" y="150" text-anchor="middle" class="fg" font-size="10">CPU：检查状态</text>
+          <rect x="40" y="164" width="160" height="30" class="box" fill="#ecfdf5"/>
+          <text x="120" y="183" text-anchor="middle" class="fg" font-size="10">数据就绪 → 读取</text>
+          <text x="120" y="215" text-anchor="middle" class="fg2" font-size="9">CPU 一直被占用</text>
+          <!-- Utilization bar Polling -->
+          <rect x="55" y="230" width="130" height="14" rx="3" fill="#e2e8f0"/>
+          <rect x="55" y="230" width="13" height="14" rx="3" fill="#ef4444"/>
+          <text x="120" y="260" text-anchor="middle" class="fg2" font-size="9">CPU 利用率 ≈ 0%</text>
+          <!-- Interrupt column -->
+          <rect x="270" y="65" width="160" height="30" class="box" fill="#dbeafe"/>
+          <text x="350" y="84" text-anchor="middle" class="fg" font-size="10">CPU：执行其他任务</text>
+          <rect x="270" y="98" width="160" height="30" class="box" fill="#dbeafe"/>
+          <text x="350" y="117" text-anchor="middle" class="fg" font-size="10">CPU：执行其他任务</text>
+          <rect x="270" y="131" width="160" height="15" class="box" fill="#dbeafe"/>
+          <text x="350" y="143" text-anchor="middle" class="fg" font-size="9">其他任务</text>
+          <!-- Interrupt signal -->
+          <line x1="435" y1="155" x2="395" y2="155" stroke="#06b6d4" stroke-width="2" fill="none" marker-end="url(#ah-kp1)"/>
+          <text x="470" y="159" class="accent" font-size="8">中断信号</text>
+          <rect x="270" y="148" width="160" height="23" rx="4" fill="#fef3c7" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="350" y="164" text-anchor="middle" class="fg" font-size="9">ISR 处理</text>
+          <rect x="270" y="174" width="160" height="20" class="box" fill="#dbeafe"/>
+          <text x="350" y="188" text-anchor="middle" class="fg" font-size="9">恢复其他任务</text>
+          <text x="350" y="215" text-anchor="middle" class="fg2" font-size="9">CPU 大部分时间空闲</text>
+          <!-- Utilization bar Interrupt -->
+          <rect x="285" y="230" width="130" height="14" rx="3" fill="#e2e8f0"/>
+          <rect x="285" y="230" width="126" height="14" rx="3" fill="#22c55e"/>
+          <text x="350" y="260" text-anchor="middle" class="fg2" font-size="9">CPU 利用率 ≈ 99%</text>
+          <!-- DMA column -->
+          <rect x="500" y="65" width="160" height="30" class="box" fill="#dbeafe"/>
+          <text x="580" y="84" text-anchor="middle" class="fg" font-size="10">CPU：设置 DMA</text>
+          <rect x="500" y="98" width="160" height="62" class="box" fill="#dbeafe"/>
+          <text x="580" y="125" text-anchor="middle" class="fg" font-size="10">CPU：执行其他任务</text>
+          <text x="580" y="142" text-anchor="middle" class="fg2" font-size="8">（DMA 独立传输数据）</text>
+          <rect x="500" y="163" width="160" height="23" rx="4" fill="#fef3c7" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="580" y="178" text-anchor="middle" class="fg" font-size="9">DMA 完成中断</text>
+          <rect x="500" y="189" width="160" height="20" class="box" fill="#dbeafe"/>
+          <text x="580" y="203" text-anchor="middle" class="fg" font-size="9">继续其他任务</text>
+          <text x="580" y="215" text-anchor="middle" class="fg2" font-size="9">CPU 几乎完全空闲</text>
+          <!-- Utilization bar DMA -->
+          <rect x="515" y="230" width="130" height="14" rx="3" fill="#e2e8f0"/>
+          <rect x="515" y="230" width="129" height="14" rx="3" fill="#06b6d4"/>
+          <text x="580" y="260" text-anchor="middle" class="fg2" font-size="9">CPU 利用率 ≈ 100%</text>
+          <!-- Bottom summary -->
+          <text x="350" y="285" text-anchor="middle" class="fg" font-size="10">忙等待 ←——————→ 事件驱动 ←——————→ 硬件卸载</text>
+        </svg>
+        <figcaption>图 3-1 三种 I/O 方式对比 — 从轮询到中断到 DMA，CPU 的参与度递减，利用率递增</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在什么情况下，轮询可能比中断更适合？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '低速设备（如键盘）产生事件的频率很低，轮询会浪费大量 CPU 时间在无效检查上，中断方式远更合适。')">A. 低速设备（如键盘）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '大块磁盘数据传输应使用 DMA，轮询和逐字节中断都不是好选择。')">B. 大块数据传输（如磁盘读取）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！当事件频率极高时，每个事件都触发中断会导致中断活锁（Interrupt Livelock），中断处理开销压垮 CPU。此时用轮询批量处理更高效。Linux NAPI 就是在高流量时从中断切换到轮询。')">C. 极高频率事件（如万兆网卡线速收包）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '偶尔触发的传感器事件频率很低，用中断方式让 CPU 在事件间做其他工作更高效。')">D. 偶尔触发的传感器事件</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 中断处理流程与向量表</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>当中断发生时，CPU 必须完成一项看似矛盾的任务：<strong>在不丢失当前工作的前提下，立即去处理另一件事，然后无缝恢复原来的工作</strong>。这就好比你正在写论文，突然电话响了——你需要记住写到哪里（保存现场）、接电话（处理中断）、挂断后回到之前的位置继续写（恢复现场）。</p>
+            <p>这个过程的每一步都必须精确无误：如果保存现场不完整，恢复后程序会产生不可预测的错误；如果中断响应太慢，可能丢失数据或错过实时截止时间；如果中断处理程序本身有 Bug，整个系统可能崩溃。</p>
+            <p>中断机制是操作系统的基石——定时器中断驱动进程调度，I/O 中断驱动设备管理，异常/陷阱（Trap）实现系统调用和内存保护。没有中断，就没有现代操作系统。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>中断处理的完整流程可以分为以下步骤：</p>
+            <p><strong>① 设备触发中断：</strong>I/O 设备（如键盘、网卡、定时器）通过中断线（Interrupt Line）向 CPU 发送中断请求信号。</p>
+            <p><strong>② CPU 完成当前指令：</strong>CPU 不会在指令执行到一半时响应中断——它会先完成当前正在执行的指令。这保证了 CPU 状态的一致性。</p>
+            <p><strong>③ 硬件自动保存关键状态：</strong>CPU 硬件自动保存程序计数器（PC）和状态寄存器。在 RISC-V 中：PC 保存到 <code>mepc</code> 寄存器，中断原因保存到 <code>mcause</code>，全局中断被关闭（<code>mstatus.MIE</code> 清零，防止嵌套中断）。</p>
+            <p><strong>④ 查中断向量表：</strong>CPU 读取中断向量号，通过<strong>中断向量表（Interrupt Vector Table）</strong>找到对应的中断服务程序（ISR，Interrupt Service Routine）的地址。向量表本质上是一个 ISR 地址数组，索引就是中断号。RISC-V 中 <code>mtvec</code> 寄存器存储向量表基地址。</p>
+            <p><strong>⑤ 跳转到 ISR 执行：</strong>CPU 跳转到 ISR 地址开始执行。ISR 首先保存其他需要使用的寄存器（软件保存），然后执行具体的中断处理逻辑。</p>
+            <p><strong>⑥ ISR 恢复上下文并返回：</strong>ISR 恢复保存的寄存器，执行 <code>mret</code>（Machine Return）指令返回被中断的程序。<code>mret</code> 同时恢复 <code>mepc</code> 到 PC、恢复中断使能状态。</p>
+            <p><strong>中断类型：</strong>外部中断（External Interrupt，来自 I/O 设备）、软件中断（Software Interrupt，由 <code>ecall</code> 指令触发，用于系统调用）、异常（Exception/Trap，如非法指令、页缺失）。外部中断是异步的（随时可能发生），异常是同步的（由当前指令触发）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>中断延迟（Interrupt Latency）</strong>是从中断信号到达到 ISR 第一条指令开始执行的时间：</p>
+            \[
+            T_{\text{latency}} = T_{\text{finish\_instr}} + T_{\text{save\_context}} + T_{\text{vector\_lookup}} + T_{\text{jump}}
+            \]
+            <p>其中 \(T_{\text{finish\_instr}}\) 是完成当前指令的时间（最坏情况为最长指令的执行时间），\(T_{\text{save\_context}}\) 是硬件保存 PC 和状态的时间，\(T_{\text{vector\_lookup}}\) 是查向量表的时间，\(T_{\text{jump}}\) 是跳转到 ISR 的时间。</p>
+            <p><strong>RISC-V 向量模式地址计算：</strong>当 <code>mtvec</code> 的 MODE 字段为 1（向量模式）时，不同中断跳转到不同的地址：</p>
+            \[
+            \text{ISR 地址} = \text{mtvec.BASE} + 4 \times \text{cause}
+            \]
+            <p>例如：若 <code>mtvec.BASE</code> = 0x80000000，定时器中断（cause = 7）的 ISR 地址为：</p>
+            \[
+            \text{0x80000000} + 4 \times 7 = \text{0x8000001C}
+            \]
+            <p><strong>上下文保存/恢复开销：</strong>若 ISR 需要保存 \(N\) 个寄存器，每次内存访问耗时 \(t_{\text{mem}}\)，则上下文保存和恢复的总开销为：</p>
+            \[
+            T_{\text{context}} = 2N \times t_{\text{mem}} \quad (\text{save} + \text{restore})
+            \]
+            <p>这就是为什么 ISR 应该尽量少用寄存器——保存的寄存器越少，中断处理越快。</p>
+            <div class="warning-box">⚠️ <strong>中断处理程序必须尽可能短！</strong>在非嵌套中断系统中，ISR 执行期间全局中断是关闭的，长时间运行的 ISR 会阻塞其他中断，导致数据丢失或实时系统错过截止时间。正确的做法是：ISR 只做最少量的紧急工作（确认设备、将数据放入缓冲区），然后调度延迟处理（如 Linux 的 Bottom Half / Tasklet / Workqueue）来完成耗时操作。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>定时器中断与进程调度：</strong>操作系统通过定时器中断（通常以 100–1000 Hz 频率触发）来实现进程的时间片轮转调度。每次定时器中断到来，OS 检查当前进程是否用完了时间片，如果是，就切换到下一个进程。这就是为什么即使只有一个 CPU 核心，多个程序也能"同时"运行——定时器中断驱动的快速切换制造了并发的假象。</p>
+            <p><strong>键盘/鼠标中断处理：</strong>当用户按键时，键盘控制器触发中断。ISR 读取键码（scan code），放入内核缓冲区，然后唤醒等待输入的进程。整个 ISR 非常短——只需要几微秒。</p>
+            <p><strong>页缺失（Page Fault）异常：</strong>当 CPU 访问一个尚未映射到物理内存的虚拟地址时，MMU 触发页缺失异常。OS 的异常处理程序从磁盘加载所需的页面到物理内存，更新页表，然后重新执行引起缺失的指令。这是虚拟内存实现的核心机制。</p>
+            <p><strong>系统调用（ecall）：</strong>在 RISC-V 中，用户程序通过 <code>ecall</code> 指令触发一个同步异常（Environment Call），从用户态陷入内核态。内核根据 <code>a7</code> 寄存器中的系统调用号执行相应的内核函数（如 read、write、fork），完成后通过 <code>sret</code> 返回用户态。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>假设 <code>mtvec</code> = 0x80000000（向量模式），定时器中断的 cause 编号为 7。(1) 计算定时器 ISR 的入口地址。(2) 写出 RISC-V 中断入口和退出的汇编代码框架。</p>
+            <p><em>解答（1）：</em></p>
+            \[
+            \text{ISR 地址} = \text{0x80000000} + 4 \times 7 = \text{0x8000001C}
+            \]
+            <p><em>解答（2）中断入口/退出框架：</em></p>
+<pre><code># ─── 中断入口（ISR prologue）───
+timer_isr:
+    addi sp, sp, -32      # 分配栈空间
+    sw   t0, 0(sp)        # 保存 ISR 中要使用的寄存器
+    sw   t1, 4(sp)
+    sw   t2, 8(sp)
+    sw   a0, 12(sp)
+
+    # ─── 中断处理主体 ───
+    # ... 读取设备数据、更新计数器等 ...
+
+    # ─── 中断退出（ISR epilogue）───
+    lw   t0, 0(sp)        # 恢复寄存器
+    lw   t1, 4(sp)
+    lw   t2, 8(sp)
+    lw   a0, 12(sp)
+    addi sp, sp, 32       # 释放栈空间
+    mret                   # 返回被中断程序
+                           # (硬件自动从 mepc 恢复 PC)</code></pre>
+            <p>❌ <strong>常见错误：</strong>忘记在 ISR 中保存临时寄存器！虽然 t0–t6 在函数调用中是 caller-saved，但在中断处理中<strong>所有使用的寄存器都必须保存</strong>——因为被中断的程序不知道中断的存在，没有机会保存自己的寄存器。</p>
+            <p>✅ <strong>关键区别：</strong>函数调用有调用约定（caller/callee-saved），但中断对被中断的程序完全透明。ISR 必须保存并恢复它使用的<strong>每一个</strong>寄存器，不管它是 t 寄存器还是 s 寄存器。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch03-kp2">
+        <svg viewBox="0 0 600 380" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="300" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">中断处理流程</text>
+          <!-- Normal execution -->
+          <rect x="30" y="40" width="150" height="28" class="box" fill="#dbeafe"/>
+          <text x="105" y="58" text-anchor="middle" class="fg" font-size="10">正常执行程序</text>
+          <!-- Arrow down -->
+          <line x1="105" y1="68" x2="105" y2="85" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- Interrupt arrives -->
+          <rect x="30" y="88" width="150" height="28" rx="6" fill="#fef3c7" stroke="#06b6d4" stroke-width="2"/>
+          <text x="105" y="106" text-anchor="middle" class="accent" font-size="10" font-weight="bold">⚡ 中断信号到达</text>
+          <!-- Arrow down -->
+          <line x1="105" y1="116" x2="105" y2="133" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- Finish instruction -->
+          <rect x="30" y="136" width="150" height="28" class="box" fill="#ecfdf5"/>
+          <text x="105" y="154" text-anchor="middle" class="fg" font-size="10">① 完成当前指令</text>
+          <!-- Arrow down -->
+          <line x1="105" y1="164" x2="105" y2="181" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- Save PC -->
+          <rect x="30" y="184" width="150" height="28" class="box" fill="#ecfdf5"/>
+          <text x="105" y="202" text-anchor="middle" class="fg" font-size="10">② 保存 PC → mepc</text>
+          <!-- Arrow to vector table -->
+          <line x1="180" y1="198" x2="310" y2="198" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- Vector table -->
+          <rect x="310" y="50" width="170" height="180" class="box" fill="#f0f9ff"/>
+          <text x="395" y="70" text-anchor="middle" class="fg" font-size="10" font-weight="bold">中断向量表（mtvec）</text>
+          <line x1="320" y1="80" x2="470" y2="80" class="line"/>
+          <text x="330" y="97" class="fg2" font-size="9">0: 异常处理</text>
+          <text x="330" y="113" class="fg2" font-size="9">1: 软件中断</text>
+          <text x="330" y="129" class="fg2" font-size="9">3: 外部中断</text>
+          <text x="330" y="145" class="fg2" font-size="9">5: 定时器中断</text>
+          <rect x="322" y="152" width="148" height="18" rx="3" fill="#06b6d4" fill-opacity="0.15" stroke="#06b6d4" stroke-width="1"/>
+          <text x="330" y="165" class="accent" font-size="9" font-weight="bold">7: Timer ISR → 0x1C</text>
+          <text x="330" y="181" class="fg2" font-size="9">...</text>
+          <text x="330" y="200" class="fg2" font-size="9">③ 查向量表</text>
+          <!-- Arrow from vector table to ISR -->
+          <line x1="470" y1="162" x2="510" y2="162" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- ISR box -->
+          <rect x="510" y="80" width="70" height="170" class="box" fill="#fef3c7"/>
+          <text x="545" y="100" text-anchor="middle" class="fg" font-size="9" font-weight="bold">ISR</text>
+          <text x="545" y="120" text-anchor="middle" class="fg2" font-size="8">保存寄存器</text>
+          <text x="545" y="140" text-anchor="middle" class="fg2" font-size="8">↓</text>
+          <text x="545" y="155" text-anchor="middle" class="fg2" font-size="8">处理中断</text>
+          <text x="545" y="175" text-anchor="middle" class="fg2" font-size="8">↓</text>
+          <text x="545" y="190" text-anchor="middle" class="fg2" font-size="8">恢复寄存器</text>
+          <text x="545" y="215" text-anchor="middle" class="fg2" font-size="8">④ 执行</text>
+          <!-- Arrow down from save PC -->
+          <line x1="105" y1="212" x2="105" y2="229" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- Waiting -->
+          <rect x="30" y="232" width="150" height="28" class="box" fill="#e2e8f0"/>
+          <text x="105" y="250" text-anchor="middle" class="fg2" font-size="10">（等待 ISR 完成）</text>
+          <!-- Arrow from ISR back to resume -->
+          <line x1="545" y1="250" x2="545" y2="295" stroke="#06b6d4" stroke-width="1.5" fill="none"/>
+          <line x1="545" y1="295" x2="185" y2="295" stroke="#06b6d4" stroke-width="1.5" fill="none" marker-end="url(#ah-kp2)"/>
+          <text x="370" y="288" text-anchor="middle" class="accent" font-size="9">mret 返回</text>
+          <!-- Resume execution -->
+          <rect x="30" y="280" width="150" height="28" class="box" fill="#dbeafe"/>
+          <text x="105" y="298" text-anchor="middle" class="fg" font-size="10">⑤ 恢复执行程序</text>
+          <!-- Arrow down -->
+          <line x1="105" y1="308" x2="105" y2="325" class="line" marker-end="url(#ah-kp2)"/>
+          <rect x="30" y="328" width="150" height="28" class="box" fill="#dbeafe"/>
+          <text x="105" y="346" text-anchor="middle" class="fg" font-size="10">继续正常执行…</text>
+        </svg>
+        <figcaption>图 3-2 中断处理流程 — 从中断到达、保存现场、查向量表、执行 ISR 到恢复执行的完整序列</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">RISC-V 中 <code>mtvec</code> 寄存器存储的是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'mepc 存储被中断指令的地址（断点 PC），不是 mtvec。mtvec 是向量表基地址。')">A. 被中断指令的地址</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！mtvec（Machine Trap-Vector Base-Address）存储中断/异常处理程序的基地址。在向量模式下，ISR 地址 = mtvec.BASE + 4 × cause。')">B. 中断向量表的基地址</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '中断原因编码存储在 mcause 寄存器中，不是 mtvec。mcause 区分不同的中断和异常类型。')">C. 最近一次中断的原因编码</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '全局中断使能位在 mstatus 寄存器的 MIE 字段中，不是 mtvec。')">D. 全局中断使能标志位</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · DMA（Direct Memory Access）原理</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>考虑一次典型的磁盘读取：将 4KB 的数据块从磁盘控制器搬运到内存。如果由 CPU 逐字（4 字节）搬运，CPU 需要执行 1024 次 load + 1024 次 store = 2048 条指令。在此期间，CPU 被完全占用——做的却是最简单的"搬运工"工作，这些宝贵的计算能力本可以用于执行用户程序。</p>
+            <p>DMA（Direct Memory Access，直接内存访问）的思想很简单但很强大：<strong>让专门的硬件控制器代替 CPU 来搬运数据</strong>。CPU 只需要告诉 DMA 控制器"从哪搬、搬到哪、搬多少"，然后就可以去做其他工作。DMA 控制器独立完成整个数据传输过程，完成后用中断通知 CPU。</p>
+            <p>在现代系统中，几乎所有大块数据传输都使用 DMA：磁盘读写、网卡收发数据包、GPU 显存访问、声卡音频流、USB 传输等。理解 DMA 对于编写高性能 I/O 代码和理解操作系统 I/O 子系统至关重要。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>DMA 控制器是一个独立的硬件模块，包含以下关键寄存器：</p>
+            <p><strong>① 源地址寄存器（Source Address Register）：</strong>数据从哪里读取（可以是设备端口地址或内存地址）。</p>
+            <p><strong>② 目标地址寄存器（Destination Address Register）：</strong>数据写到哪里（通常是内存地址）。</p>
+            <p><strong>③ 字节计数寄存器（Byte Count Register）：</strong>需要传输的总字节数。每传输一个字，计数器减一。减到零时传输完成。</p>
+            <p><strong>④ 控制/状态寄存器（Control/Status Register）：</strong>配置传输方向、启动/停止传输、指示传输状态和完成情况。</p>
+            <p><strong>DMA 传输过程：</strong></p>
+            <p><strong>Step 1</strong>：CPU 向 DMA 控制器的寄存器写入源地址、目标地址和字节数（编程 DMA）。</p>
+            <p><strong>Step 2</strong>：CPU 启动 DMA 传输（写入控制寄存器），然后 CPU 自由执行其他任务。</p>
+            <p><strong>Step 3</strong>：DMA 控制器取得总线控制权，逐字在设备和内存之间传输数据。</p>
+            <p><strong>Step 4</strong>：传输完成后（计数器归零），DMA 控制器向 CPU 发送中断信号通知传输完成。</p>
+            <p><strong>总线仲裁模式：</strong>DMA 和 CPU 共享系统总线，不能同时使用。<strong>周期窃取（Cycle Stealing）</strong>：DMA 每次只借用总线传输一个字，然后归还，对 CPU 影响小但传输慢。<strong>突发模式（Burst Mode）</strong>：DMA 占用总线完成整个传输块，速度快但会暂时阻塞 CPU 的总线访问。<strong>块模式（Block Mode）</strong>：与突发类似，但在块边界处释放总线。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>CPU 搬运方式（无 DMA）的耗时：</strong>CPU 用循环逐字复制 \(N\) 个字，每个字需要一次 load + 一次 store + 循环控制指令：</p>
+            \[
+            T_{\text{CPU\_copy}} = N \times (t_{\text{load}} + t_{\text{store}} + t_{\text{loop}})
+            \]
+            <p>在此期间 CPU 被完全占用，无法执行其他任务。</p>
+            <p><strong>DMA 方式的耗时：</strong>CPU 只需花时间设置 DMA（编程寄存器）和处理完成中断：</p>
+            \[
+            T_{\text{DMA}} = t_{\text{setup}} + \frac{N \times \text{word\_size}}{B_{\text{bus}}} + t_{\text{interrupt}}
+            \]
+            <p>其中 \(t_{\text{setup}}\) 是 DMA 设置时间（通常几条指令），\(B_{\text{bus}}\) 是总线带宽（bytes/s），\(t_{\text{interrupt}}\) 是完成中断处理时间。关键是：在 \(\frac{N \times \text{word\_size}}{B_{\text{bus}}}\) 这段传输时间内，CPU 是<strong>完全空闲</strong>的，可以执行其他任务！</p>
+            <p><strong>CPU 时间节省（CPU 从搬运中释放的时间）：</strong></p>
+            \[
+            \text{Speedup}_{\text{CPU}} \approx \frac{T_{\text{CPU\_copy}}}{t_{\text{setup}} + t_{\text{interrupt}}}
+            \]
+            <p>对于大块传输（\(N\) 很大），这个加速比可以达到几百倍甚至几千倍——CPU 从"搬运工"变为"管理者"。</p>
+            <div class="warning-box">⚠️ <strong>DMA 引入缓存一致性问题！</strong>DMA 控制器直接读写主内存，绕过 CPU 缓存。这导致两个问题：① DMA 写入内存后，CPU 缓存中可能还是旧数据（stale cache）——CPU 读到过期值；② CPU 修改了缓存中的数据但还没写回内存，DMA 从内存读到的是旧值。解决方案：DMA 读取前执行 cache flush（将脏数据写回内存）；DMA 写入后执行 cache invalidate（丢弃缓存中的旧数据）；或者使用硬件一致性 DMA（通过缓存嗅探协议自动维护一致性）。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>磁盘控制器 DMA：</strong>现代 SATA/NVMe 存储控制器全部使用 DMA。OS 将读写请求以描述符（descriptor）形式放入内存中的命令队列，设备控制器通过 DMA 读取命令、执行 I/O、通过 DMA 将数据直接写入 OS 指定的内存缓冲区，最后发送 MSI 中断通知完成。整个过程 CPU 只需要填写描述符和处理完成中断。</p>
+            <p><strong>网卡（NIC）DMA：</strong>网卡使用环形缓冲区（Ring Buffer）+ DMA 实现零拷贝收发。OS 预先分配 DMA 缓冲区并将地址写入网卡描述符环。当数据包到达时，网卡 DMA 直接将数据写入对应的缓冲区，更新描述符状态，然后发中断通知 CPU。这种设计支持 10–100 Gbps 的线速处理。</p>
+            <p><strong>GPU 显存传输（PCIe DMA）：</strong>GPU 通过 PCIe 总线的 DMA 在系统内存和显存（VRAM）之间高速传输纹理、顶点数据和计算结果。CUDA 的 <code>cudaMemcpy</code> 底层就是 PCIe DMA 操作。</p>
+            <p><strong>Scatter-Gather DMA：</strong>高级 DMA 控制器支持 scatter-gather 操作——一次 DMA 传输可以从多个不连续的内存区域读取（gather）或写入多个不连续的区域（scatter）。这对虚拟内存系统特别重要，因为一个连续的虚拟缓冲区在物理内存中可能分布在不同的页面上。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>需要传输 4096 字节数据，总线带宽为 1 GB/s。CPU 逐字（4 字节）复制每个字需要 5ns（load + store + loop）。DMA 设置时间为 1μs，完成中断处理时间为 2μs。比较两种方式的时间和 CPU 占用情况。</p>
+            <p><em>解答：</em></p>
+            <p>数据量：4096 字节 = 1024 个字（4 字节/字）</p>
+            <p><strong>CPU 逐字复制：</strong></p>
+            \[
+            T_{\text{CPU\_copy}} = 1024 \times 5\,\text{ns} = 5120\,\text{ns} = 5.12\,\mu\text{s}
+            \]
+            <p>CPU 占用时间 = 5.12μs（100% 占用）</p>
+            <p><strong>DMA 方式：</strong></p>
+            \[
+            T_{\text{transfer}} = \frac{4096}{1 \times 10^9} = 4.096\,\mu\text{s}
+            \]
+            \[
+            T_{\text{DMA\_total}} = 1\,\mu\text{s} + 4.096\,\mu\text{s} + 2\,\mu\text{s} = 7.096\,\mu\text{s}
+            \]
+            <p>CPU 占用时间 = 1μs（setup）+ 2μs（interrupt）= 3μs</p>
+            <p>CPU 释放时间 = 5.12 - 3 = <strong>2.12μs</strong>。虽然总时间 DMA 反而略多，但 CPU 在 4.096μs 的传输期间可以做其他工作！对于更大的数据传输，优势更加明显。</p>
+            <p>❌ <strong>常见错误：</strong>只比较总完成时间，忽略 CPU 被释放的时间。DMA 的价值不在于"更快完成传输"，而在于"<strong>释放 CPU 去做更有价值的工作</strong>"。</p>
+            <p>✅ <strong>正确评估：</strong>DMA 的核心优势是 CPU 利用率提升，尤其在多任务环境下，释放出的 CPU 时间可以执行其他进程或处理其他 I/O 请求。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch03-kp3">
+        <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp3" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="300" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">DMA 数据传输流程</text>
+          <!-- CPU -->
+          <rect x="30" y="50" width="100" height="60" class="box" fill="#dbeafe"/>
+          <text x="80" y="75" text-anchor="middle" class="fg" font-size="11" font-weight="bold">CPU</text>
+          <text x="80" y="95" text-anchor="middle" class="fg2" font-size="8">① 编程 DMA</text>
+          <!-- DMA Controller -->
+          <rect x="220" y="50" width="140" height="60" rx="6" fill="#fef3c7" stroke="#06b6d4" stroke-width="2"/>
+          <text x="290" y="72" text-anchor="middle" class="accent" font-size="11" font-weight="bold">DMA 控制器</text>
+          <text x="290" y="92" text-anchor="middle" class="fg2" font-size="8">源地址 | 目标地址 | 字节数</text>
+          <!-- Memory -->
+          <rect x="450" y="50" width="120" height="60" class="box" fill="#ecfdf5"/>
+          <text x="510" y="75" text-anchor="middle" class="fg" font-size="11" font-weight="bold">内存</text>
+          <text x="510" y="95" text-anchor="middle" class="fg2" font-size="8">数据缓冲区</text>
+          <!-- Device -->
+          <rect x="220" y="185" width="140" height="50" class="box" fill="#fdf2f8"/>
+          <text x="290" y="207" text-anchor="middle" class="fg" font-size="11" font-weight="bold">I/O 设备</text>
+          <text x="290" y="225" text-anchor="middle" class="fg2" font-size="8">（磁盘 / 网卡）</text>
+          <!-- Bus line -->
+          <rect x="30" y="130" width="540" height="3" rx="1" fill="#06b6d4" fill-opacity="0.3"/>
+          <text x="300" y="127" text-anchor="middle" class="accent" font-size="9" font-weight="bold">系统总线</text>
+          <!-- CPU to bus -->
+          <line x1="80" y1="110" x2="80" y2="128" class="line"/>
+          <!-- DMA to bus -->
+          <line x1="290" y1="110" x2="290" y2="128" class="line"/>
+          <!-- Memory to bus -->
+          <line x1="510" y1="110" x2="510" y2="128" class="line"/>
+          <!-- CPU programs DMA -->
+          <line x1="130" y1="70" x2="215" y2="70" class="line" marker-end="url(#ah-kp3)"/>
+          <text x="172" y="63" text-anchor="middle" class="fg2" font-size="8">编程</text>
+          <!-- DMA to Memory (data flow) -->
+          <line x1="360" y1="76" x2="445" y2="76" stroke="#06b6d4" stroke-width="2.5" fill="none" marker-end="url(#ah-kp3)"/>
+          <text x="402" y="68" text-anchor="middle" class="accent" font-size="9" font-weight="bold">③ 数据传输</text>
+          <!-- Device to DMA -->
+          <line x1="290" y1="183" x2="290" y2="115" stroke="#06b6d4" stroke-width="2" fill="none" marker-end="url(#ah-kp3)"/>
+          <text x="310" y="155" class="accent" font-size="8">② 设备数据</text>
+          <!-- DMA interrupt to CPU -->
+          <line x1="220" y1="100" x2="135" y2="100" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3" fill="none" marker-end="url(#ah-kp3)"/>
+          <text x="172" y="100" text-anchor="middle" fill="#ef4444" font-size="8">④ 完成中断</text>
+          <!-- CPU free note -->
+          <rect x="20" y="148" width="130" height="36" rx="4" fill="#ecfdf5" stroke="#22c55e" stroke-width="1.5"/>
+          <text x="85" y="164" text-anchor="middle" fill="#22c55e" font-size="9" font-weight="bold">CPU 空闲！</text>
+          <text x="85" y="178" text-anchor="middle" class="fg2" font-size="8">可执行其他任务</text>
+          <!-- Legend -->
+          <text x="300" y="265" text-anchor="middle" class="fg2" font-size="9">CPU 只参与 ① 编程 和 ④ 中断处理，传输过程 ②③ 完全由 DMA 硬件完成</text>
+        </svg>
+        <figcaption>图 3-3 DMA 数据传输架构 — DMA 控制器在设备和内存之间直接传输数据，CPU 仅负责设置和完成通知</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">DMA 传输会导致什么问题需要特别处理？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'DMA 控制器有自己的地址寄存器，不需要占用 CPU 寄存器。CPU 的寄存器在 DMA 传输期间不受影响。')">A. CPU 寄存器被覆盖</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！DMA 直接读写主内存但绕过 CPU 缓存，导致缓存一致性问题。DMA 写入后 CPU 缓存可能持有旧数据（stale data），需要通过 cache flush/invalidate 或硬件嗅探来解决。')">B. 缓存一致性（Cache Coherency）问题</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'DMA 传输目标通常是由 OS 预先分配的 DMA 缓冲区，不会覆盖程序指令区域。操作系统负责确保 DMA 地址的安全性。')">C. 程序指令被覆盖</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'DMA 控制器有专门的硬件仲裁机制来竞争总线，不会导致中断向量表损坏。')">D. 中断向量表被修改</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 内存映射 I/O（Memory-Mapped I/O）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>CPU 如何"对话"外部设备？要让 CPU 控制 LED 灯亮灭、从传感器读取温度、向串口发送字符，就需要某种机制让 CPU 访问设备内部的控制寄存器和数据寄存器。历史上有两种根本不同的方案：</p>
+            <p><strong>端口映射 I/O（Port-Mapped I/O）</strong>：使用独立于内存的 I/O 地址空间和专用指令（如 x86 的 <code>IN</code>/<code>OUT</code>）。这种方式在早期 PC 架构中很常见，但它需要特殊的 I/O 指令，增加了 ISA 的复杂性。</p>
+            <p><strong>内存映射 I/O（Memory-Mapped I/O, MMIO）</strong>：将设备寄存器映射到物理地址空间的特定区域。CPU 使用普通的 <code>load</code>/<code>store</code> 指令即可访问设备。这种方式无需特殊指令、编程模型统一，是现代架构（包括 RISC-V、ARM）的主流选择。</p>
+            <p>理解 MMIO 是编写设备驱动程序、理解嵌入式系统和进行裸机编程（bare-metal programming）的必备知识。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>端口映射 I/O（Port-Mapped I/O）</strong>的特点：独立的 I/O 地址空间，需要特殊指令（x86：<code>IN AL, DX</code> / <code>OUT DX, AL</code>），地址空间通常较小（x86 仅 64KB I/O 端口），只能通过汇编或特殊内联函数访问。</p>
+            <p><strong>内存映射 I/O（MMIO）</strong>的特点：设备寄存器被分配到物理地址范围内。CPU 使用标准的 load/store 指令访问。无需特殊指令，任何语言都可以通过指针操作访问设备。</p>
+            <p><strong>MMIO 的优势：</strong>① 不需要额外的 I/O 指令，简化了指令集设计；② 统一的地址空间使得编程模型更简洁；③ 高级语言（C/C++）可以通过指针直接操作设备寄存器；④ 可以利用虚拟内存的保护机制控制 I/O 访问权限。</p>
+            <p><strong>MMIO 的注意事项：</strong>① 占用部分物理地址空间（减少可用内存地址范围）；② MMIO 地址<strong>绝对不能被缓存</strong>——否则 CPU 会读到缓存中的旧值，而非设备的实时状态；③ 访问可能有副作用（side effect）——读取某些设备寄存器会改变设备状态。</p>
+            <p><strong>RISC-V 地址空间布局（典型）：</strong>RISC-V 主要使用 MMIO。地址空间被划分为：RAM 区域（存放代码和数据）、ROM/Flash 区域（存放启动代码）、I/O 设备区域（UART、GPIO、定时器、中断控制器 PLIC/CLINT 等）。每个设备占据一段连续的地址范围。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>地址解码（Address Decoding）</strong>示例：假设 UART 设备映射到地址 0x10000000 开始的区域：</p>
+            \[
+            \text{UART\_TX} = \text{0x10000000},\quad \text{UART\_RX} = \text{0x10000004},\quad \text{UART\_STATUS} = \text{0x10000008}
+            \]
+            <p><strong>C 语言中的 MMIO 编程：</strong></p>
+<pre><code>#define UART_TX     (*(volatile uint32_t *)0x10000000)
+#define UART_RX     (*(volatile uint32_t *)0x10000004)
+#define UART_STATUS (*(volatile uint32_t *)0x10000008)
+
+#define TX_READY 0x01  // status bit: 发送就绪
+
+void uart_putchar(char c) {
+    while (!(UART_STATUS &amp; TX_READY))  // 轮询等待发送就绪
+        ;                                // busy wait
+    UART_TX = c;                         // 发送字符
+}</code></pre>
+            <p>上面的 C 代码会被编译为如下 RISC-V 汇编（简化版）：</p>
+<pre><code>    lui  t0, 0x10000        # t0 = 0x10000000（UART 基地址）
+poll:
+    lw   t1, 8(t0)          # t1 = UART_STATUS
+    andi t1, t1, 0x01       # 检查 TX_READY 位
+    beqz t1, poll           # 未就绪则继续轮询
+    li   t2, 65             # t2 = 'A'（示例字符）
+    sw   t2, 0(t0)          # 写入 UART_TX → 发送字符</code></pre>
+            <p><strong>地址空间分区：</strong>对于 32 位系统，总地址空间为 \(2^{32} = 4\,\text{GB}\)。需要合理分配给 RAM 和 I/O 设备：</p>
+            \[
+            \text{可用 RAM} = 2^{32} - \sum(\text{I/O 设备映射大小})
+            \]
+            <p>在实际 RISC-V SoC 中，I/O 设备通常映射到高地址区域（如 0x10000000 以上），低地址留给 RAM。</p>
+            <div class="warning-box">⚠️ <strong>MMIO 地址必须标记为不可缓存（Uncacheable）！</strong>如果 CPU 缓存了设备状态寄存器的值，它将反复读到同一个旧值，永远检测不到设备状态变化。同时，C 代码中必须使用 <code>volatile</code> 关键字修饰 MMIO 指针——否则编译器可能"优化"掉你的轮询循环（编译器认为同一个地址的值不会被"神秘地"改变，所以只读一次然后复用）。这是嵌入式开发中最常见、也最隐蔽的 Bug 之一。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>GPU 帧缓冲（Framebuffer）：</strong>GPU 的显存（VRAM）被映射到 CPU 的物理地址空间。CPU 通过普通的 store 指令向帧缓冲区写入像素数据，GPU 自动将其显示到屏幕上。Linux 的 <code>/dev/fb0</code> 就是对帧缓冲 MMIO 的抽象。</p>
+            <p><strong>PCIe 设备 BAR（Base Address Register）：</strong>PCIe 设备通过 BAR 寄存器告诉系统它需要多大的 MMIO 地址空间。BIOS/UEFI 在启动时为每个 PCIe 设备分配 MMIO 地址范围（BAR 配置）。这就是为什么你在设备管理器中看到的"内存范围"就是该设备的 MMIO 映射区域。</p>
+            <p><strong>ARM 外设内存映射：</strong>ARM 处理器（如树莓派的 BCM2835）将所有外设（GPIO、UART、SPI、I2C、PWM、定时器）映射到固定的地址区域。嵌入式程序员通过在 C 中直接操作这些地址来控制硬件——例如设置 GPIO 引脚的高低电平来点亮 LED。</p>
+            <p><strong>嵌入式 GPIO 控制：</strong>在 RISC-V 嵌入式 MCU（如 SiFive FE310）中，GPIO 端口被映射到特定地址。通过写入 GPIO 的方向寄存器（设为输出）和数据寄存器（设为高/低），可以直接控制物理引脚电平。这就是裸机编程（bare-metal programming）的核心技术。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>编写 C 代码，通过 MMIO 向 UART 发送字符串 "Hello"。UART 基地址为 0x10000000，TX 数据寄存器偏移为 0x00，状态寄存器偏移为 0x08，TX_READY 位为 bit 0。</p>
+            <p><em>正确实现：</em></p>
+<pre><code>#define UART_BASE   0x10000000
+#define UART_TX     (*(volatile uint32_t *)(UART_BASE + 0x00))
+#define UART_STATUS (*(volatile uint32_t *)(UART_BASE + 0x08))
+#define TX_READY    (1 &lt;&lt; 0)
+
+void uart_puts(const char *s) {
+    while (*s) {
+        while (!(UART_STATUS &amp; TX_READY))
+            ;           // 等待发送就绪
+        UART_TX = *s;   // 发送一个字符
+        s++;
+    }
+}</code></pre>
+            <p><em>常见的错误版本（不使用 volatile）：</em></p>
+<pre><code>// ❌ 错误：没有 volatile！
+#define UART_STATUS (*(uint32_t *)(UART_BASE + 0x08))
+
+// 编译器 -O2 优化后可能变成：
+// if (!(UART_STATUS &amp; TX_READY))
+//     while(1);  // 无限循环！
+// 因为编译器认为 UART_STATUS 不会被"外部"改变</code></pre>
+            <p>❌ <strong>常见错误：</strong>省略 <code>volatile</code> 关键字。在 <code>-O0</code>（无优化）模式下代码可能正常工作，但一旦开启优化（<code>-O2</code>），编译器会缓存 MMIO 读取的值，导致轮询循环变成无限循环或完全被移除。</p>
+            <p>✅ <strong>黄金法则：</strong>访问 MMIO 地址的指针<strong>必须</strong>用 <code>volatile</code> 修饰。同时，在操作系统层面，MMIO 对应的页表项必须设置为不可缓存（Uncacheable），确保硬件层面也不缓存这些地址。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch03-kp4">
+        <svg viewBox="0 0 520 320" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp4" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="260" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">内存映射 I/O — 地址空间布局</text>
+          <!-- Address bar (left side) -->
+          <text x="70" y="48" text-anchor="end" class="fg2" font-size="9">0xFFFFFFFF</text>
+          <text x="70" y="100" text-anchor="end" class="fg2" font-size="9">0x20000000</text>
+          <text x="70" y="145" text-anchor="end" class="fg2" font-size="9">0x10013000</text>
+          <text x="70" y="170" text-anchor="end" class="fg2" font-size="9">0x10012000</text>
+          <text x="70" y="195" text-anchor="end" class="fg2" font-size="9">0x10000000</text>
+          <text x="70" y="220" text-anchor="end" class="fg2" font-size="9">0x0C000000</text>
+          <text x="70" y="250" text-anchor="end" class="fg2" font-size="9">0x02000000</text>
+          <text x="70" y="300" text-anchor="end" class="fg2" font-size="9">0x00000000</text>
+          <!-- Memory map blocks -->
+          <!-- ROM/Reserved (top) -->
+          <rect x="85" y="38" width="160" height="50" class="box" fill="#e2e8f0"/>
+          <text x="165" y="60" text-anchor="middle" class="fg2" font-size="10">保留 / ROM</text>
+          <text x="165" y="77" text-anchor="middle" class="fg2" font-size="8">（高地址区域）</text>
+          <!-- RAM -->
+          <rect x="85" y="90" width="160" height="40" class="box" fill="#dbeafe"/>
+          <text x="165" y="110" text-anchor="middle" class="fg" font-size="11" font-weight="bold">RAM</text>
+          <text x="165" y="124" text-anchor="middle" class="fg2" font-size="8">代码 + 数据 + 栈 + 堆</text>
+          <!-- GPIO -->
+          <rect x="85" y="133" width="160" height="24" rx="4" fill="#fdf2f8" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="165" y="149" text-anchor="middle" class="accent" font-size="9" font-weight="bold">GPIO 控制器</text>
+          <!-- SPI -->
+          <rect x="85" y="159" width="160" height="24" rx="4" fill="#fdf2f8" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="165" y="175" text-anchor="middle" class="accent" font-size="9" font-weight="bold">SPI 控制器</text>
+          <!-- UART -->
+          <rect x="85" y="185" width="160" height="24" rx="4" fill="#fef3c7" stroke="#06b6d4" stroke-width="2"/>
+          <text x="165" y="201" text-anchor="middle" class="accent" font-size="9" font-weight="bold">UART（串口）</text>
+          <!-- PLIC -->
+          <rect x="85" y="211" width="160" height="27" rx="4" fill="#fdf2f8" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="165" y="228" text-anchor="middle" class="accent" font-size="9" font-weight="bold">PLIC（中断控制器）</text>
+          <!-- CLINT -->
+          <rect x="85" y="240" width="160" height="24" rx="4" fill="#fdf2f8" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="165" y="256" text-anchor="middle" class="accent" font-size="9" font-weight="bold">CLINT（定时器）</text>
+          <!-- Boot ROM -->
+          <rect x="85" y="270" width="160" height="35" class="box" fill="#ecfdf5"/>
+          <text x="165" y="292" text-anchor="middle" class="fg" font-size="10" font-weight="bold">Boot ROM</text>
+          <!-- Braces and labels -->
+          <text x="260" y="115" class="fg" font-size="28" font-weight="100">}</text>
+          <text x="280" y="112" class="fg" font-size="9">普通内存</text>
+          <text x="260" y="205" class="accent" font-size="50" font-weight="100">}</text>
+          <text x="280" y="195" class="accent" font-size="10" font-weight="bold">I/O 设备区域</text>
+          <text x="280" y="210" class="accent" font-size="9">(MMIO)</text>
+          <!-- UART detail (right side) -->
+          <line x1="245" y1="197" x2="330" y2="197" stroke="#06b6d4" stroke-width="1" stroke-dasharray="3,2" fill="none"/>
+          <rect x="330" y="140" width="170" height="110" class="box" fill="#fff7ed"/>
+          <text x="415" y="158" text-anchor="middle" class="fg" font-size="10" font-weight="bold">UART 寄存器详情</text>
+          <line x1="340" y1="165" x2="490" y2="165" class="line" stroke-width="0.5"/>
+          <text x="345" y="181" class="fg2" font-size="9">+0x00  TX 数据寄存器</text>
+          <text x="345" y="197" class="fg2" font-size="9">+0x04  RX 数据寄存器</text>
+          <text x="345" y="213" class="fg2" font-size="9">+0x08  状态寄存器</text>
+          <text x="345" y="229" class="fg2" font-size="9">+0x0C  控制寄存器</text>
+          <text x="345" y="245" class="fg2" font-size="9">访问方式: lw / sw</text>
+        </svg>
+        <figcaption>图 3-4 RISC-V 内存映射 I/O 地址空间布局 — I/O 设备被映射到物理地址空间，CPU 用 load/store 访问</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">为什么 MMIO 地址必须标记为不可缓存（Uncacheable）？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '缓存不会直接导致设备损坏。问题在于数据正确性——CPU 会读到缓存中的旧值而非设备的实时状态。')">A. 缓存会导致设备硬件损坏</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！如果 CPU 缓存了设备寄存器的值，后续的读取会命中缓存返回旧值，而不会实际访问设备。这意味着 CPU 无法检测到设备状态的变化（例如数据就绪位从 0 变为 1），轮询循环会永远循环或直接跳过检查。')">B. CPU 缓存旧值后无法检测设备状态的实时变化</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'MMIO 地址与缓存大小无关。不可缓存的原因是设备寄存器的值可以在 CPU 不知情的情况下被硬件改变，缓存无法感知这种外部变化。')">C. MMIO 地址空间超过了缓存大小限制</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '可缓存性和原子性是两个不同的概念。MMIO 不缓存的原因是保证读写直接到达设备，与操作的原子性无关。')">D. 缓存会导致 I/O 操作不具有原子性</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch02.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch04.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

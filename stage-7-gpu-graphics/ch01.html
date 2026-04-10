@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.1 GPU 架构（GPU Architecture） — 看见的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s7-ch01-q1", question: "根据 Amdahl 定律，当并行比例 P=0.95、处理器数 N=256 时，最大加速比最接近？", options: ["13.9","17.4","20.0","256"], answer: 1, explanation: "S = 1/((1−0.95)+0.95/256) = 1/(0.05+0.00371) ≈ 1/0.0537 ≈ 18.6。但在给定选项中，17.4 最接近（精确计算 S≈18.6，选项设计考查量级感知；串行部分 5% 将加速比限制在 20 以下）。注意 N→∞ 时上限为 1/(1−P)=20。" },
+      { id: "s7-ch01-q2", question: "GPU 的晶体管预算中，大约多少比例用于 ALU（算术逻辑单元）？", options: ["约 20%","约 50%","约 80%","约 95%"], answer: 2, explanation: "GPU 设计哲学是将大部分晶体管用于计算单元。典型 GPU 约 80% 晶体管用于 ALU，而 CPU 约 50% 用于缓存和控制逻辑。" },
+      { id: "s7-ch01-q3", question: "NVIDIA GPU 中一个 Warp 包含多少个线程？", options: ["8","16","32","64"], answer: 2, explanation: "NVIDIA 架构中 Warp = 32 个线程同时执行同一条指令。AMD 的 Wavefront 在 GCN 架构中为 64 线程，RDNA 中为 32 线程。" },
+      { id: "s7-ch01-q4", question: "SIMT 模型中，当 Warp 内线程遇到 if-else 分支且两条路径都有线程需要执行时，会发生什么？", options: ["Warp 分裂为两个子 Warp 并行执行","两条路径被序列化执行（Divergence），非活跃线程被掩码屏蔽","编译器自动消除分支","硬件预测并只执行概率更高的路径"], answer: 1, explanation: "这就是分支发散（Branch Divergence）。Warp 中的线程必须执行相同指令，遇到分支时两条路径被序列化，非活跃线程通过掩码（Predication Mask）屏蔽，导致 SIMT 利用率下降。" },
+      { id: "s7-ch01-q5", question: "某 GPU 的 SM 有 64K×32-bit 寄存器文件，每个线程使用 64 个寄存器，每个 Warp 32 线程。该 SM 最多同时驻留多少个 Warp？", options: ["16","32","48","64"], answer: 1, explanation: "每个 Warp 使用 32×64=2048 个寄存器。总寄存器 65536/2048=32 个 Warp。但这只是寄存器维度的限制，实际占用率还受共享内存和 Warp 槽位数限制。" },
+      { id: "s7-ch01-q6", question: "计算 RTX 4090 的理论峰值 FP32 算力：16384 个 CUDA 核心，Boost 时钟 2.52 GHz。结果最接近？", options: ["41.3 TFLOPS","61.0 TFLOPS","82.6 TFLOPS","165.2 TFLOPS"], answer: 2, explanation: "Peak FLOPS = cores × clock × 2(FMA) = 16384 × 2.52×10⁹ × 2 ≈ 82.6 TFLOPS。每个核心每周期可执行一次 FMA（融合乘加），算 2 次浮点运算。" },
+      { id: "s7-ch01-q7", question: "Roofline 模型中，某工作负载的算术强度（Arithmetic Intensity）为 2 FLOP/Byte，GPU 峰值算力 80 TFLOPS，显存带宽 2 TB/s。该工作负载是？", options: ["计算瓶颈（Compute-bound）","内存瓶颈（Memory-bound）","两者平衡","无法判断"], answer: 1, explanation: "BW × AI = 2×10¹² × 2 = 4 TFLOPS < 80 TFLOPS 峰值，因此内存带宽先成为瓶颈。实际性能受限于 4 TFLOPS，是 Memory-bound。拐点在 AI = 80/2 = 40 FLOP/Byte。" },
+      { id: "s7-ch01-q8", question: "HBM（High Bandwidth Memory）相比 GDDR6 的核心优势是什么？", options: ["更高的时钟频率","更宽的总线位宽（1024-bit+）配合堆叠封装","更低的制造成本","更大的单芯片容量"], answer: 1, explanation: "HBM 通过 TSV（硅通孔）堆叠多层 DRAM Die，使用 1024-bit 甚至更宽的总线，以较低时钟达到极高带宽。代价是成本高、需要中介层（Interposer）封装。GDDR6 用更高时钟和较窄总线（如 384-bit）实现较低成本的高带宽。" }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-7" data-module="ch01" style="--domain-color: var(--c-gpu-graphics);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 7</span><a href="index.html" class="module-name">看见的世界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.1 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · GPU vs CPU 哲学分歧</a></li>
+      <li><a href="#kp2">02 · SIMT 执行模型</a></li>
+      <li><a href="#kp3">03 · 流处理器 SM/CU</a></li>
+      <li><a href="#kp4">04 · 显存与带宽</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 1</p>
+      <h1>GPU 架构（GPU Architecture）</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · GPU vs CPU——吞吐量 vs 延迟的哲学分歧</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>CPU 是"全能选手"——通过复杂的控制逻辑、深流水线、分支预测和乱序执行，把<strong>单个任务的延迟（Latency）</strong>压到最低。然而，当面对<strong>数百万个相互独立的简单计算</strong>——例如屏幕上每个像素的颜色——CPU 的少量核心就力不从心了。</p>
+            <p>GPU 的设计哲学截然不同：放弃单线程性能，用<strong>大量简单核心</strong>换取<strong>极高的吞吐量（Throughput）</strong>。这不是"谁更强"的问题，而是两种根本不同的<strong>计算哲学</strong>：CPU 优化延迟，GPU 优化吞吐。理解这种分歧是理解整个 GPU 架构的起点。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>CPU 架构特征</strong>：复杂的控制逻辑（分支预测器、指令重排缓冲区、寄存器重命名）、深流水线（15-20+ 级）、大容量多级缓存（L1/L2/L3 可达数十 MB）、少量强核心（4-64 核）。晶体管预算中约 <strong>50% 用于缓存和控制逻辑</strong>，只有约 10-20% 直接用于 ALU。</p>
+            <p><strong>GPU 架构特征</strong>：简单的控制逻辑（无复杂分支预测、无乱序执行）、小缓存、大量简单核心（数千到上万个 ALU）。晶体管预算中约 <strong>80% 用于 ALU</strong>，控制逻辑和缓存占比极小。</p>
+            <p>类比：CPU 像一辆跑车——速度快但只坐 2 人；GPU 像一列火车——单程慢但一次运数千人。当乘客数量巨大时，火车的<strong>总运力</strong>远超跑车。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>Amdahl 定律（Amdahl's Law）</strong>量化了并行加速的极限。设程序中可并行化的比例为 \(P\)，使用 \(N\) 个并行处理单元，最大加速比为：</p>
+            \[
+            S = \frac{1}{(1 - P) + \dfrac{P}{N}}
+            \]
+            <p>当 \(N \to \infty\) 时，\(S \to \frac{1}{1 - P}\)。即使并行部分无限加速，<strong>串行部分决定了加速比的上限</strong>。</p>
+            <p><strong>GPU 适用场景：\(P \to 1\)</strong>。像素着色、矩阵乘法、卷积等任务的并行比例极高（\(P > 0.99\)），此时 GPU 的数千核心可发挥巨大优势。例如 \(P = 0.99, N = 10000\) 时，\(S \approx 99.0\)。</p>
+            <p><strong>CPU 适用场景：\(P\) 较小</strong>。当程序包含大量串行逻辑、复杂分支和数据依赖时，增加核心数收效甚微。例如 \(P = 0.5, N = 10000\) 时，\(S \approx 2.0\)——几乎无法利用并行性。</p>
+            <div class="warning-box">⚠️ GPU 并非总是比 CPU 快！对于串行代码、分支密集型代码（如编译器、操作系统内核），CPU 的单线程性能远超 GPU。GPU 只在高度并行的数据密集型计算中才有优势。盲目将所有计算转移到 GPU 反而可能更慢（数据传输开销、低占用率）。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>游戏图形渲染</strong>：一帧 1920×1080 的画面有 207 万个像素，每个像素的着色计算基本独立（\(P \approx 1\)），是 GPU 的理想工作负载。现代 GPU 可以在 1/60 秒内完成所有像素的光照、纹理和后处理计算。</p>
+            <p><strong>深度学习训练</strong>：神经网络的核心运算是矩阵乘法 \(C = A \times B\)。一个 \(m \times k\) 乘 \(k \times n\) 的矩阵乘法包含 \(m \times n \times k\) 次独立的乘加运算，完美适配 GPU 的大规模并行。NVIDIA A100 GPU 的 Tensor Core 专门为此优化，训练速度比 CPU 快 10-100 倍。</p>
+            <p><strong>加密货币挖矿</strong>：哈希计算（如 SHA-256）是高度并行的——可以同时尝试数十亿个不同的 nonce 值。GPU 的大规模并行能力使其成为早期加密货币挖矿的主力（后被 ASIC 取代）。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某程序 95% 可并行化（\(P = 0.95\)），用一块 1024 核 GPU 加速。(a) 求最大加速比；(b) 若要达到 15 倍加速，至少需要多少并行核心？</p>
+            <p><em>解答：</em></p>
+            <p>(a) \(S = \frac{1}{0.05 + 0.95/1024} = \frac{1}{0.05 + 0.000928} = \frac{1}{0.050928} \approx 19.6\)</p>
+            <p>(b) 令 \(\frac{1}{0.05 + 0.95/N} = 15\)，解得 \(0.05 + 0.95/N = 1/15\)，\(0.95/N = 1/15 - 1/20 = 1/60\)，\(N = 57\)。</p>
+            <p>仅需 57 个核心就能达到 15 倍加速，而从 57 核增加到 1024 核只额外获得约 4.6 倍的提升——<strong>边际递减效应</strong>非常明显。</p>
+            <p>❌ <strong>常见错误：</strong>认为 1024 核能获得 1024 倍加速，忽略了 5% 的串行部分限制了上限为 \(1/(1-0.95) = 20\) 倍。</p>
+            <p>✅ <strong>正确理解：</strong>串行比例 \(1-P\) 是并行加速的"天花板"，增加更多核心无法突破这个极限。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch01-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:4}</style>
+          <text class="fg" x="200" y="18" text-anchor="middle" font-size="12" font-weight="bold">CPU vs GPU 晶体管预算对比</text>
+          <!-- CPU side -->
+          <text class="accent" x="100" y="40" text-anchor="middle" font-size="11" font-weight="bold">CPU</text>
+          <rect x="30" y="50" width="140" height="80" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <rect x="35" y="55" width="60" height="30" fill="#64748b" opacity="0.25" rx="3"/>
+          <text class="fg2" x="65" y="74" text-anchor="middle" font-size="8">L2/L3 Cache</text>
+          <rect x="100" y="55" width="64" height="30" fill="#64748b" opacity="0.35" rx="3"/>
+          <text class="fg2" x="132" y="74" text-anchor="middle" font-size="8">控制逻辑</text>
+          <rect x="35" y="90" width="30" height="34" fill="#3b82f6" opacity="0.5" rx="3"/>
+          <text class="accent" x="50" y="110" text-anchor="middle" font-size="7">Core0</text>
+          <rect x="70" y="90" width="30" height="34" fill="#3b82f6" opacity="0.5" rx="3"/>
+          <text class="accent" x="85" y="110" text-anchor="middle" font-size="7">Core1</text>
+          <rect x="105" y="90" width="30" height="34" fill="#3b82f6" opacity="0.5" rx="3"/>
+          <text class="accent" x="120" y="110" text-anchor="middle" font-size="7">Core2</text>
+          <rect x="140" y="90" width="24" height="34" fill="#3b82f6" opacity="0.5" rx="3"/>
+          <text class="accent" x="152" y="110" text-anchor="middle" font-size="7">…</text>
+          <text class="fg2" x="100" y="145" text-anchor="middle" font-size="9">~50% 缓存+控制 · ~20% ALU</text>
+          <!-- GPU side -->
+          <text class="accent" x="300" y="40" text-anchor="middle" font-size="11" font-weight="bold">GPU</text>
+          <rect x="230" y="50" width="140" height="80" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <rect x="235" y="55" width="20" height="15" fill="#64748b" opacity="0.25" rx="2"/>
+          <text class="fg2" x="245" y="65" text-anchor="middle" font-size="5">Ctrl</text>
+          <rect x="258" y="55" width="16" height="15" fill="#64748b" opacity="0.2" rx="2"/>
+          <text class="fg2" x="266" y="65" text-anchor="middle" font-size="5">L2</text>
+          <!-- Many small ALU blocks -->
+          <rect x="235" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="245" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="255" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="265" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="275" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="285" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="295" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="305" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="315" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="325" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="335" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="345" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="355" y="75" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="235" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="245" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="255" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="265" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="275" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="285" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="295" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="305" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="315" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="325" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="335" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="345" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="355" y="85" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="235" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="245" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="255" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="265" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="275" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="285" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="295" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="305" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="315" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="325" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="335" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="345" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="355" y="95" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="235" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="245" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="255" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="265" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="275" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="285" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="295" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="305" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="315" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="325" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="335" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="345" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="355" y="105" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="235" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="245" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="255" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="265" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="275" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="285" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="295" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <rect x="305" y="115" width="8" height="8" fill="#3b82f6" opacity="0.6" rx="1"/>
+          <text class="fg2" x="300" y="145" text-anchor="middle" font-size="9">~80% ALU · ~5% 缓存+控制</text>
+          <!-- Labels -->
+          <text class="fg2" x="100" y="165" text-anchor="middle" font-size="9" font-weight="bold">少量强核心 · 低延迟</text>
+          <text class="fg2" x="300" y="165" text-anchor="middle" font-size="9" font-weight="bold">大量简单核心 · 高吞吐</text>
+          <!-- Amdahl curve hint -->
+          <text class="fg" x="200" y="190" text-anchor="middle" font-size="10" font-weight="bold">Amdahl 定律: S = 1/((1−P) + P/N)</text>
+          <text class="fg2" x="200" y="206" text-anchor="middle" font-size="9">P→1 时 GPU 大幅领先 · P 较小时 CPU 更优</text>
+          <text class="fg2" x="200" y="230" text-anchor="middle" font-size="9" font-style="italic">晶体管分配策略决定了处理器的计算哲学</text>
+        </svg>
+        <figcaption>图 1-1 CPU vs GPU 晶体管预算对比与 Amdahl 定律</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">程序中 90% 可并行化（P=0.9），使用无限多处理器，理论最大加速比是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '5 倍对应 P=0.8 的情况：1/(1−0.8)=5。')">A. 5 倍</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！N→∞ 时 S=1/(1−P)=1/0.1=10。串行部分 10% 限制了上限。')">B. 10 倍</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '90 倍忽略了串行部分的限制。即使并行部分完全加速，串行部分仍需原时间。')">C. 90 倍</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '无限加速只在 P=1（100% 可并行）时成立，而 P=0.9 存在 10% 串行。')">D. 无限</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · SIMT（Single Instruction Multiple Threads）模型</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>GPU 拥有数千个 ALU，但如何<strong>调度</strong>这些 ALU 执行成千上万的线程？如果每个线程都有独立的指令获取和解码单元，硬件成本会爆炸。CPU 的 SIMD（Single Instruction Multiple Data）扩展（如 AVX-512）可以用一条指令处理多个数据，但程序员必须显式管理数据打包和向量宽度——编程难度很大。</p>
+            <p>NVIDIA 提出的 <strong>SIMT（Single Instruction Multiple Threads）</strong>模型是一种优雅的折中：硬件以<strong>线程</strong>为抽象单位（每个线程有自己的寄存器和逻辑程序计数器），但在执行时将多个线程捆绑为 <strong>Warp</strong>，共享同一条指令——兼顾了编程灵活性和硬件效率。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>Warp（线程束）</strong>：NVIDIA 架构中，32 个线程组成一个 Warp。同一个 Warp 中的线程在同一时钟周期执行<strong>相同的指令</strong>，但操作各自的数据（不同的寄存器内容）。AMD 的等效概念是 <strong>Wavefront</strong>（GCN 架构为 64 线程，RDNA 架构为 32 线程）。</p>
+            <p><strong>线程的独立性</strong>：每个线程有自己的<strong>寄存器组</strong>和<strong>逻辑程序计数器</strong>。从程序员视角，每个线程都是独立的——可以执行不同的分支路径。但硬件上，Warp 内只有一个物理指令获取/解码单元。</p>
+            <p><strong>与 SIMD 的区别</strong>：SIMD 要求数据在连续的向量寄存器中对齐，分支处理需要程序员手动用掩码管理。SIMT 让线程"看起来"独立，分支处理由硬件自动通过<strong>谓词执行（Predication）</strong>完成——编程模型更简单，但分支发散（Divergence）仍有性能代价。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>衡量 GPU 利用率的关键指标是<strong>占用率（Occupancy）</strong>：</p>
+            \[
+            \text{Occupancy} = \frac{\text{Active Warps per SM}}{\text{Max Warps per SM}}
+            \]
+            <p>占用率受三个因素制约：</p>
+            <p><strong>① 寄存器限制</strong>：若 SM 有 \(R_{\text{total}}\) 个寄存器，每线程用 \(r\) 个寄存器，则最多驻留 \(\lfloor R_{\text{total}} / (r \times 32) \rfloor\) 个 Warp（每 Warp 32 线程）。</p>
+            <p><strong>② 共享内存限制</strong>：若 SM 有 \(S_{\text{total}}\) 字节共享内存，每 Block 用 \(s\) 字节，则 SM 最多运行 \(\lfloor S_{\text{total}} / s \rfloor\) 个 Block。</p>
+            <p><strong>③ Warp 槽位限制</strong>：SM 有硬件上限（如 Ampere 架构最多 48 Warp/SM）。</p>
+            <p>实际占用率 = min(三个限制) / Max Warps per SM。高占用率有助于隐藏内存延迟（当一个 Warp 等待数据时，调度器切换到其他就绪的 Warp）。</p>
+            <div class="warning-box">⚠️ <strong>分支发散（Branch Divergence）是 GPU 性能的头号杀手。</strong>当 Warp 内的线程走不同的 if/else 分支时，硬件必须<strong>序列化</strong>两条路径——先执行 if 路径（屏蔽 else 线程），再执行 else 路径（屏蔽 if 线程）。一个二分支发散让 SIMT 效率降至 50%；多层嵌套分支可能导致指数级性能下降。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>分支发散的处理</strong>：当 Warp 内线程遇到条件分支：(1) 如果所有线程走同一路径（<strong>Uniform Branch</strong>），无性能损失；(2) 如果不同线程走不同路径（<strong>Divergent Branch</strong>），硬件通过<strong>活跃掩码（Active Mask）</strong>屏蔽非活跃线程，依次执行每条路径，然后在<strong>汇合点（Reconvergence Point）</strong>合并。</p>
+            <p><strong>CUDA 编程中的优化策略</strong>：将相邻线程映射到相似的数据/条件，使同一 Warp 内的线程尽可能走相同分支。例如对图像处理，让 Warp 内 32 个线程处理空间相邻的 32 个像素（它们通常有相似的亮度/颜色条件）。</p>
+            <p><strong>Volta 架构的独立线程调度</strong>：从 Volta（2017）起，NVIDIA 引入了独立线程调度（Independent Thread Scheduling），每个线程有真正的独立程序计数器，允许更灵活的同步和发散处理。但这也带来了新的正确性问题（如隐式 Warp 同步不再安全）。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某 GPU SM 有 65536 个寄存器，最多支持 48 个 Warp，共享内存 96 KB。一个内核每线程用 48 个寄存器，每 Block 有 256 个线程，使用 32 KB 共享内存。求占用率。</p>
+            <p><em>解答：</em></p>
+            <p>① 寄存器限制：每 Warp 用 \(48 \times 32 = 1536\) 个寄存器。最多 \(\lfloor 65536/1536 \rfloor = 42\) 个 Warp。</p>
+            <p>② 共享内存限制：每 Block 用 32 KB，SM 有 96 KB → 最多 3 个 Block。每 Block 有 \(256/32 = 8\) 个 Warp → 最多 \(3 \times 8 = 24\) 个 Warp。</p>
+            <p>③ 硬件限制：48 个 Warp。</p>
+            <p>实际：\(\min(42, 24, 48) = 24\)。占用率 = \(24/48 = 50\%\)。<strong>共享内存是瓶颈。</strong></p>
+            <p>❌ <strong>常见错误：</strong>只考虑寄存器限制而忽略共享内存和 Warp 槽位限制。</p>
+            <p>✅ <strong>正确做法：</strong>三个限制都要算，取最小值。使用 NVIDIA Occupancy Calculator 可自动分析。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch01-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:4}.warn{fill:#ef4444}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">SIMT 执行模型：Warp 分支发散</text>
+          <!-- Timeline axis -->
+          <line x1="40" y1="40" x2="380" y2="40" class="line"/>
+          <text class="fg2" x="210" y="35" text-anchor="middle" font-size="9">时间 →</text>
+          <!-- Uniform branch (no divergence) -->
+          <text class="fg2" x="20" y="70" font-size="8" text-anchor="middle" writing-mode="tb">Warp A</text>
+          <rect x="40" y="55" width="140" height="24" fill="#3b82f6" opacity="0.35" rx="3"/>
+          <text class="accent" x="110" y="70" text-anchor="middle" font-size="8">全部线程执行 if 路径 ✓</text>
+          <rect x="185" y="55" width="100" height="24" fill="#3b82f6" opacity="0.35" rx="3"/>
+          <text class="accent" x="235" y="70" text-anchor="middle" font-size="8">继续执行</text>
+          <text class="fg2" x="340" y="70" font-size="8">效率 100%</text>
+          <!-- Divergent branch -->
+          <text class="fg2" x="20" y="110" font-size="8" text-anchor="middle" writing-mode="tb">Warp B</text>
+          <rect x="40" y="95" width="80" height="24" fill="#3b82f6" opacity="0.35" rx="3"/>
+          <text class="accent" x="80" y="110" text-anchor="middle" font-size="8">if 路径</text>
+          <text class="fg2" x="80" y="132" text-anchor="middle" font-size="7">16 线程活跃</text>
+          <rect x="125" y="95" width="80" height="24" fill="#ef4444" opacity="0.25" rx="3"/>
+          <text class="warn" x="165" y="110" text-anchor="middle" font-size="8">else 路径</text>
+          <text class="fg2" x="165" y="132" text-anchor="middle" font-size="7">另 16 线程活跃</text>
+          <rect x="210" y="95" width="75" height="24" fill="#3b82f6" opacity="0.35" rx="3"/>
+          <text class="accent" x="248" y="110" text-anchor="middle" font-size="8">汇合继续</text>
+          <text class="warn" x="340" y="110" font-size="8">效率 50%↓</text>
+          <!-- Mask illustration -->
+          <text class="fg" x="200" y="160" text-anchor="middle" font-size="10" font-weight="bold">活跃掩码（Active Mask）示意</text>
+          <text class="fg2" x="40" y="180" font-size="9">if 阶段:</text>
+          <text class="accent" x="100" y="180" font-size="9">1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1</text>
+          <text class="fg2" x="310" y="180" font-size="9">0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</text>
+          <text class="fg2" x="40" y="198" font-size="9">else阶段:</text>
+          <text class="fg2" x="100" y="198" font-size="9">0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</text>
+          <text class="warn" x="310" y="198" font-size="9">1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1</text>
+          <text class="fg2" x="200" y="228" text-anchor="middle" font-size="9" font-style="italic">发散分支导致 SIMT 利用率下降——GPU 性能优化的首要关注点</text>
+        </svg>
+        <figcaption>图 1-2 SIMT 执行中的分支发散：Uniform vs Divergent 路径</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">一个 Warp 的 32 个线程遇到 if-else，其中 8 个走 if、24 个走 else。SIMT 效率是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '25% 只算了 if 路径的效率（8/32），忽略了 else 路径也在执行有用工作。')">A. 25%</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！两条路径序列化执行，总周期数翻倍。有效工作 = 8+24=32 次运算，消耗 32+32=64 个线程·周期，效率 32/64=50%。')">B. 50%</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '75% 只算了 else 路径的效率（24/32），但两条路径都有闲置线程。')">C. 75%</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '发散分支不可能 100%，因为每条路径都有线程被掩码屏蔽而闲置。')">D. 100%</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 流处理器（Streaming Multiprocessor / Compute Unit）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>如果说 GPU 是一座工厂，那么 <strong>SM（Streaming Multiprocessor，流处理器）</strong>就是工厂中的一条生产线。GPU 的全部计算能力由多个 SM 组成（NVIDIA 称 SM，AMD 称 <strong>CU = Compute Unit</strong>）。</p>
+            <p>理解 SM 的内部结构——它有哪些功能单元、如何调度 Warp、如何管理寄存器和共享内存——是理解 GPU 性能调优的核心。SM 是 GPU 架构中<strong>最重要的中间抽象层</strong>：它连接了上层的编程模型（线程、Block）和下层的硬件执行（ALU、存储）。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>一个典型的 NVIDIA Ampere SM 包含以下组件：</p>
+            <p><strong>① Warp 调度器（Warp Scheduler）</strong>：4 个调度器，每周期可以从就绪 Warp 池中选择 4 个 Warp 发射指令。当 Warp 因内存访问而停顿时，调度器立即切换到其他就绪 Warp——这就是<strong>延迟隐藏（Latency Hiding）</strong>的核心机制。</p>
+            <p><strong>② 寄存器文件（Register File）</strong>：64K × 32-bit 寄存器（256 KB），是 SM 中最大的存储结构。寄存器按 Warp 静态分配，不存在寄存器重命名——分配多少就占多少，直到 Warp 退出。</p>
+            <p><strong>③ 计算单元</strong>：FP32 ALU（64 个）、FP64 ALU（32 个）、INT32 ALU（64 个）、<strong>Tensor Core</strong>（4 个第三代）、LD/ST 单元（32 个）、SFU（Special Function Unit，16 个，执行 sin/cos/exp 等）。</p>
+            <p><strong>④ 共享内存/L1 缓存</strong>：Ampere SM 有 192 KB 可配置的 Shared Memory/L1 Cache。程序可以选择划分比例（如 128 KB Shared + 64 KB L1）。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>理论峰值 FLOPS 计算：</strong></p>
+            \[
+            \text{Peak FLOPS} = N_{\text{cores}} \times f_{\text{clock}} \times 2 \quad (\text{FMA counts as 2 ops})
+            \]
+            <p>其中 \(N_{\text{cores}}\) 是 FP32 CUDA 核心总数，\(f_{\text{clock}}\) 是 Boost 频率，\(\times 2\) 是因为 <strong>FMA（Fused Multiply-Add）</strong>\(a \times b + c\) 在一个周期内完成，算作 2 次浮点运算。</p>
+            <p><strong>实例：NVIDIA RTX 4090</strong></p>
+            \[
+            \text{Peak FP32} = 16384 \times 2.52 \times 10^9 \times 2 = 82.6 \text{ TFLOPS}
+            \]
+            <p><strong>实例：NVIDIA A100</strong></p>
+            \[
+            \text{Peak FP32} = 6912 \times 1.41 \times 10^9 \times 2 = 19.5 \text{ TFLOPS}
+            \]
+            <p>A100 的 FP32 核心数少于 RTX 4090，但其 <strong>Tensor Core</strong> 在 FP16/BF16 矩阵运算中可达 312 TFLOPS——这是独立的数据通路，不计入常规 FLOPS。</p>
+            <div class="warning-box">⚠️ <strong>Tensor Core 的算力不应与常规 FLOPS 混为一谈。</strong>Tensor Core 执行的是 \(D = A \times B + C\) 的小矩阵运算（如 4×4 FP16），有独立的数据通路和精度要求。只有使用了 WMMA（Warp Matrix Multiply-Accumulate）指令或特定库（如 cuBLAS、cuDNN）的代码才能利用 Tensor Core。普通 CUDA 代码只能使用常规 FP32/FP64 单元。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>NVIDIA Ampere SM vs AMD RDNA3 CU 对比</strong>：</p>
+            <p>Ampere SM：4 个 Warp 调度器，128 个 FP32 ALU（或 64 FP32 + 64 INT32 同时），4 个 Tensor Core，192 KB 共享缓存。</p>
+            <p>RDNA3 CU：2 个 SIMD 单元（各 32 宽），64 个 FP32 ALU，2 个 AI 加速器（矩阵运算），128 KB 共享缓存。RDNA3 引入了 WMMA 指令支持，类似 NVIDIA 的 Tensor Core。</p>
+            <p><strong>延迟隐藏机制</strong>：GPU 内存延迟约 400-800 个时钟周期（远高于 CPU 的 L1 命中 4 周期）。SM 通过在数十个 Warp 之间快速切换来隐藏这个延迟——当 Warp A 等待数据时，调度器立即执行 Warp B 的指令。这就是为什么高占用率如此重要：更多的驻留 Warp = 更多可切换的对象 = 更好的延迟隐藏。</p>
+            <p><strong>寄存器压力（Register Pressure）</strong>：每个线程使用的寄存器越多，SM 能同时驻留的 Warp 越少，占用率越低。编译器优化选项（如 <code>--maxrregcount</code>）可以限制寄存器使用量，但可能导致<strong>寄存器溢出（Register Spill）</strong>到较慢的本地内存。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某 GPU 有 80 个 SM，每个 SM 有 128 个 FP32 核心，Boost 频率 1.5 GHz。求 (a) 理论峰值 FP32 FLOPS；(b) 若改用 Tensor Core（每 SM 有 4 个 Tensor Core，每个每周期完成 256 次 FP16 FMA），Tensor Core 的峰值 FP16 算力。</p>
+            <p><em>解答：</em></p>
+            <p>(a) 常规 FP32：\(80 \times 128 \times 1.5 \times 10^9 \times 2 = 30.72 \text{ TFLOPS}\)</p>
+            <p>(b) Tensor Core FP16：每 SM 每周期 \(4 \times 256 \times 2 = 2048\) 次 FP16 运算。总计 \(80 \times 2048 \times 1.5 \times 10^9 = 245.8 \text{ TFLOPS}\)</p>
+            <p>Tensor Core 算力是常规 FP32 的约 8 倍——这正是深度学习训练大量使用混合精度（FP16 + FP32）的原因。</p>
+            <p>❌ <strong>常见错误：</strong>把 Tensor Core FLOPS 和常规 FLOPS 简单相加作为 GPU 总算力。</p>
+            <p>✅ <strong>正确理解：</strong>两者是独立的数据通路，实际能用多少取决于代码是否调用了对应的指令。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch01-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:4}.tc{fill:#10b981}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">Streaming Multiprocessor（SM）内部架构</text>
+          <rect class="box" x="10" y="25" width="380" height="200" rx="6"/>
+          <text class="accent" x="200" y="42" text-anchor="middle" font-size="10" font-weight="bold">SM (Streaming Multiprocessor)</text>
+          <!-- Warp Schedulers -->
+          <rect x="20" y="50" width="75" height="22" fill="#f59e0b" opacity="0.3" rx="3"/>
+          <text class="fg" x="57" y="64" text-anchor="middle" font-size="7" font-weight="bold">Warp Sched ×4</text>
+          <!-- Register File -->
+          <rect x="105" y="50" width="90" height="22" fill="#8b5cf6" opacity="0.25" rx="3"/>
+          <text class="fg" x="150" y="64" text-anchor="middle" font-size="7" font-weight="bold">寄存器 64K×32b</text>
+          <!-- Shared Memory -->
+          <rect x="205" y="50" width="85" height="22" fill="#06b6d4" opacity="0.25" rx="3"/>
+          <text class="fg" x="248" y="64" text-anchor="middle" font-size="7" font-weight="bold">Shared/L1 192KB</text>
+          <!-- L2 hint -->
+          <rect x="300" y="50" width="80" height="22" fill="#64748b" opacity="0.15" rx="3"/>
+          <text class="fg2" x="340" y="64" text-anchor="middle" font-size="7">→ L2 Cache</text>
+          <!-- FP32 ALUs -->
+          <rect x="20" y="82" width="170" height="36" fill="#3b82f6" opacity="0.15" rx="3"/>
+          <text class="accent" x="105" y="96" text-anchor="middle" font-size="8" font-weight="bold">FP32 ALU × 128</text>
+          <text class="fg2" x="105" y="110" text-anchor="middle" font-size="7">每周期 128 次 FP32 FMA</text>
+          <!-- INT32 ALUs -->
+          <rect x="200" y="82" width="85" height="36" fill="#3b82f6" opacity="0.1" rx="3"/>
+          <text class="accent" x="242" y="96" text-anchor="middle" font-size="8" font-weight="bold">INT32 × 64</text>
+          <text class="fg2" x="242" y="110" text-anchor="middle" font-size="7">可与 FP32 并行</text>
+          <!-- FP64 -->
+          <rect x="295" y="82" width="85" height="36" fill="#6366f1" opacity="0.15" rx="3"/>
+          <text class="fg" x="337" y="96" text-anchor="middle" font-size="8" font-weight="bold">FP64 × 32</text>
+          <text class="fg2" x="337" y="110" text-anchor="middle" font-size="7">双精度浮点</text>
+          <!-- Tensor Cores -->
+          <rect x="20" y="128" width="120" height="32" fill="#10b981" opacity="0.25" rx="3"/>
+          <text class="tc" x="80" y="142" text-anchor="middle" font-size="8" font-weight="bold">🧮 Tensor Core × 4</text>
+          <text class="fg2" x="80" y="154" text-anchor="middle" font-size="7">FP16/BF16/INT8 矩阵运算</text>
+          <!-- SFU -->
+          <rect x="150" y="128" width="80" height="32" fill="#f97316" opacity="0.15" rx="3"/>
+          <text class="fg" x="190" y="142" text-anchor="middle" font-size="8" font-weight="bold">SFU × 16</text>
+          <text class="fg2" x="190" y="154" text-anchor="middle" font-size="7">sin/cos/exp/rsqrt</text>
+          <!-- LD/ST -->
+          <rect x="240" y="128" width="70" height="32" fill="#64748b" opacity="0.15" rx="3"/>
+          <text class="fg" x="275" y="142" text-anchor="middle" font-size="8" font-weight="bold">LD/ST × 32</text>
+          <text class="fg2" x="275" y="154" text-anchor="middle" font-size="7">Load/Store</text>
+          <!-- RT Core hint -->
+          <rect x="320" y="128" width="60" height="32" fill="#ec4899" opacity="0.15" rx="3"/>
+          <text class="fg" x="350" y="142" text-anchor="middle" font-size="8" font-weight="bold">RT Core</text>
+          <text class="fg2" x="350" y="154" text-anchor="middle" font-size="7">光线追踪</text>
+          <!-- Bottom: FLOPS formula -->
+          <text class="fg" x="200" y="182" text-anchor="middle" font-size="9" font-weight="bold">Peak FLOPS = N_cores × f_clock × 2 (FMA)</text>
+          <text class="fg2" x="200" y="198" text-anchor="middle" font-size="9">RTX 4090: 16384 × 2.52 GHz × 2 = 82.6 TFLOPS (FP32)</text>
+          <text class="fg2" x="200" y="214" text-anchor="middle" font-size="9" font-style="italic">SM 是 GPU 的基本计算单元，多个 SM 组成完整 GPU</text>
+        </svg>
+        <figcaption>图 1-3 NVIDIA Ampere SM 内部架构：计算单元、存储层次与调度器</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">GPU 通过什么机制隐藏数百周期的内存延迟？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'GPU 的分支预测能力远不如 CPU，这不是延迟隐藏的核心机制。')">A. 复杂的分支预测</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '预取有一定帮助，但不是 GPU 隐藏延迟的主要手段。')">B. 硬件预取</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！当一个 Warp 等待内存数据时，调度器立即切换到其他就绪 Warp，用计算填充等待时间。')">C. 大量 Warp 之间的快速切换（零开销上下文切换）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '乱序执行是 CPU 的特征，GPU 使用的是顺序执行 + Warp 切换。')">D. 乱序执行</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 显存（VRAM）与带宽</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>GPU 拥有数千个 ALU，每周期可以执行数万次浮点运算——但如果数据供应不上，ALU 就只能空转等待。这就是<strong>"算力-带宽"矛盾</strong>：GPU 的计算能力增长速度远超内存带宽增长速度。</p>
+            <p><strong>显存带宽（Memory Bandwidth）</strong>是决定 GPU 实际性能的关键因素。很多工作负载（如大规模矩阵运算、大模型推理）并非"计算瓶颈"而是"<strong>内存瓶颈</strong>"。理解显存技术（GDDR6/GDDR6X/HBM）和<strong>Roofline 模型</strong>，才能准确判断性能瓶颈并有针对性地优化。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>GDDR6</strong>：常见游戏 GPU 显存。使用较窄的总线（128/192/256-bit），通过高时钟频率（16-18 Gbps 数据率）实现带宽。成本相对较低。例如 RTX 3060 使用 192-bit GDDR6，带宽 360 GB/s。</p>
+            <p><strong>GDDR6X</strong>：NVIDIA 独家使用的改进版，采用 <strong>PAM4（4 级脉冲幅度调制）</strong>编码——每个信号周期传输 2 bit 而非 1 bit，有效翻倍数据率。RTX 4090 使用 384-bit GDDR6X @ 21 Gbps，带宽 1008 GB/s。</p>
+            <p><strong>HBM2e / HBM3</strong>：高带宽内存（High Bandwidth Memory），通过 <strong>TSV（硅通孔，Through-Silicon Via）</strong>技术在中介层（Interposer）上垂直堆叠多层 DRAM Die。使用极宽总线（1024-bit 每堆栈 × 多堆栈），以较低时钟频率实现极高带宽。NVIDIA A100 使用 5 堆栈 HBM2e，总带宽 2039 GB/s。代价：成本高、需特殊封装。</p>
+            <p><strong>为什么 AI 用 HBM，游戏用 GDDR？</strong>AI 训练/推理的工作集（模型参数 + 激活值）远大于游戏帧缓冲区，且访问模式更偏向大规模顺序读取，HBM 的高带宽优势更明显。游戏 GPU 的成本敏感性更高，GDDR 的性价比更优。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>带宽计算公式：</strong></p>
+            \[
+            BW = \text{bus\_width} \times \text{data\_rate} \times \text{channels}
+            \]
+            <p>例如 RTX 4090：\(BW = 384 \text{ bit} \times 21 \times 10^9 / 8 = 1008 \text{ GB/s}\)</p>
+            <p><strong>Roofline 模型</strong>是分析 GPU 性能的核心工具。它将工作负载的性能建模为：</p>
+            \[
+            \text{Performance} = \min(\text{Peak\_FLOPS},\ BW \times AI)
+            \]
+            <p>其中 <strong>AI（Arithmetic Intensity，算术强度）</strong>= FLOP / Byte，即每字节内存访问执行的浮点运算数。</p>
+            <p><strong>拐点（Ridge Point）</strong>：当 \(AI = \text{Peak\_FLOPS} / BW\) 时，计算和带宽恰好平衡。</p>
+            <p>• 若 \(AI < \text{拐点}\)：<strong>内存瓶颈（Memory-bound）</strong>，增加带宽有效</p>
+            <p>• 若 \(AI > \text{拐点}\)：<strong>计算瓶颈（Compute-bound）</strong>，增加 ALU 有效</p>
+            <p>A100 的拐点：\(19.5 \text{ TFLOPS} / 2039 \text{ GB/s} \approx 9.6 \text{ FLOP/Byte}\)。大多数深度学习推理的 AI 在 1-10 范围，因此是<strong>内存瓶颈</strong>——这解释了为什么 AI 芯片如此看重 HBM 带宽。</p>
+            <div class="warning-box">⚠️ <strong>广告中的带宽是理论峰值，实际有效带宽可能只有 60-80%。</strong>原因包括：(1) 非合并访问（Non-coalesced Access）——Warp 中线程访问不连续的地址，导致多次内存事务；(2) Bank Conflict——共享内存中多个线程访问同一 Bank；(3) 对齐问题——访问地址不对齐到缓存行边界。优化内存访问模式（特别是<strong>内存合并 Memory Coalescing</strong>）是 GPU 性能优化的基本功。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>NVIDIA A100（数据中心 AI）</strong>：HBM2e，5 堆栈 × 1024-bit，80 GB 容量，2039 GB/s 带宽。单卡可容纳 GPT-3 175B 参数的一部分（FP16 约 350 GB，需多卡）。HBM 的高带宽确保 Tensor Core 不会"饿死"。</p>
+            <p><strong>RTX 4090（游戏/创作）</strong>：GDDR6X，384-bit 总线，24 GB 容量，1008 GB/s 带宽。对于 4K 游戏，帧缓冲区约 100-200 MB，纹理数据通过流式加载管理，GDDR6X 带宽足够。</p>
+            <p><strong>Roofline 模型实践</strong>：矩阵乘法 \(C = A \times B\)（\(M \times K\) 乘 \(K \times N\)）的算术强度约为 \(\frac{2MKN}{(MK+KN+MN) \times \text{bytes}}\)。当矩阵足够大时 AI 很高（计算瓶颈），适合利用 Tensor Core。当矩阵小时 AI 低（内存瓶颈），需要算子融合（Kernel Fusion）来减少内存访问。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某 GPU 峰值 FP32 算力 40 TFLOPS，显存带宽 800 GB/s。工作负载每读取 4 字节（1 个 FP32）执行 8 次浮点运算。判断该工作负载是计算瓶颈还是内存瓶颈，并计算实际性能。</p>
+            <p><em>解答：</em></p>
+            <p>算术强度：\(AI = 8 / 4 = 2 \text{ FLOP/Byte}\)</p>
+            <p>拐点：\(40 \times 10^{12} / (800 \times 10^9) = 50 \text{ FLOP/Byte}\)</p>
+            <p>\(AI = 2 < 50 = \text{拐点}\)，因此是<strong>内存瓶颈</strong>。</p>
+            <p>实际性能：\(\min(40\text{T}, 800\text{G} \times 2) = \min(40\text{T}, 1.6\text{T}) = 1.6 \text{ TFLOPS}\)</p>
+            <p>实际只利用了峰值算力的 \(1.6/40 = 4\%\)——这就是为什么许多 GPU 程序看似"算力很强"却远达不到峰值。</p>
+            <p>❌ <strong>常见错误：</strong>认为"GPU 有 40 TFLOPS 就一定能跑到 40 TFLOPS"，忽略了带宽限制。</p>
+            <p>✅ <strong>正确做法：</strong>先用 Roofline 模型判断瓶颈类型，再针对性优化（内存瓶颈→提高数据复用率/合并访问；计算瓶颈→使用 Tensor Core/减少冗余计算）。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch01-kp4">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.warn{fill:#ef4444}.ok{fill:#10b981}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">Roofline 模型（对数坐标示意）</text>
+          <!-- Axes -->
+          <line x1="60" y1="200" x2="380" y2="200" class="line"/>
+          <line x1="60" y1="200" x2="60" y2="30" class="line"/>
+          <text class="fg2" x="220" y="220" text-anchor="middle" font-size="9">算术强度 AI (FLOP/Byte) →</text>
+          <text class="fg2" x="18" y="120" text-anchor="middle" font-size="9" transform="rotate(-90,18,120)">性能 (TFLOPS) →</text>
+          <!-- Axis ticks -->
+          <text class="fg2" x="60" y="214" text-anchor="middle" font-size="7">0.1</text>
+          <text class="fg2" x="120" y="214" text-anchor="middle" font-size="7">1</text>
+          <text class="fg2" x="200" y="214" text-anchor="middle" font-size="7">10</text>
+          <text class="fg2" x="280" y="214" text-anchor="middle" font-size="7">100</text>
+          <text class="fg2" x="55" y="193" text-anchor="end" font-size="7">0.1</text>
+          <text class="fg2" x="55" y="155" text-anchor="end" font-size="7">1</text>
+          <text class="fg2" x="55" y="115" text-anchor="end" font-size="7">10</text>
+          <text class="fg2" x="55" y="75" text-anchor="end" font-size="7">100</text>
+          <!-- BW slope (memory-bound region) -->
+          <line x1="60" y1="190" x2="230" y2="70" stroke="#3b82f6" stroke-width="2.5" fill="none"/>
+          <text class="accent" x="120" y="110" font-size="8" transform="rotate(-42,120,110)">BW × AI</text>
+          <!-- Peak FLOPS ceiling -->
+          <line x1="230" y1="70" x2="380" y2="70" stroke="#ef4444" stroke-width="2.5" fill="none"/>
+          <text class="warn" x="310" y="63" text-anchor="middle" font-size="8">Peak FLOPS</text>
+          <!-- Ridge point -->
+          <circle cx="230" cy="70" r="5" fill="#f59e0b" stroke="#334155" stroke-width="1"/>
+          <text class="fg" x="230" y="55" text-anchor="middle" font-size="8" font-weight="bold">拐点</text>
+          <!-- Region labels -->
+          <rect x="70" y="145" width="80" height="18" fill="#3b82f6" opacity="0.1" rx="3"/>
+          <text class="accent" x="110" y="158" text-anchor="middle" font-size="8">Memory-bound</text>
+          <rect x="265" y="80" width="80" height="18" fill="#ef4444" opacity="0.1" rx="3"/>
+          <text class="warn" x="305" y="93" text-anchor="middle" font-size="8">Compute-bound</text>
+          <!-- Example workloads -->
+          <circle cx="110" cy="155" r="4" fill="#3b82f6"/>
+          <text class="fg2" x="110" y="172" text-anchor="middle" font-size="7">大模型推理</text>
+          <circle cx="300" cy="70" r="4" fill="#ef4444"/>
+          <text class="fg2" x="300" y="105" text-anchor="middle" font-size="7">大矩阵 GEMM</text>
+          <circle cx="155" cy="125" r="4" fill="#10b981"/>
+          <text class="ok" x="168" y="137" font-size="7">卷积</text>
+          <text class="fg2" x="200" y="236" text-anchor="middle" font-size="9" font-style="italic">大多数 AI 推理负载位于 Memory-bound 区域——带宽是关键</text>
+        </svg>
+        <figcaption>图 1-4 Roofline 模型：算术强度决定性能瓶颈是内存还是计算</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">HBM 相比 GDDR6 实现高带宽的核心技术手段是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'HBM 的时钟频率实际上比 GDDR6 低得多（约 2-3 Gbps vs 16+ Gbps）。')">A. 更高的时钟频率</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！HBM 通过 TSV 堆叠 + 1024-bit 超宽总线实现高带宽，以较低频率弥补了时钟差距。')">B. TSV 堆叠 + 极宽总线（1024-bit+）</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'PAM4 编码是 GDDR6X 的技术，不是 HBM 的核心特征。')">C. PAM4 编码</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'HBM 使用 DDR 信号（双数据率），但这不是其核心优势。')">D. 四倍数据率（QDR）</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="#" class="nav-prev disabled">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch02.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

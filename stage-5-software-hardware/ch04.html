@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.4 虚拟内存 — 软硬交界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s5-ch04-q1",
+        question: "虚拟内存的核心目标是什么？",
+        options: [
+          "让程序直接访问物理内存",
+          "为每个进程提供独立的、连续的地址空间抽象",
+          "加速 CPU 的运算速度",
+          "替代缓存（Cache）的功能"
+        ],
+        answer: 1,
+        explanation: "虚拟内存为每个进程提供独立的虚拟地址空间，使其认为自己独占整个内存。操作系统和硬件协作完成虚拟地址到物理地址的翻译，同时实现进程间隔离和内存保护。"
+      },
+      {
+        id: "s5-ch04-q2",
+        question: "在分页系统中，虚拟地址被分为哪两部分？",
+        options: [
+          "段号和段内偏移",
+          "虚拟页号（VPN）和页内偏移（Offset）",
+          "物理页号和虚拟页号",
+          "基址和界限"
+        ],
+        answer: 1,
+        explanation: "在分页系统中，虚拟地址被分为高位的虚拟页号（VPN）和低位的页内偏移（Offset）。VPN 用于查找页表获取物理页号（PPN），偏移量直接拼接到 PPN 后面形成物理地址。"
+      },
+      {
+        id: "s5-ch04-q3",
+        question: "页表中的有效位（Valid Bit）为 0 表示什么？",
+        options: [
+          "该页已被修改",
+          "该页在物理内存中",
+          "该页不在物理内存中（可能在磁盘上）",
+          "该页可以被写入"
+        ],
+        answer: 2,
+        explanation: "有效位为 0 表示该虚拟页当前不在物理内存中。访问这样的页会触发缺页异常（Page Fault），操作系统将从磁盘（交换区）加载该页到物理内存，更新页表后重新执行该指令。"
+      },
+      {
+        id: "s5-ch04-q4",
+        question: "TLB 的作用是什么？",
+        options: [
+          "存储最近翻译过的虚拟页号到物理页号的映射",
+          "存储最近访问过的数据",
+          "替代页表的功能",
+          "存储中断向量表"
+        ],
+        answer: 0,
+        explanation: "TLB（Translation Lookaside Buffer）是页表的高速缓存，存储最近使用的虚拟页号（VPN）到物理页号（PPN）的映射。TLB 命中时可在 1 个周期内完成地址翻译，避免了访问内存中页表的巨大开销。"
+      },
+      {
+        id: "s5-ch04-q5",
+        question: "一个 32 位虚拟地址空间，页大小 4KB，单级页表需要多少个页表项？",
+        options: [
+          "\\(2^{10}\\) 个",
+          "\\(2^{12}\\) 个",
+          "\\(2^{20}\\) 个",
+          "\\(2^{32}\\) 个"
+        ],
+        answer: 2,
+        explanation: "页大小 4KB = 2^12 字节，所以偏移量占 12 位。32 位地址中虚拟页号占 32-12=20 位，因此需要 2^20 = 1M 个页表项。如果每个页表项 4 字节，则单级页表大小为 4MB——这就是为什么需要多级页表。"
+      },
+      {
+        id: "s5-ch04-q6",
+        question: "缺页异常（Page Fault）发生时，操作系统做什么？",
+        options: [
+          "终止进程",
+          "将所需页面从磁盘加载到物理内存，更新页表",
+          "增大虚拟地址空间",
+          "清空 TLB 的所有条目"
+        ],
+        answer: 1,
+        explanation: "缺页异常时，操作系统的处理流程：①找到一个空闲物理页帧（若无则通过页面置换算法淘汰一个页面）；②从磁盘读取所需页面到物理内存；③更新页表项（设置 PPN 和有效位）；④可能需要刷新 TLB；⑤重新执行触发缺页的指令。"
+      },
+      {
+        id: "s5-ch04-q7",
+        question: "二级页表相比单级页表的主要优势是什么？",
+        options: [
+          "地址翻译速度更快",
+          "不需要 TLB",
+          "大幅减少页表占用的物理内存",
+          "不会发生缺页异常"
+        ],
+        answer: 2,
+        explanation: "多级页表的核心优势是节省内存。单级页表必须为整个虚拟地址空间分配连续的页表项（即使大部分未使用）。多级页表只为实际使用的地址范围分配页表页面，未使用的一级页表项指向空，对应的二级页表页面不需要分配。"
+      },
+      {
+        id: "s5-ch04-q8",
+        question: "TLB 未命中（TLB Miss）时，硬件需要做什么？",
+        options: [
+          "直接访问磁盘",
+          "遍历页表（Page Table Walk）查找映射",
+          "终止当前指令",
+          "清空所有缓存"
+        ],
+        answer: 1,
+        explanation: "TLB 未命中时，硬件（或操作系统，取决于架构）需要执行页表遍历（Page Table Walk），逐级访问页表找到对应的物理页号。找到后将映射加载到 TLB 中，然后重新进行地址翻译。如果页表显示该页不在内存中，则触发缺页异常。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-5" data-module="ch04" style="--domain-color: var(--c-software);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 5</span><a href="index.html" class="module-name">软硬交界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.4 / 4</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 地址空间抽象</a></li>
+      <li><a href="#kp2">02 · 页表与地址翻译</a></li>
+      <li><a href="#kp3">03 · TLB</a></li>
+      <li><a href="#kp4">04 · 多级页表</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 4</p>
+      <h1>虚拟内存</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 地址空间（Address Space）的抽象</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在早期计算机中，程序直接使用物理地址访问内存。这带来了严重问题：多个程序同时运行时会互相覆盖内存；程序必须在编译时知道自己被加载到哪个地址；一个错误的程序可以破坏整个系统。</p>
+            <p>虚拟内存通过引入一层<strong>地址空间抽象</strong>，彻底解决了这些问题。每个进程拥有自己独立的虚拟地址空间，认为自己独占整个内存——从地址 0 到地址上限。操作系统和硬件（MMU）负责将虚拟地址翻译为物理地址，进程完全不知道自己实际使用了哪些物理内存。</p>
+            <p>虚拟内存是现代操作系统最关键的基础设施之一，没有它就没有进程隔离、内存保护和按需分页。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>虚拟内存系统涉及三层地址概念：</p>
+            <p><strong>① 虚拟地址（Virtual Address, VA）</strong>：程序使用的地址，由 CPU 生成。每个进程有独立的虚拟地址空间，32 位系统为 \(2^{32} = 4\text{GB}\)，64 位系统理论上为 \(2^{64}\)（实际通常使用 48 位，即 256TB）。</p>
+            <p><strong>② 物理地址（Physical Address, PA）</strong>：实际的内存芯片地址，由 MMU 翻译后输出到地址总线。物理内存通常远小于虚拟地址空间。</p>
+            <p><strong>③ 磁盘地址</strong>：当物理内存不足时，部分页面被交换（swap）到磁盘。虚拟内存使得程序可以使用比物理内存更大的地址空间。</p>
+            <p>虚拟内存提供三大功能：<strong>地址翻译</strong>（VA → PA）、<strong>内存保护</strong>（不同进程不能访问彼此的内存）、<strong>按需分页</strong>（只将实际使用的页面加载到物理内存）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>分页系统将虚拟和物理地址空间都划分为固定大小的<strong>页面（Page）</strong>，典型大小为 4KB。</p>
+            <p>地址分解：</p>
+            \[
+            \text{VA} = \underbrace{\text{VPN}}_{\text{虚拟页号}} \| \underbrace{\text{Offset}}_{\text{页内偏移}}
+            \]
+            <p>对于 32 位地址、4KB 页面：偏移量 = \(\log_2(4096) = 12\) 位，VPN = \(32 - 12 = 20\) 位。</p>
+            <p>地址翻译的核心操作：</p>
+            \[
+            \text{PA} = \text{PageTable}[\text{VPN}].\text{PPN} \| \text{Offset}
+            \]
+            <p>即用虚拟页号查页表得到物理页号（PPN），与页内偏移拼接形成物理地址。偏移量在翻译过程中保持不变。</p>
+            <p>虚拟地址空间大小与页表项数量的关系：</p>
+            \[
+            \text{页表项数} = \frac{2^{\text{VA位数}}}{2^{\text{偏移位数}}} = 2^{\text{VPN位数}}
+            \]
+            <div class="warning-box">⚠️ 虚拟地址空间大小 ≠ 物理内存大小！虚拟地址空间由地址位数决定（如 32 位 = 4GB），而物理内存可以更小（如 2GB）甚至更大。虚拟内存正是通过按需分页和磁盘交换来弥补这种差异。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>进程隔离：</strong>每个进程有独立的页表，因此进程 A 的虚拟地址 0x1000 和进程 B 的 0x1000 映射到不同的物理页面。一个进程崩溃不会影响其他进程。</p>
+            <p><strong>共享库：</strong>多个进程可以将同一个物理页面映射到各自的虚拟地址空间，实现代码共享（如 libc.so），节省物理内存。</p>
+            <p><strong>内存映射文件（mmap）：</strong>将文件直接映射到虚拟地址空间，通过读写内存来操作文件，由操作系统自动处理文件 I/O 和缓存。</p>
+            <p><strong>写时复制（Copy-on-Write）：</strong>fork() 时父子进程共享同一物理页面，标记为只读。只有当某一方写入时才触发页面复制，大幅减少 fork 开销。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>32 位虚拟地址空间，页大小 4KB，物理内存 256MB。求：① VPN 位数；② 偏移量位数；③ PPN 位数；④ 物理地址位数。</p>
+            <p><em>解答：</em></p>
+            <p>① 偏移量 = \(\log_2(4\text{KB}) = \log_2(2^{12}) = 12\) 位</p>
+            <p>② VPN = \(32 - 12 = 20\) 位</p>
+            <p>③ 物理地址位数 = \(\log_2(256\text{MB}) = \log_2(2^{28}) = 28\) 位</p>
+            <p>④ PPN = \(28 - 12 = 16\) 位</p>
+            <p>❌ <strong>常见错误：</strong>混淆 VPN 位数和 PPN 位数。VPN 由虚拟地址位数决定，PPN 由物理地址位数决定，两者通常不同！</p>
+            <p>✅ <strong>正确做法：</strong>始终分别根据虚拟/物理地址空间大小来计算各自的页号位数。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch04-kp1">
+        <svg viewBox="0 0 420 260" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <text class="fg" x="80" y="20" text-anchor="middle" font-size="12" font-weight="bold">虚拟地址空间</text>
+          <text class="fg" x="320" y="20" text-anchor="middle" font-size="12" font-weight="bold">物理内存</text>
+          <rect class="box" x="30" y="30" width="100" height="30"/>
+          <text class="fg2" x="80" y="50" text-anchor="middle" font-size="10">代码段 .text</text>
+          <rect class="box" x="30" y="62" width="100" height="30"/>
+          <text class="fg2" x="80" y="82" text-anchor="middle" font-size="10">数据段 .data</text>
+          <rect class="box" x="30" y="94" width="100" height="25"/>
+          <text class="fg2" x="80" y="111" text-anchor="middle" font-size="10">堆 ↓</text>
+          <rect x="30" y="121" width="100" height="40" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="4,3" rx="4"/>
+          <text class="fg2" x="80" y="145" text-anchor="middle" font-size="9">未映射区域</text>
+          <rect class="box" x="30" y="163" width="100" height="25"/>
+          <text class="fg2" x="80" y="180" text-anchor="middle" font-size="10">↑ 栈</text>
+          <rect class="box" x="270" y="30" width="100" height="30"/>
+          <text class="accent" x="320" y="50" text-anchor="middle" font-size="10">页帧 0</text>
+          <rect class="box" x="270" y="62" width="100" height="30"/>
+          <text class="accent" x="320" y="82" text-anchor="middle" font-size="10">页帧 1</text>
+          <rect class="box" x="270" y="94" width="100" height="30"/>
+          <text class="accent" x="320" y="114" text-anchor="middle" font-size="10">页帧 2</text>
+          <rect class="box" x="270" y="126" width="100" height="30"/>
+          <text class="accent" x="320" y="146" text-anchor="middle" font-size="10">页帧 3</text>
+          <rect class="box" x="270" y="158" width="100" height="30"/>
+          <text class="fg2" x="320" y="178" text-anchor="middle" font-size="10">…</text>
+          <rect x="165" y="85" width="60" height="45" fill="none" stroke="#06b6d4" stroke-width="2" rx="8"/>
+          <text class="accent" x="195" y="105" text-anchor="middle" font-size="10" font-weight="bold">MMU</text>
+          <text class="fg2" x="195" y="120" text-anchor="middle" font-size="8">页表</text>
+          <line class="line" x1="130" y1="45" x2="165" y2="95" marker-end="url(#ah4)"/>
+          <line class="line" x1="130" y1="77" x2="165" y2="100" marker-end="url(#ah4)"/>
+          <line class="line" x1="130" y1="175" x2="165" y2="115" marker-end="url(#ah4)"/>
+          <line class="line" x1="225" y1="95" x2="270" y2="77" marker-end="url(#ah4)"/>
+          <line class="line" x1="225" y1="105" x2="270" y2="45" marker-end="url(#ah4)"/>
+          <line class="line" x1="225" y1="115" x2="270" y2="141" marker-end="url(#ah4)"/>
+          <text class="fg2" x="210" y="230" text-anchor="middle" font-size="11" font-style="italic">虚拟地址 → MMU（页表翻译）→ 物理地址</text>
+          <text class="fg2" x="210" y="250" text-anchor="middle" font-size="9">注意：虚拟页面可以映射到任意物理页帧（非连续）</text>
+          <defs><marker id="ah4" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 4-1 虚拟地址空间到物理内存的映射——通过 MMU 和页表完成翻译</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">虚拟内存的地址翻译中，哪个部分在翻译过程中保持不变？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'VPN 是需要被翻译为 PPN 的部分，不是保持不变的。')">A. 虚拟页号（VPN）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'PPN 是翻译的结果，不是输入中保持不变的部分。')">B. 物理页号（PPN）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！页内偏移在虚拟地址和物理地址中完全相同，因为同一页面内部的相对位置不会改变。')">C. 页内偏移（Offset）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '页表项是翻译时查询的数据结构，不是地址的组成部分。')">D. 页表项（PTE）</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 页表（Page Table）与地址翻译</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>地址空间抽象告诉我们"虚拟地址需要翻译为物理地址"，但具体怎么翻译？答案是<strong>页表（Page Table）</strong>——一个由操作系统维护、由硬件查询的映射表。</p>
+            <p>页表是虚拟内存系统的核心数据结构。它不仅存储地址映射，还包含访问权限（读/写/执行）、脏位（Dirty Bit）、引用位（Reference Bit）等元数据，是内存保护和页面置换的基础。</p>
+            <p>理解页表的结构和查询过程，是理解操作系统内存管理的关键。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>页表是一个以<strong>虚拟页号（VPN）为索引</strong>的数组，每个条目称为<strong>页表项（Page Table Entry, PTE）</strong>。</p>
+            <p>PTE 的典型字段：</p>
+            <p><strong>① 有效位（Valid Bit）</strong>：该虚拟页是否有合法映射。为 0 则访问触发缺页异常。</p>
+            <p><strong>② 物理页号（PPN）</strong>：映射到的物理页帧号。</p>
+            <p><strong>③ 权限位</strong>：R（可读）、W（可写）、X（可执行）。违反权限触发保护异常。</p>
+            <p><strong>④ 脏位（Dirty Bit）</strong>：该页是否被写过。用于页面置换时决定是否需要写回磁盘。</p>
+            <p><strong>⑤ 引用位（Reference/Access Bit）</strong>：该页是否被访问过。用于页面置换算法（如 Clock 算法）。</p>
+            <p>每个进程有自己的页表。在 RISC-V 中，<code>satp</code> 寄存器存储当前进程页表的物理基地址。进程切换时，操作系统更新 satp 并刷新 TLB。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>地址翻译的完整过程：</p>
+            \[
+            \text{PTE} = \text{PageTable}[\text{VPN}] = \text{Mem}[\text{PTBR} + \text{VPN} \times \text{sizeof(PTE)}]
+            \]
+            <p>其中 PTBR（Page Table Base Register）是页表基地址寄存器（RISC-V 中的 satp）。</p>
+            <p>如果 PTE.Valid = 1：</p>
+            \[
+            \text{PA} = \text{PTE.PPN} \| \text{Offset}
+            \]
+            <p>如果 PTE.Valid = 0，触发<strong>缺页异常（Page Fault）</strong>。</p>
+            <p>页表大小计算：</p>
+            \[
+            \text{页表大小} = 2^{\text{VPN位数}} \times \text{sizeof(PTE)}
+            \]
+            <p>例：32 位地址、4KB 页面、4 字节 PTE → 页表大小 = \(2^{20} \times 4 = 4\text{MB}\)。每个进程 4MB，100 个进程就是 400MB——仅仅存储页表就占用大量内存！这就是需要多级页表的原因。</p>
+            <div class="warning-box">⚠️ 页表本身存储在物理内存中！每次地址翻译都需要先访问内存读取 PTE，这意味着每次内存访问变成了两次：一次查页表，一次访问数据。没有 TLB 的话，性能会下降一半。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>内存保护：</strong>通过 PTE 的权限位，操作系统可以将代码段标记为只读+可执行（R+X），数据段标记为可读写（R+W），栈标记为可读写但不可执行（防止代码注入攻击，即 NX/DEP 保护）。</p>
+            <p><strong>按需分页（Demand Paging）：</strong>程序启动时并不将所有页面加载到内存，而是将页表项标记为无效。首次访问时触发缺页异常，操作系统再加载对应页面。这使得程序启动更快、内存使用更高效。</p>
+            <p><strong>页面置换：</strong>当物理内存不足时，操作系统选择一个页面淘汰（写回磁盘如果是脏页），释放页帧给新页面。常用算法有 LRU（Least Recently Used）、Clock、FIFO 等。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>虚拟地址 0x00003A7C，页大小 4KB。页表内容如下：VPN 3 → PPN 0x0F，Valid=1。求物理地址。</p>
+            <p><em>解答：</em></p>
+            <p>① 偏移量 = 低 12 位 = 0xA7C</p>
+            <p>② VPN = 0x00003A7C >> 12 = 0x3</p>
+            <p>③ 查页表：VPN 3 → PPN = 0x0F</p>
+            <p>④ 物理地址 = PPN | Offset = 0x0FA7C</p>
+            <p>❌ <strong>常见错误：</strong>忘记偏移量在翻译中保持不变，错误地将整个虚拟地址替换为物理地址。</p>
+            <p>✅ <strong>正确做法：</strong>只替换高位的页号部分，低位偏移量直接保留。用位拼接而非加法：PA = PPN << 12 | Offset。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch04-kp2">
+        <svg viewBox="0 0 420 220" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:4}</style>
+          <text class="fg" x="100" y="18" text-anchor="middle" font-size="11" font-weight="bold">虚拟地址</text>
+          <rect x="20" y="25" width="80" height="28" fill="#e0f2fe" stroke="#06b6d4" stroke-width="1.5" rx="4"/>
+          <text class="accent" x="60" y="44" text-anchor="middle" font-size="11" font-weight="bold">VPN</text>
+          <rect x="100" y="25" width="80" height="28" fill="#f0fdf4" stroke="#334155" stroke-width="1.5" rx="4"/>
+          <text class="fg" x="140" y="44" text-anchor="middle" font-size="11">Offset</text>
+          <path class="line" d="M60 53 L60 75 L170 75 L170 90" marker-end="url(#ah5)"/>
+          <text class="fg2" x="115" y="70" text-anchor="middle" font-size="9">查找索引</text>
+          <rect class="box" x="130" y="90" width="90" height="80"/>
+          <text class="fg" x="175" y="110" text-anchor="middle" font-size="11" font-weight="bold">页表</text>
+          <text class="fg2" x="175" y="126" text-anchor="middle" font-size="9">VPN → PTE</text>
+          <line x1="140" y1="135" x2="210" y2="135" stroke="#334155" stroke-width="0.5"/>
+          <text class="fg2" x="155" y="148" font-size="8">V</text>
+          <text class="fg2" x="170" y="148" font-size="8">R</text>
+          <text class="fg2" x="182" y="148" font-size="8">W</text>
+          <text class="accent" x="200" y="148" font-size="8">PPN</text>
+          <text class="fg2" x="155" y="162" font-size="8">1</text>
+          <text class="fg2" x="170" y="162" font-size="8">1</text>
+          <text class="fg2" x="182" y="162" font-size="8">0</text>
+          <text class="accent" x="200" y="162" font-size="8" font-weight="bold">0F</text>
+          <path class="line" d="M220 140 L280 140 L280 195" marker-end="url(#ah5)"/>
+          <text class="fg2" x="260" y="135" text-anchor="middle" font-size="9">PPN</text>
+          <path class="line" d="M140 53 L140 195" stroke-dasharray="4,3"/>
+          <text class="fg" x="320" y="188" text-anchor="middle" font-size="11" font-weight="bold">物理地址</text>
+          <rect x="260" y="195" width="60" height="22" fill="#e0f2fe" stroke="#06b6d4" stroke-width="1.5" rx="4"/>
+          <text class="accent" x="290" y="210" text-anchor="middle" font-size="10" font-weight="bold">PPN</text>
+          <rect x="320" y="195" width="60" height="22" fill="#f0fdf4" stroke="#334155" stroke-width="1.5" rx="4"/>
+          <text class="fg" x="350" y="210" text-anchor="middle" font-size="10">Offset</text>
+          <defs><marker id="ah5" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 4-2 地址翻译过程：VPN 查页表获取 PPN，与 Offset 拼接得到物理地址</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">页表项中的脏位（Dirty Bit）用于什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '有效位（Valid Bit）才是判断页面是否在内存中的标志。')">A. 标记页面是否在物理内存中</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！脏位表示页面内容已被修改。置换时，脏页必须先写回磁盘，干净页可以直接丢弃。')">B. 标记页面是否被写过，用于置换时决定是否写回</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '权限位（R/W/X）才负责访问控制。')">C. 标记页面的读写权限</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '引用位/访问位（Reference Bit）才记录是否被访问。')">D. 记录页面被访问的次数</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · TLB（Translation Lookaside Buffer）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>上一节我们看到，每次内存访问都需要先查页表（在内存中），这意味着一次数据访问变成了至少两次内存访问——性能直接减半。这在高性能处理器中是不可接受的。</p>
+            <p>TLB（Translation Lookaside Buffer，翻译后备缓冲器）是解决这一问题的关键硬件：它是一个小型、高速的缓存，专门存储最近使用的页表项。TLB 命中时，地址翻译在一个时钟周期内完成，无需访问内存中的页表。</p>
+            <p>由于程序具有很强的地址局部性，TLB 的命中率通常高达 99% 以上，因此绝大多数内存访问不会受到页表查询的性能惩罚。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>TLB 的结构类似于缓存（Cache），但存储的不是数据而是<strong>地址翻译映射</strong>（VPN → PPN + 权限位）。</p>
+            <p><strong>TLB 查找过程：</strong></p>
+            <p>① CPU 生成虚拟地址，提取 VPN</p>
+            <p>② 用 VPN 在 TLB 中并行查找（全相联或组相联）</p>
+            <p>③ <strong>TLB Hit</strong>：找到匹配的 VPN，直接输出 PPN → 快速完成翻译</p>
+            <p>④ <strong>TLB Miss</strong>：未找到 → 执行页表遍历（Page Table Walk），将结果写入 TLB，然后重试</p>
+            <p>TLB 通常很小（32-128 条目），但由于全相联结构和超高命中率，对性能的提升是决定性的。典型的 TLB 访问延迟约 0.5-1 个时钟周期，而内存访问可能需要 100+ 个周期。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>TLB 对有效内存访问时间（EMAT）的影响：</p>
+            \[
+            \text{EMAT} = h \times (t_{\text{TLB}} + t_{\text{mem}}) + (1 - h) \times (t_{\text{TLB}} + t_{\text{PT}} + t_{\text{mem}})
+            \]
+            <p>其中 \(h\) 是 TLB 命中率，\(t_{\text{TLB}}\) 是 TLB 查找时间，\(t_{\text{PT}}\) 是页表遍历时间，\(t_{\text{mem}}\) 是实际数据的内存访问时间。</p>
+            <p>简化：</p>
+            \[
+            \text{EMAT} = t_{\text{TLB}} + t_{\text{mem}} + (1 - h) \times t_{\text{PT}}
+            \]
+            <p>例：\(t_{\text{TLB}} = 1\text{ns}\)，\(t_{\text{mem}} = 100\text{ns}\)，\(t_{\text{PT}} = 100\text{ns}\)（一次额外内存访问），\(h = 99\%\)：</p>
+            \[
+            \text{EMAT} = 1 + 100 + 0.01 \times 100 = 102\text{ns}
+            \]
+            <p>对比无 TLB：\(100 + 100 = 200\text{ns}\)。TLB 将有效访问时间从 200ns 降到 102ns，性能几乎翻倍！</p>
+            <p>TLB 覆盖范围：</p>
+            \[
+            \text{TLB Reach} = \text{TLB 条目数} \times \text{页面大小}
+            \]
+            <p>例：64 条目 × 4KB = 256KB。如果程序的工作集超过 TLB Reach，命中率会显著下降。</p>
+            <div class="warning-box">⚠️ 进程切换时必须处理 TLB 一致性！因为不同进程的 VPN 可能映射到不同的 PPN。方案一：切换时刷新（flush）整个 TLB——简单但代价高。方案二：为 TLB 条目加上 ASID（Address Space ID）标签，允许多个进程的映射共存。RISC-V 的 satp 寄存器包含 ASID 字段。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>分级 TLB：</strong>现代处理器通常有两级 TLB：L1 iTLB（指令，32-64 条目，全相联）+ L1 dTLB（数据，32-64 条目）+ L2 TLB（统一，512-4096 条目，组相联）。</p>
+            <p><strong>大页（Huge Pages）：</strong>使用 2MB 或 1GB 的大页可以显著增大 TLB Reach。例如 64 条目 × 2MB = 128MB，足以覆盖许多数据库的工作集。Linux 中使用 HugePages 或 Transparent Huge Pages（THP）。</p>
+            <p><strong>TLB Shootdown：</strong>在多核系统中，当操作系统修改页表时，必须通知所有其他核心使其 TLB 中对应条目失效（通过 IPI，处理器间中断）。这是多核系统的重要性能瓶颈之一。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>TLB 访问 1ns，页表遍历 80ns，内存访问 100ns。TLB 命中率 95%。求 EMAT。如果使用大页将命中率提升到 99.5%，EMAT 变为多少？</p>
+            <p><em>解答：</em></p>
+            <p>原始：\(\text{EMAT} = 1 + 100 + (1-0.95) \times 80 = 101 + 4 = 105\text{ns}\)</p>
+            <p>大页后：\(\text{EMAT} = 1 + 100 + (1-0.995) \times 80 = 101 + 0.4 = 101.4\text{ns}\)</p>
+            <p>性能提升：\((105 - 101.4) / 105 \approx 3.4\%\)</p>
+            <p>❌ <strong>常见错误：</strong>忽略 TLB 自身的访问时间（即使命中也要 1ns），或者错误地认为 TLB Miss 时不需要 TLB 查找时间。</p>
+            <p>✅ <strong>正确做法：</strong>TLB 查找时间在命中和未命中的情况下都会产生（串行/并行取决于架构），按公式正确代入。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch04-kp3">
+        <svg viewBox="0 0 420 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}.hit{fill:#10b981}.miss{fill:#f43f5e}</style>
+          <rect class="box" x="10" y="70" width="70" height="35"/>
+          <text class="fg" x="45" y="92" text-anchor="middle" font-size="11">CPU</text>
+          <text class="fg2" x="45" y="60" text-anchor="middle" font-size="9">虚拟地址</text>
+          <line class="line" x1="80" y1="87" x2="120" y2="87" marker-end="url(#ah6)"/>
+          <text class="fg2" x="100" y="80" text-anchor="middle" font-size="8">VPN</text>
+          <rect x="120" y="65" width="80" height="45" fill="none" stroke="#06b6d4" stroke-width="2" rx="8"/>
+          <text class="accent" x="160" y="85" text-anchor="middle" font-size="12" font-weight="bold">TLB</text>
+          <text class="fg2" x="160" y="100" text-anchor="middle" font-size="8">VPN→PPN 缓存</text>
+          <line x1="200" y1="75" x2="260" y2="55" stroke="#10b981" stroke-width="2" marker-end="url(#ah6)"/>
+          <text class="hit" x="235" y="50" text-anchor="middle" font-size="10" font-weight="bold">命中 ✓</text>
+          <line x1="200" y1="100" x2="260" y2="130" stroke="#f43f5e" stroke-width="2" marker-end="url(#ah6)"/>
+          <text class="miss" x="235" y="140" text-anchor="middle" font-size="10" font-weight="bold">未命中 ✗</text>
+          <rect class="box" x="260" y="35" width="80" height="35"/>
+          <text class="fg" x="300" y="57" text-anchor="middle" font-size="10">物理内存</text>
+          <text class="fg2" x="300" y="28" text-anchor="middle" font-size="9">直接访问数据</text>
+          <rect class="box" x="260" y="118" width="80" height="35"/>
+          <text class="fg" x="300" y="140" text-anchor="middle" font-size="10">页表遍历</text>
+          <line class="line" x1="340" y1="135" x2="380" y2="135" marker-end="url(#ah6)"/>
+          <text class="fg2" x="395" y="130" text-anchor="middle" font-size="8">填入</text>
+          <text class="fg2" x="395" y="142" text-anchor="middle" font-size="8">TLB</text>
+          <path d="M300 153 L300 175 L160 175 L160 110" stroke="#334155" fill="none" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#ah6)"/>
+          <text class="fg2" x="230" y="185" text-anchor="middle" font-size="8">写入 TLB 后重试</text>
+          <defs><marker id="ah6" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 4-3 TLB 工作流程：命中时直接翻译，未命中时遍历页表并填入 TLB</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">使用大页（Huge Pages）的主要好处是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '大页不会减少内存使用量，反而可能因为内部碎片而浪费更多内存。')">A. 减少物理内存使用量</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！大页（如 2MB）使得每个 TLB 条目覆盖更大的地址范围，从而增大 TLB Reach，提高 TLB 命中率。')">B. 增大 TLB 覆盖范围，提高 TLB 命中率</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '大页实际上可能减慢页面置换速度，因为每次要换入/换出更大的块。')">C. 加速页面置换过程</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '大页不会消除 TLB 未命中，只是降低其概率。')">D. 完全消除 TLB 未命中</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 多级页表（Multi-level Page Table）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>单级页表的致命问题是<strong>空间浪费</strong>。以 32 位地址、4KB 页面为例，单级页表需要 \(2^{20}\) 个页表项，每个 4 字节，共 4MB。但实际程序可能只使用了很小一部分虚拟地址空间（如代码段、数据段、堆、栈之间有大量空洞）。为空洞区域分配页表项完全是浪费。</p>
+            <p>对于 64 位系统，问题更加严峻：\(2^{48}\) 字节的虚拟地址空间（48 位有效地址），4KB 页面，需要 \(2^{36}\) 个页表项——这需要 256GB 仅用来存储页表，显然不可接受。</p>
+            <p>多级页表通过<strong>分层索引</strong>解决了这一问题：只为实际使用的地址范围分配页表空间。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>多级页表的核心思想是<strong>将 VPN 分成多段</strong>，每一段作为一级页表的索引。</p>
+            <p>以<strong>二级页表</strong>为例（32 位地址、4KB 页面）：</p>
+            <p>VPN（20 位）被分为：一级索引 VPN1（10 位）+ 二级索引 VPN2（10 位）</p>
+            <p><strong>翻译过程：</strong></p>
+            <p>① 用 VPN1 索引<strong>一级页表</strong>（Page Directory），得到二级页表的物理基地址</p>
+            <p>② 用 VPN2 索引<strong>二级页表</strong>，得到最终的 PPN</p>
+            <p>③ PPN 与 Offset 拼接得到物理地址</p>
+            <p><strong>空间节省的关键：</strong>如果一级页表中某个条目的 Valid=0，意味着整个对应的二级页表<strong>不需要存在</strong>。对于大量未使用的虚拟地址范围，只需要在一级页表中记录"无效"即可，无需分配二级页表。</p>
+            <p>RISC-V Sv39（用于 64 位系统）使用<strong>三级页表</strong>，Sv48 使用四级页表。x86-64 使用四级页表（PML4 → PDPT → PD → PT），最新的 5-level paging 使用五级。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>二级页表地址翻译的形式化描述：</p>
+            \[
+            \text{PDE} = \text{Mem}[\text{PTBR} + \text{VPN1} \times \text{sizeof(PTE)}]
+            \]
+            \[
+            \text{PTE} = \text{Mem}[\text{PDE.PPN} \times \text{PageSize} + \text{VPN2} \times \text{sizeof(PTE)}]
+            \]
+            \[
+            \text{PA} = \text{PTE.PPN} \| \text{Offset}
+            \]
+            <p><strong>空间分析</strong>（32 位、4KB 页面、4 字节 PTE）：</p>
+            <p>单级页表：\(2^{20} \times 4 = 4\text{MB}\)（固定开销）</p>
+            <p>二级页表：一级页表 = \(2^{10} \times 4 = 4\text{KB}\)（始终需要）+ 每个使用的二级页表 = \(2^{10} \times 4 = 4\text{KB}\)</p>
+            <p>如果程序只使用了 \(k\) 个二级页表范围：</p>
+            \[
+            \text{二级页表总大小} = 4\text{KB} + k \times 4\text{KB}
+            \]
+            <p>例如程序只使用了 4 个区域（代码、数据、堆、栈）：\(4 + 4 \times 4 = 20\text{KB}\)，对比单级的 4MB，节省了 \(99.5\%\)！</p>
+            <p><strong>时间代价：</strong>k 级页表需要 k 次内存访问完成翻译。</p>
+            \[
+            T_{\text{translate}} = k \times t_{\text{mem}} \quad (\text{TLB Miss 时})
+            \]
+            <div class="warning-box">⚠️ 多级页表是<strong>空间换时间的反向操作</strong>——用更多的内存访问次数换取更少的页表内存占用。TLB 的存在使得这一代价在实际中可以接受：99%+ 的翻译由 TLB 直接完成，不需要多次内存访问。没有 TLB 的多级页表将会非常慢！</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>RISC-V Sv39：</strong>使用三级页表，虚拟地址 39 位（512GB 地址空间）。VPN 分为三段各 9 位，加上 12 位偏移。每级页表刚好一页（512 个 8 字节 PTE = 4KB）。这种设计使页表页面本身可以用一个物理页帧存储。</p>
+            <p><strong>x86-64 四级页表：</strong>PML4（Page Map Level 4）→ PDPT → PD → PT，每级 512 个条目（9 位索引），共支持 48 位虚拟地址（256TB）。CR3 寄存器存储 PML4 的物理地址。</p>
+            <p><strong>内核页表映射：</strong>在 Linux 中，内核拥有所有进程共享的页表映射（内核空间），通常位于虚拟地址的高半部分。进程切换时只需切换用户空间的页表映射，内核部分保持不变。</p>
+            <p><strong>超大页与页表层级：</strong>多级页表天然支持超大页——只需在中间层级的页表项中直接映射大页（如 2MB 或 1GB），无需展开到下一级。这由 PTE 中的特殊位（如 Leaf 位）标记。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>RISC-V Sv39 系统，虚拟地址 0x0000_003F_F000_1A80。页大小 4KB。求：① 各级 VPN 的值；② 需要几次内存访问完成翻译（TLB Miss）。</p>
+            <p><em>解答：</em></p>
+            <p>Sv39 地址格式：VPN[2](9位) | VPN[1](9位) | VPN[0](9位) | Offset(12位)</p>
+            <p>① 0x3FF0001A80 的二进制低 39 位：</p>
+            <p>Offset = 0xA80 (低12位)</p>
+            <p>VPN[0] = 0x001 (接下来9位)</p>
+            <p>VPN[1] = 0x100 (再9位) = 0x000</p>
+            <p>VPN[2] = 0x0FF (最高9位)</p>
+            <p>② TLB Miss 时需要 3 次内存访问（三级页表每级一次）+ 1 次访问实际数据 = 共 4 次内存访问。</p>
+            <p>❌ <strong>常见错误：</strong>忘记计算最终数据访问的内存时间，只算了页表遍历的 3 次。实际 EMAT 计算必须加上数据本身的访问时间。</p>
+            <p>✅ <strong>正确做法：</strong>总内存访问 = 页表级数 + 1（数据访问），全部由 TLB 是否命中来决定是否需要页表遍历。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch04-kp4">
+        <svg viewBox="0 0 440 220" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:5}.lvl{fill:none;stroke:#06b6d4;stroke-width:2;rx:6}</style>
+          <text class="fg" x="220" y="16" text-anchor="middle" font-size="11" font-weight="bold">二级页表地址翻译过程</text>
+          <text class="fg2" x="55" y="38" text-anchor="middle" font-size="9">虚拟地址</text>
+          <rect x="5" y="42" width="40" height="22" fill="#dbeafe" stroke="#06b6d4" stroke-width="1" rx="3"/>
+          <text class="accent" x="25" y="57" text-anchor="middle" font-size="9" font-weight="bold">VPN1</text>
+          <rect x="47" y="42" width="40" height="22" fill="#e0f2fe" stroke="#06b6d4" stroke-width="1" rx="3"/>
+          <text class="accent" x="67" y="57" text-anchor="middle" font-size="9" font-weight="bold">VPN2</text>
+          <rect x="89" y="42" width="40" height="22" fill="#f0fdf4" stroke="#334155" stroke-width="1" rx="3"/>
+          <text class="fg" x="109" y="57" text-anchor="middle" font-size="9">Offset</text>
+          <rect class="lvl" x="10" y="85" width="90" height="65"/>
+          <text class="accent" x="55" y="103" text-anchor="middle" font-size="10" font-weight="bold">一级页表</text>
+          <text class="fg2" x="55" y="116" text-anchor="middle" font-size="8">Page Directory</text>
+          <text class="fg2" x="55" y="130" text-anchor="middle" font-size="8">1024 条目</text>
+          <text class="fg2" x="55" y="142" text-anchor="middle" font-size="8">指向二级页表</text>
+          <line class="line" x1="25" y1="64" x2="25" y2="85" marker-end="url(#ah7)"/>
+          <rect class="lvl" x="150" y="85" width="90" height="65"/>
+          <text class="accent" x="195" y="103" text-anchor="middle" font-size="10" font-weight="bold">二级页表</text>
+          <text class="fg2" x="195" y="116" text-anchor="middle" font-size="8">Page Table</text>
+          <text class="fg2" x="195" y="130" text-anchor="middle" font-size="8">1024 条目</text>
+          <text class="fg2" x="195" y="142" text-anchor="middle" font-size="8">包含 PPN</text>
+          <line class="line" x1="100" y1="117" x2="150" y2="117" marker-end="url(#ah7)"/>
+          <text class="fg2" x="125" y="112" text-anchor="middle" font-size="7">PDE.PPN</text>
+          <line class="line" x1="67" y1="64" x2="160" y2="85" marker-end="url(#ah7)"/>
+          <rect class="box" x="300" y="85" width="90" height="65"/>
+          <text class="fg" x="345" y="103" text-anchor="middle" font-size="10" font-weight="bold">物理内存</text>
+          <text class="fg2" x="345" y="118" text-anchor="middle" font-size="8">数据页面</text>
+          <line class="line" x1="240" y1="117" x2="300" y2="117" marker-end="url(#ah7)"/>
+          <text class="fg2" x="270" y="112" text-anchor="middle" font-size="7">PPN|Offset</text>
+          <path d="M109 64 L345 85" stroke="#334155" fill="none" stroke-width="1" stroke-dasharray="4,3"/>
+          <text class="fg2" x="220" y="78" text-anchor="middle" font-size="7">Offset 直传</text>
+          <rect x="10" y="170" width="90" height="30" fill="none" stroke="#10b981" stroke-width="1.5" rx="4"/>
+          <text style="fill:#10b981" x="55" y="190" text-anchor="middle" font-size="9">4KB（始终分配）</text>
+          <rect x="150" y="170" width="90" height="30" fill="none" stroke="#f59e0b" stroke-width="1.5" rx="4"/>
+          <text style="fill:#f59e0b" x="195" y="190" text-anchor="middle" font-size="9">按需分配</text>
+          <text class="fg2" x="345" y="180" text-anchor="middle" font-size="9">未使用区域的</text>
+          <text class="fg2" x="345" y="192" text-anchor="middle" font-size="9">二级页表不分配</text>
+          <text class="fg2" x="220" y="215" text-anchor="middle" font-size="10" font-style="italic">二级页表：按需分配，大幅节省空间</text>
+          <defs><marker id="ah7" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 4-4 二级页表结构：VPN1 索引一级页表，VPN2 索引二级页表，未使用区域的二级页表不需分配</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">多级页表相比单级页表的主要优势是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '多级页表实际上增加了翻译时的内存访问次数（TLB Miss 时更慢）。')">A. 更快的地址翻译速度</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！多级页表只为实际使用的虚拟地址范围分配页表空间，未使用区域的低级页表不需要存在，大幅节省物理内存。')">B. 大幅减少页表占用的物理内存</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'TLB 命中率主要取决于程序的访问局部性和 TLB 大小，与页表级数关系不大。')">C. 提高 TLB 命中率</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '缺页异常仍然会发生，多级页表只解决页表存储空间问题。')">D. 消除缺页异常</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch03.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="#" class="nav-next disabled">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

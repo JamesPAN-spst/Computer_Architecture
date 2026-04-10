@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.2 电容与电感 — 电的语言 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s1-ch02-q1",
+        question: "平行板电容器的电容 \\(C\\) 与板间距 \\(d\\) 的关系是？",
+        options: ["\\(C \\propto d\\)", "\\(C \\propto d^2\\)", "\\(C \\propto 1/d\\)", "\\(C\\) 与 \\(d\\) 无关"],
+        answer: 2,
+        explanation: "\\(C = \\varepsilon A/d\\)，电容与板间距成反比。减小间距可以增大电容，这是芯片中高密度电容的关键设计原则。"
+      },
+      {
+        id: "s1-ch02-q2",
+        question: "一个 \\(10\\,\\mu\\text{F}\\) 电容充电到 \\(5\\,\\text{V}\\)，储存的能量为？",
+        options: ["\\(25\\,\\mu\\text{J}\\)", "\\(50\\,\\mu\\text{J}\\)", "\\(125\\,\\mu\\text{J}\\)", "\\(250\\,\\mu\\text{J}\\)"],
+        answer: 2,
+        explanation: "\\(W = \\frac{1}{2}CV^2 = \\frac{1}{2} \\times 10 \\times 10^{-6} \\times 25 = 125\\,\\mu\\text{J}\\)。注意是 \\(\\frac{1}{2}CV^2\\) 不是 \\(CV^2\\)。"
+      },
+      {
+        id: "s1-ch02-q3",
+        question: "RC 电路中，时间常数 \\(\\tau = RC\\)。经过 \\(5\\tau\\) 后，电容电压达到最终值的约百分之几？",
+        options: ["63.2%", "86.5%", "95.0%", "99.3%"],
+        answer: 3,
+        explanation: "\\(V(t) = V_0(1-e^{-t/\\tau})\\)。\\(t=5\\tau\\) 时，\\(1-e^{-5} \\approx 1-0.0067 = 99.3\\%\\)。工程上通常认为 \\(5\\tau\\) 后充电完成。"
+      },
+      {
+        id: "s1-ch02-q4",
+        question: "电感器的核心物理性质是？",
+        options: ["存储电场能量", "存储磁场能量", "消耗电能转化为热能", "阻止交流电通过"],
+        answer: 1,
+        explanation: "电感器通过电流产生磁场来存储能量，\\(W = \\frac{1}{2}LI^2\\)。电容存储电场能量，电阻消耗能量。"
+      },
+      {
+        id: "s1-ch02-q5",
+        question: "一个 \\(1\\,\\text{mH}\\) 电感中通过 \\(2\\,\\text{A}\\) 电流，若在 \\(1\\,\\mu\\text{s}\\) 内切断电流，感应电压约为？",
+        options: ["\\(2\\,\\text{V}\\)", "\\(200\\,\\text{V}\\)", "\\(2000\\,\\text{V}\\)", "\\(20\\,\\text{V}\\)"],
+        answer: 2,
+        explanation: "\\(V = L \\cdot dI/dt = 10^{-3} \\times 2/10^{-6} = 2000\\,\\text{V}\\)。这就是为什么突然切断电感电流会产生危险的高压脉冲！"
+      },
+      {
+        id: "s1-ch02-q6",
+        question: "LC 振荡电路的谐振频率与下列哪项成正比？",
+        options: ["\\(\\sqrt{LC}\\)", "\\(LC\\)", "\\(1/\\sqrt{LC}\\)", "\\(1/LC\\)"],
+        answer: 2,
+        explanation: "\\(f_0 = \\frac{1}{2\\pi\\sqrt{LC}}\\)，谐振频率与 \\(\\sqrt{LC}\\) 成反比。增大 L 或 C 会降低谐振频率。"
+      },
+      {
+        id: "s1-ch02-q7",
+        question: "在 RC 充电电路中，电阻 R 增大会导致？",
+        options: ["最终电压增大", "充电速度加快", "充电速度减慢", "储存的总能量增大"],
+        answer: 2,
+        explanation: "时间常数 \\(\\tau = RC\\) 增大，意味着达到同一百分比所需的时间更长。最终电压由电源电压决定，与 R 无关。"
+      },
+      {
+        id: "s1-ch02-q8",
+        question: "在 LC 振荡中，当电容电压达到最大值时，电感中的电流为？",
+        options: ["最大值", "零", "最大值的一半", "无法确定"],
+        answer: 1,
+        explanation: "LC 振荡中能量在电场（\\(\\frac{1}{2}CV^2\\)）和磁场（\\(\\frac{1}{2}LI^2\\)）之间交替转换。电容电压最大时，所有能量存储在电场中，电流为零。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-1" data-module="ch02"
+      style="--domain-color: var(--c-electronics);">
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 1</span>
+      <a href="index.html" class="module-name">电的语言</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.2 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 电容——存储电场能量</a></li>
+      <li><a href="#kp2">02 · RC 电路——时间的尺度</a></li>
+      <li><a href="#kp3">03 · 电感——存储磁场能量</a></li>
+      <li><a href="#kp4">04 · LC 振荡——能量的摇摆</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 2</p>
+      <h1>电容与电感</h1>
+    </header>
+
+    <!-- ═══════════ KP 1 ═══════════ -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>电容（Capacitance）——存储电场能量</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>电阻只能消耗能量（转化为热），但很多时候我们需要<strong>存储能量</strong>并在需要时释放。电容器（Capacitor）就是这样一种器件——它通过在两块金属板之间建立电场来存储能量。</p>
+            <p>在计算机中，电容无处不在：DRAM 用微小的电容来存储每一个 bit 的数据（有电荷 = 1，无电荷 = 0）；CPU 供电电路中的去耦电容（Decoupling Capacitor）像"储水池"一样平滑电压波动；触摸屏利用人体改变电容值来检测触摸位置。</p>
+            <p>理解电容的原理，是理解存储、滤波和时序电路的基础。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>电容器</strong>的基本结构是两块相互平行的导体板（极板），中间隔着绝缘材料（介质，Dielectric）。当在两个极板之间施加电压时，正电荷聚集在一块板上，等量的负电荷聚集在另一块板上，两板之间形成电场。</p>
+            <p>我们定义<strong>电容</strong>为存储电荷的能力：</p>
+            \[C = \frac{Q}{V}\]
+            <p>其中 \(Q\) 是极板上的电荷量，\(V\) 是两板间的电压。单位是<strong>法拉（Farad, F）</strong>，1 F = 1 C/V。实际电容器通常在 pF（\(10^{-12}\)）到 mF（\(10^{-3}\)）的量级。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>平行板电容器的推导：</strong></p>
+            <p>两块面积为 \(A\) 的平行极板，间距为 \(d\)，中间充满介电常数为 \(\varepsilon\) 的介质。</p>
+            <p>由高斯定律，均匀带电平板产生的电场为 \(E = \sigma/\varepsilon = Q/(\varepsilon A)\)。</p>
+            <p>两板之间的电压：\(V = Ed = Qd/(\varepsilon A)\)。</p>
+            <p>因此：</p>
+            \[C = \frac{Q}{V} = \frac{\varepsilon A}{d}\]
+            <p>关键洞察：电容与板面积 \(A\) 成正比，与间距 \(d\) 成反比。要增大电容，就要增大面积或减小间距——这解释了为什么芯片中的电容结构不断向更薄的介质层和更高介电常数的材料发展。</p>
+            <p><strong>储存的能量：</strong></p>
+            <p>充电过程中，电压从 0 增长到 \(V\)。在电压为 \(v\) 时移动 \(dq\) 电荷需要做功 \(dW = v \cdot dq = v \cdot C \, dv\)。</p>
+            \[W = \int_0^V Cv \, dv = \frac{1}{2}CV^2\]
+            <div class="warning-box">⚠️ <strong>电容的能量是 \(\frac{1}{2}CV^2\)，不是 \(CV^2\)！</strong>充电过程中电压在不断增加，平均电压只有 \(V/2\)，所以总功是 \(QV/2 = \frac{1}{2}CV^2\)。这个 \(\frac{1}{2}\) 系数也出现在弹簧势能 \(\frac{1}{2}kx^2\) 中——两者的数学结构完全相同。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>DRAM 存储：</strong>每个 DRAM 单元由一个电容和一个晶体管组成。电容充电代表"1"，放电代表"0"。但电容会通过泄漏电流逐渐放电，所以 DRAM 需要定期刷新（Refresh），这也是"动态"（Dynamic）的含义。</p>
+            <p><strong>去耦电容：</strong>CPU 在高速切换时会产生瞬间大电流需求。去耦电容放置在 CPU 旁边，像"小水库"一样在需要时快速释放电荷，平滑供电电压。</p>
+            <p><strong>触摸屏：</strong>电容触摸屏由多层透明导体组成。手指接近时改变了局部电容值，控制器通过检测电容变化来确定触摸位置。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个平行板电容器，板面积 \(A = 100\,\text{cm}^2\)，间距 \(d = 1\,\text{mm}\)，介质为空气（\(\varepsilon_0 = 8.85 \times 10^{-12}\,\text{F/m}\)）。求电容值。若充电到 100V，储存了多少能量？</p>
+            <p><strong>❌ 常见错误：</strong>面积单位忘记转换——\(100\,\text{cm}^2\) 不是 \(100 \times 10^{-2}\,\text{m}^2\)，而是 \(100 \times 10^{-4}\,\text{m}^2 = 10^{-2}\,\text{m}^2\)。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>\(C = \varepsilon_0 A/d = 8.85 \times 10^{-12} \times 10^{-2} / 10^{-3} = 88.5\,\text{pF}\)</p>
+            <p>\(W = \frac{1}{2}CV^2 = \frac{1}{2} \times 88.5 \times 10^{-12} \times 10^4 = 0.443\,\mu\text{J}\)</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch02-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}.accentStroke{stroke:#10b981;fill:none;stroke-width:2}</style>
+          <!-- Parallel plate capacitor -->
+          <rect x="130" y="40" width="10" height="160" rx="2" fill="#60a5fa"/>
+          <rect x="260" y="40" width="10" height="160" rx="2" fill="#f87171"/>
+          <!-- Electric field lines -->
+          <line x1="155" y1="70" x2="245" y2="70" stroke="#10b981" stroke-width="1" marker-end="url(#arrowE)" stroke-dasharray="4"/>
+          <line x1="155" y1="120" x2="245" y2="120" stroke="#10b981" stroke-width="1" marker-end="url(#arrowE)" stroke-dasharray="4"/>
+          <line x1="155" y1="170" x2="245" y2="170" stroke="#10b981" stroke-width="1" marker-end="url(#arrowE)" stroke-dasharray="4"/>
+          <text x="200" y="145" text-anchor="middle" class="accent" font-size="11">E</text>
+          <!-- Charges -->
+          <text x="120" y="70" text-anchor="middle" fill="#60a5fa" font-size="12">+</text>
+          <text x="120" y="100" text-anchor="middle" fill="#60a5fa" font-size="12">+</text>
+          <text x="120" y="130" text-anchor="middle" fill="#60a5fa" font-size="12">+</text>
+          <text x="120" y="160" text-anchor="middle" fill="#60a5fa" font-size="12">+</text>
+          <text x="280" y="70" text-anchor="middle" fill="#f87171" font-size="12">−</text>
+          <text x="280" y="100" text-anchor="middle" fill="#f87171" font-size="12">−</text>
+          <text x="280" y="130" text-anchor="middle" fill="#f87171" font-size="12">−</text>
+          <text x="280" y="160" text-anchor="middle" fill="#f87171" font-size="12">−</text>
+          <!-- Labels -->
+          <text x="200" y="25" text-anchor="middle" class="fg" font-size="12" font-weight="bold">平行板电容器</text>
+          <line x1="143" y1="215" x2="257" y2="215" class="line" marker-start="url(#arrowL)" marker-end="url(#arrowR2)"/>
+          <text x="200" y="232" text-anchor="middle" class="fg2" font-size="10">间距 d</text>
+          <text x="70" y="120" text-anchor="middle" class="fg2" font-size="10">面积 A</text>
+          <defs>
+            <marker id="arrowE" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#10b981"/></marker>
+            <marker id="arrowL" markerWidth="6" markerHeight="5" refX="0" refY="2.5" orient="auto"><path d="M6,0 L0,2.5 L6,5" fill="#334155"/></marker>
+            <marker id="arrowR2" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#334155"/></marker>
+          </defs>
+        </svg>
+        <figcaption>图 2-1：平行板电容器结构——电场存储在两板之间</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">将平行板电容器的极板间距减半，电容值会？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '电容与间距成反比，间距减半应该使电容增大。')">A. 减半</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！C = εA/d，d 减半则 C 加倍。')">B. 加倍</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '电容与间距成反比，不是不变。')">C. 不变</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'C 与 d 是反比关系，不是平方反比。')">D. 变为 4 倍</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 2 ═══════════ -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>RC 电路（RC Circuit）——时间的尺度</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>前面我们讨论了电阻和电容各自的性质。但当它们连接在一起时，会产生一种全新的行为——<strong>时间依赖的响应</strong>。电阻和电容的组合（RC 电路）引入了"时间"这个维度。</p>
+            <p>在数字电路中，信号从 0 变到 1 不是瞬间完成的——它需要对线路上的寄生电容（Parasitic Capacitance）充电。这个充电过程的速度由 RC 时间常数决定。<strong>RC 延迟是限制芯片速度的核心因素之一。</strong></p>
+            <p>每当你看到"充电曲线"、"上升时间"、"延迟时间"这些概念时，背后都是 RC 电路在起作用。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>考虑一个简单的 RC 充电电路：电压源 \(V_0\) 通过电阻 \(R\) 给电容 \(C\) 充电。</p>
+            <p>关键洞察：电容电压不能突变（因为 \(V = Q/C\)，电荷不能瞬间移动），所以充电是一个渐进的过程。</p>
+            <p>我们定义<strong>时间常数</strong>：</p>
+            \[\tau = RC\]
+            <p>它的物理意义是：电容电压从 0 上升到最终值的 63.2%（即 \(1 - 1/e\)）所需的时间。\(\tau\) 越大，充电越慢。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>从 KVL（基尔霍夫电压定律）出发：</strong></p>
+            <p>回路中：电源电压 = 电阻上的电压 + 电容上的电压</p>
+            \[V_0 = V_R + V_C = IR + V_C\]
+            <p>又因为 \(I = C \frac{dV_C}{dt}\)，代入得：</p>
+            \[V_0 = RC\frac{dV_C}{dt} + V_C\]
+            <p>这是一阶线性常微分方程。初始条件 \(V_C(0) = 0\)，解为：</p>
+            \[V_C(t) = V_0\left(1 - e^{-t/RC}\right) = V_0\left(1 - e^{-t/\tau}\right)\]
+            <p>充电电流随时间指数衰减：</p>
+            \[I(t) = \frac{V_0}{R}e^{-t/\tau}\]
+            <p><strong>关键时间节点：</strong></p>
+            <ul>
+              <li>\(t = \tau\)：\(V_C \approx 63.2\%\) 的 \(V_0\)</li>
+              <li>\(t = 3\tau\)：\(V_C \approx 95.0\%\) 的 \(V_0\)</li>
+              <li>\(t = 5\tau\)：\(V_C \approx 99.3\%\) 的 \(V_0\)（工程上视为"充满"）</li>
+            </ul>
+            <div class="warning-box">⚠️ <strong>RC 时间常数的单位确实是秒！</strong>容易怀疑 \(\Omega \times F\) 的量纲，验证：\(\Omega \cdot F = (V/A)(C/V) = C/A = C/(C/s) = s\)。另外，\(\tau = RC\) 只适用于一阶 RC 电路。有多个电容和电阻时需要更复杂的分析。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>芯片中的 RC 延迟：</strong>现代芯片的互连线（Interconnect）有电阻和寄生电容。信号传播延迟近似为 \(t_d \approx 0.7RC\)（10%-90% 上升时间）。随着制程缩小，线变细（R 增大）且更密（C 增大），RC 延迟成为比逻辑门延迟更严重的瓶颈。</p>
+            <p><strong>定时器：</strong>经典的 555 定时器芯片就是利用 RC 充放电来产生精确的时间延迟和方波信号。</p>
+            <p><strong>滤波器：</strong>RC 低通滤波器让低频信号通过、衰减高频信号。截止频率 \(f_c = 1/(2\pi RC)\)。这在音频处理和信号调理中广泛使用。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一根芯片内的铜走线，等效电阻 \(R = 500\,\Omega\)，寄生电容 \(C = 0.2\,\text{pF}\)。求信号从 10% 上升到 90% 所需的时间。</p>
+            <p><strong>❌ 常见错误：</strong>直接用 \(\tau = RC\) 作为上升时间。\(\tau\) 是从 0% 到 63.2%，不是 10%-90%。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>\(\tau = RC = 500 \times 0.2 \times 10^{-12} = 100\,\text{ps}\)</p>
+            <p>10%-90% 上升时间 \(t_r = \ln(9) \times \tau \approx 2.2 \times 100\,\text{ps} = 220\,\text{ps}\)</p>
+            <p>推导：\(0.1 = 1-e^{-t_1/\tau}\) 得 \(t_1 = 0.105\tau\)；\(0.9 = 1-e^{-t_2/\tau}\) 得 \(t_2 = 2.303\tau\)。\(t_r = t_2 - t_1 \approx 2.2\tau\)。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch02-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}.gridline{stroke:#e2e8f0;stroke-width:0.5}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">RC 充电曲线</text>
+          <!-- Axes -->
+          <line x1="50" y1="200" x2="380" y2="200" class="line"/>
+          <line x1="50" y1="200" x2="50" y2="30" class="line"/>
+          <text x="390" y="205" class="fg2" font-size="10">t</text>
+          <text x="40" y="28" class="fg2" font-size="10">V</text>
+          <!-- V0 line -->
+          <line x1="50" y1="45" x2="380" y2="45" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4"/>
+          <text x="38" y="48" class="fg2" font-size="9">V₀</text>
+          <!-- 63.2% line -->
+          <line x1="50" y1="102" x2="380" y2="102" stroke="#f59e0b" stroke-width="0.8" stroke-dasharray="3"/>
+          <text x="32" y="106" fill="#f59e0b" font-size="8">63%</text>
+          <!-- Curve -->
+          <path d="M50,200 Q100,120 150,102 Q200,70 250,55 Q300,48 350,46" stroke="#10b981" stroke-width="2.5" fill="none"/>
+          <!-- τ mark -->
+          <line x1="150" y1="102" x2="150" y2="205" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3"/>
+          <text x="150" y="218" text-anchor="middle" fill="#f59e0b" font-size="10">τ</text>
+          <!-- 3τ mark -->
+          <line x1="250" y1="55" x2="250" y2="205" stroke="#94a3b8" stroke-width="0.8" stroke-dasharray="3"/>
+          <text x="250" y="218" text-anchor="middle" class="fg2" font-size="10">3τ</text>
+          <!-- 5τ mark -->
+          <line x1="350" y1="46" x2="350" y2="205" stroke="#94a3b8" stroke-width="0.8" stroke-dasharray="3"/>
+          <text x="350" y="218" text-anchor="middle" class="fg2" font-size="10">5τ</text>
+        </svg>
+        <figcaption>图 2-2：RC 充电曲线——电压按指数趋近终值</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">将 RC 电路中的电阻 R 加倍、电容 C 减半，时间常数 τ 如何变化？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！τ = RC。R×2, C×0.5, 所以 τ 不变。')">A. 不变</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'τ = RC 是乘法关系，R 加倍和 C 减半正好抵消。')">B. 加倍</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'τ = RC，两个变化会互相抵消。')">C. 减半</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'τ = RC，不是加法关系。')">D. 变为 4 倍</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 3 ═══════════ -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>电感（Inductance）——存储磁场能量</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>电容通过电场存储能量。自然界中是否有对称的元件——通过磁场存储能量？答案就是<strong>电感器（Inductor）</strong>。</p>
+            <p>当电流通过线圈时，产生的磁场会"记住"这个电流。如果你试图快速改变电流，电感会产生感应电动势来"反抗"这个改变——这就是<strong>楞次定律（Lenz's Law）</strong>的体现。</p>
+            <p>在计算机电源中，电感是开关电源（Switching Power Supply）的核心组件，负责在 12V 输入和 1V CPU 核心电压之间高效转换。没有电感，就没有高效的供电系统。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>电感器通常是一个线圈。通过线圈的电流 \(I\) 产生磁通量 \(\Phi\)。电感定义为：</p>
+            \[L = \frac{N\Phi}{I}\]
+            <p>其中 \(N\) 是线圈匝数，\(\Phi\) 是每匝的磁通量。单位是<strong>亨利（Henry, H）</strong>。</p>
+            <p>电感的核心特性：它抗拒电流的变化。电感两端的电压与电流的变化率成正比：</p>
+            \[V_L = L\frac{dI}{dt}\]
+            <p>这与电容的 \(I = C \, dV/dt\) 形成完美的对偶关系。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>从法拉第定律出发：</strong></p>
+            <p>法拉第电磁感应定律告诉我们，变化的磁通量会感应出电动势（EMF）：</p>
+            \[\mathcal{E} = -N\frac{d\Phi}{dt}\]
+            <p>又因为 \(L = N\Phi/I\)，即 \(N\Phi = LI\)，所以：</p>
+            \[\mathcal{E} = -\frac{d(LI)}{dt} = -L\frac{dI}{dt}\]
+            <p>负号表示感应电压反抗电流变化（楞次定律）。在电路分析中我们常写成 \(V_L = L\frac{dI}{dt}\)。</p>
+            <p><strong>存储的能量：</strong></p>
+            <p>给电感通电的过程中，功率 \(P = V_L \cdot I = LI\frac{dI}{dt}\)。积分得：</p>
+            \[W = \int_0^I LI' \, dI' = \frac{1}{2}LI^2\]
+            <p>与电容能量 \(\frac{1}{2}CV^2\) 完美对称。</p>
+            <div class="warning-box">⚠️ <strong>电感电流不能突变！</strong>就像电容电压不能突变一样。如果强行在极短时间内切断电感电流（\(dI/dt \to \infty\)），\(V_L = L \cdot dI/dt\) 会产生巨大的电压尖峰。这就是为什么继电器断开时会产生电弧——存储在磁场中的能量必须释放。实际电路中通常并联二极管（续流二极管，Flyback Diode）来提供电流通路。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>开关电源（Buck Converter）：</strong>你的笔记本电源适配器将 220V 交流转为低压直流。核心拓扑中，开关（MOSFET）以高频（100kHz–MHz）通断，电感平滑电流，电容平滑电压，实现高效降压。效率可达 90%+ 以上。</p>
+            <p><strong>EMI 滤波器：</strong>电感在高频时阻抗高（\(Z_L = j\omega L\)），可以阻挡高频噪声。电脑主板上常见的磁珠（Ferrite Bead）就是小型电感，用于滤除高频干扰。</p>
+            <p><strong>无线充电：</strong>无线充电利用两个靠近的线圈之间的互感（Mutual Inductance）来传输能量，本质上是变压器原理。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个 \(10\,\text{mH}\) 的电感中通过 \(1\,\text{A}\) 电流。若在 \(10\,\mu\text{s}\) 内将电流减小到零，感应电压是多少？</p>
+            <p><strong>❌ 常见错误：</strong>忘记毫亨（mH）和微秒（μs）的单位换算，导致数量级错误。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>\(V_L = L \frac{dI}{dt} = 10 \times 10^{-3} \times \frac{1}{10 \times 10^{-6}} = 1000\,\text{V}\)</p>
+            <p>一个小小的 10mH 电感，电流变化率足够大时，就能产生 1000V 的高压！这解释了为什么电感断路保护如此重要。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch02-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <!-- Inductor coil -->
+          <text x="200" y="20" text-anchor="middle" class="fg" font-size="12" font-weight="bold">电感器及磁场</text>
+          <path d="M60,120 Q80,80 100,120 Q120,160 140,120 Q160,80 180,120 Q200,160 220,120 Q240,80 260,120 Q280,160 300,120" stroke="#334155" stroke-width="2" fill="none"/>
+          <!-- Magnetic field lines -->
+          <ellipse cx="180" cy="70" rx="100" ry="25" stroke="#10b981" stroke-width="1" fill="none" stroke-dasharray="4" opacity="0.7"/>
+          <ellipse cx="180" cy="170" rx="100" ry="25" stroke="#10b981" stroke-width="1" fill="none" stroke-dasharray="4" opacity="0.7"/>
+          <text x="310" y="70" class="accent" font-size="10">B (磁场)</text>
+          <!-- Current direction -->
+          <line x1="30" y1="120" x2="58" y2="120" class="line" marker-end="url(#arrowI)"/>
+          <text x="30" y="112" class="fg2" font-size="10">I →</text>
+          <!-- Labels -->
+          <text x="180" y="210" text-anchor="middle" class="fg" font-size="11">V = L · dI/dt</text>
+          <text x="180" y="228" text-anchor="middle" class="fg2" font-size="10">W = ½LI²</text>
+          <defs>
+            <marker id="arrowI" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#334155"/></marker>
+          </defs>
+        </svg>
+        <figcaption>图 2-3：电流通过线圈产生磁场，能量存储在磁场中</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">电感和电容在"能量存储"上的对偶关系中，电感存储的能量公式是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '这是电容的能量公式。')">A. \(\frac{1}{2}CV^2\)</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！电感在磁场中存储的能量为 ½LI²，与电容 ½CV² 对偶。')">B. \(\frac{1}{2}LI^2\)</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '注意系数应为 ½，不是 1。')">C. \(LI^2\)</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '电感能量与电流有关，不是电压。')">D. \(\frac{1}{2}LV^2\)</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 4 ═══════════ -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>LC 振荡（LC Oscillation）——能量的摇摆</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>电容存储电场能量，电感存储磁场能量。如果我们把它们连在一起会怎样？答案令人着迷：<strong>能量会在电场和磁场之间反复转换，产生振荡。</strong></p>
+            <p>这就像一个弹簧挂着的重物——势能和动能不断互换，产生往复运动。LC 振荡是最纯粹的电磁振荡形式，是所有无线通信、时钟信号生成的理论基础。</p>
+            <p>你手机里的射频芯片、CPU 的时钟振荡器、WiFi 路由器——它们的心脏都是某种形式的 LC 振荡电路。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>考虑一个理想 LC 电路（无电阻）：电容 \(C\) 初始充电到电压 \(V_0\)，然后接上电感 \(L\)。</p>
+            <p>初始状态：所有能量在电容中（\(W = \frac{1}{2}CV_0^2\)），电感电流为零。</p>
+            <p>然后电容开始放电，电流增大，电感磁场增强。当电容完全放电时，所有能量转移到电感中（\(W = \frac{1}{2}LI_{\max}^2\)）。</p>
+            <p>接着电感的磁场开始给电容反向充电……如此循环往复。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>从 KVL 出发：</strong></p>
+            <p>LC 回路中：\(V_C + V_L = 0\)，即：</p>
+            \[\frac{Q}{C} + L\frac{dI}{dt} = 0\]
+            <p>由于 \(I = dQ/dt\)（约定放电为正）：</p>
+            \[\frac{Q}{C} + L\frac{d^2Q}{dt^2} = 0\]
+            <p>整理为标准形式：</p>
+            \[\frac{d^2Q}{dt^2} + \frac{1}{LC}Q = 0\]
+            <p>这是<strong>简谐振动方程</strong>！与弹簧振子 \(\ddot{x} + \omega^2 x = 0\) 完全同构。</p>
+            <p>解为：</p>
+            \[Q(t) = Q_0 \cos(\omega_0 t + \varphi)\]
+            <p>其中<strong>角频率</strong>：</p>
+            \[\omega_0 = \frac{1}{\sqrt{LC}}\]
+            <p><strong>谐振频率</strong>：</p>
+            \[f_0 = \frac{1}{2\pi\sqrt{LC}}\]
+            <p><strong>力学-电学对偶：</strong>质量 \(m \leftrightarrow L\)，弹性系数 \(k \leftrightarrow 1/C\)，位移 \(x \leftrightarrow Q\)，速度 \(v \leftrightarrow I\)。</p>
+            <div class="warning-box">⚠️ <strong>理想 LC 振荡永不停止，但实际电路中总有电阻损耗。</strong>任何真实电路都有导线电阻和辐射损耗，使振荡幅度逐渐衰减（RLC 阻尼振荡）。要维持振荡，需要通过正反馈（如晶体管放大器）持续补充能量。这就是振荡器（Oscillator）的工作原理。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>时钟信号：</strong>CPU 时钟由石英晶体振荡器（Crystal Oscillator）产生。石英晶体等效为一个极高品质因数（Q factor）的 LC 电路，谐振频率极其稳定（ppm 级精度）。典型的基频是 25–50 MHz，再通过锁相环（PLL）倍频到 GHz 级别。</p>
+            <p><strong>无线通信：</strong>发射机的 LC 振荡产生载波（Carrier），接收机的 LC 谐振回路选择特定频率的信号。调谐——改变 C 或 L 来改变 \(f_0\)——就是"调台"的原理。</p>
+            <p><strong>RFID/NFC：</strong>近场通信芯片中的线圈和电容构成谐振电路，在特定频率（如 13.56 MHz）上高效耦合能量和数据。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>设计一个谐振在 \(f_0 = 1\,\text{MHz}\) 的 LC 电路。已知电感 \(L = 100\,\mu\text{H}\)，求所需电容。</p>
+            <p><strong>❌ 常见错误：</strong>忘记 \(f = 1/(2\pi\sqrt{LC})\) 中 \(LC\) 在根号下，解方程时漏掉平方步骤。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>由 \(f_0 = \frac{1}{2\pi\sqrt{LC}}\) 得 \(LC = \frac{1}{(2\pi f_0)^2}\)。</p>
+            <p>\(C = \frac{1}{(2\pi \times 10^6)^2 \times 100 \times 10^{-6}} = \frac{1}{3.948 \times 10^{13} \times 10^{-4}} = \frac{1}{3.948 \times 10^{9}} \approx 253\,\text{pF}\)</p>
+            <p>验证：\(f = 1/(2\pi\sqrt{100 \times 10^{-6} \times 253 \times 10^{-12}}) \approx 1\,\text{MHz}\) ✓</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch02-kp4">
+        <svg viewBox="0 0 400 260" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">LC 能量振荡</text>
+          <!-- Axes -->
+          <line x1="40" y1="140" x2="390" y2="140" class="line"/>
+          <line x1="40" y1="240" x2="40" y2="30" class="line"/>
+          <text x="395" y="145" class="fg2" font-size="10">t</text>
+          <!-- Voltage wave (cosine) -->
+          <path d="M40,50 Q100,50 130,140 Q160,230 220,230 Q280,230 310,140 Q340,50 390,50" stroke="#60a5fa" stroke-width="2" fill="none"/>
+          <text x="365" y="62" fill="#60a5fa" font-size="10">V(t)</text>
+          <!-- Current wave (sine, 90° shifted) -->
+          <path d="M40,140 Q70,50 130,50 Q190,50 220,140 Q250,230 310,230 Q370,230 390,140" stroke="#f87171" stroke-width="2" fill="none" stroke-dasharray="6,3"/>
+          <text x="365" y="148" fill="#f87171" font-size="10">I(t)</text>
+          <!-- Energy bars at bottom -->
+          <rect x="50" y="246" width="30" height="8" fill="#60a5fa" opacity="0.6"/>
+          <text x="85" y="254" class="fg2" font-size="8">电场能量 ½CV²</text>
+          <rect x="200" y="246" width="30" height="8" fill="#f87171" opacity="0.6"/>
+          <text x="235" y="254" class="fg2" font-size="8">磁场能量 ½LI²</text>
+          <!-- Phase labels -->
+          <text x="85" y="38" class="fg2" font-size="8">V最大, I=0</text>
+          <text x="200" y="245" class="fg2" font-size="8">V=0, I最大</text>
+        </svg>
+        <figcaption>图 2-4：LC 振荡中电压与电流相差 90°——能量在两者之间交替转换</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">LC 电路中，增大电容 C 至原来的 4 倍，谐振频率变为原来的？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'C 增大 4 倍不会让频率加倍，频率与 √(LC) 成反比。')">A. 2 倍</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！f₀ = 1/(2π√(LC))，C→4C 意味着 √(LC)→2√(LC)，f₀ 减半。')">B. 1/2</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '频率与 √C 成反比，不是与 C 成反比。')">C. 1/4</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '频率与 C 的关系不是正比。')">D. 4 倍</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ Exercises ═══════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+    <nav class="chapter-nav">
+      <a href="ch01.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch03.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

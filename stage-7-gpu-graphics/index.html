@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阶段7：看见的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>window.MathJax={tex:{inlineMath:[['\\(','\\)']], displayMath:[['\\[','\\]']]}, options:{skipHtmlTags:['script','noscript','style','textarea','pre']}};</script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="overview-page" data-category="stage-7" data-module="gpu-graphics"
+      style="--domain-color: var(--c-gpu-graphics);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 7</span>
+      <span class="module-name" style="cursor:default">看见的世界</span>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">5 chapitres</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    <div class="overview-hero">
+      <div class="domain-tag">STAGE 7 · gpu-graphics</div>
+      <h1>看见的世界 — 从数字到像素</h1>
+      <p>核心问题：GPU 怎么把三角形变成你看到的画面？</p>
+    </div>
+
+    <div class="chapter-grid">
+      <a class="chapter-card" href="ch01.html">
+        <div class="ch-number">CHAPITRE 01</div>
+        <div class="ch-title">GPU 架构</div>
+        <div class="ch-kps">
+          <span class="kp-tag">GPU vs CPU</span>
+          <span class="kp-tag">SIMT模型</span>
+          <span class="kp-tag">流处理器SM/CU</span>
+          <span class="kp-tag">显存与带宽</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+
+      <a class="chapter-card" href="ch02.html">
+        <div class="ch-number">CHAPITRE 02</div>
+        <div class="ch-title">图形管线（Graphics Pipeline）</div>
+        <div class="ch-kps">
+          <span class="kp-tag">顶点着色</span>
+          <span class="kp-tag">光栅化</span>
+          <span class="kp-tag">片段着色·深度测试</span>
+          <span class="kp-tag">帧缓冲</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+
+      <a class="chapter-card" href="ch03.html">
+        <div class="ch-number">CHAPITRE 03</div>
+        <div class="ch-title">着色器（Shader）与并行计算</div>
+        <div class="ch-kps">
+          <span class="kp-tag">GLSL/HLSL</span>
+          <span class="kp-tag">Warp/Wavefront</span>
+          <span class="kp-tag">共享内存·同步</span>
+          <span class="kp-tag">GPGPU</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+
+      <a class="chapter-card" href="ch04.html">
+        <div class="ch-number">CHAPITRE 04</div>
+        <div class="ch-title">显示输出（Display Output）</div>
+        <div class="ch-kps">
+          <span class="kp-tag">HDMI/DisplayPort</span>
+          <span class="kp-tag">V-Sync·撕裂</span>
+          <span class="kp-tag">G-Sync/FreeSync</span>
+          <span class="kp-tag">HDR·色彩空间</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+
+      <a class="chapter-card" href="ch05.html">
+        <div class="ch-number">CHAPITRE 05</div>
+        <div class="ch-title">计算与图像的统一</div>
+        <div class="ch-kps">
+          <span class="kp-tag">Compute Shader</span>
+          <span class="kp-tag">RT Core光追</span>
+          <span class="kp-tag">DLSS/FSR</span>
+          <span class="kp-tag">统一着色器架构</span>
+        </div>
+        <div class="ch-meta"><span>4 知识点</span></div>
+      </a>
+    </div>
+
+    <nav class="chapter-nav" style="max-width:900px;margin:0 auto;padding:24px 40px;">
+      <a href="../index.html" class="nav-prev">← 返回主页</a>
+      <span></span>
+      <span></span>
+    </nav>
+  </main>
+
+  <footer class="site-footer">
+    <span>Architectura · 计算机结构全景</span>
+  </footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

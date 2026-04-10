@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.4 时钟与同步 — 记忆与时间 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s3-ch04-q1",
+        question: "在现代数字系统中，时钟信号最常见的生成方式是？",
+        options: ["RC 振荡器直接输出", "晶体振荡器 + PLL 倍频", "环形振荡器直接驱动全局时钟", "外部信号发生器输入"],
+        answer: 1,
+        explanation: "现代芯片通常使用低频晶体振荡器（如 25 MHz）提供稳定参考频率，再通过锁相环（PLL）倍频至所需的高频时钟（如 3 GHz）。晶振提供精度，PLL 提供灵活性和高频能力。"
+      },
+      {
+        id: "s3-ch04-q2",
+        question: "时钟歪斜（Clock Skew）的定义是什么？",
+        options: ["时钟频率随温度变化的漂移", "时钟信号到达不同触发器的时间差", "时钟信号周期与周期之间的随机变化", "时钟信号上升沿与下降沿的占空比偏差"],
+        answer: 1,
+        explanation: "时钟歪斜是指同一时钟信号由于传播路径长度不同、负载差异等因素，到达芯片上不同触发器的时间存在差异。它是确定性的（可通过设计控制），与随机性的抖动（Jitter）不同。"
+      },
+      {
+        id: "s3-ch04-q3",
+        question: "在建立时间（Setup Time）约束中考虑时钟歪斜后，最小时钟周期的公式是？",
+        options: [
+          "T_clk ≥ t_cq + t_comb + t_setup",
+          "T_clk ≥ t_cq + t_comb + t_setup + t_skew",
+          "T_clk ≥ t_cq + t_comb − t_skew",
+          "T_clk ≥ t_comb + t_setup − t_cq"
+        ],
+        answer: 1,
+        explanation: "考虑最坏情况的正向时钟歪斜（发送端时钟早到、接收端时钟晚到），建立时间约束变为 T_clk ≥ t_cq + t_comb + t_setup + t_skew。歪斜增大了对最小周期的要求，从而降低了最大工作频率。"
+      },
+      {
+        id: "s3-ch04-q4",
+        question: "跨时钟域传输信号最主要的风险是什么？",
+        options: ["信号幅度衰减", "亚稳态（Metastability）", "功耗急剧增加", "信号频率倍增"],
+        answer: 1,
+        explanation: "当异步信号在采样时钟边沿附近变化时，触发器可能进入亚稳态——输出既非稳定的 0 也非稳定的 1，在中间电平悬停不定。亚稳态可能向下游逻辑传播，导致系统行为不可预测甚至崩溃。"
+      },
+      {
+        id: "s3-ch04-q5",
+        question: "多比特信号跨时钟域传输时，为什么推荐使用格雷码（Gray Code）？",
+        options: ["格雷码运算速度更快", "格雷码相邻值只有一位不同，避免多位同时翻转的采样错误", "格雷码比二进制码占用更少位数", "格雷码不存在亚稳态问题"],
+        answer: 1,
+        explanation: "格雷码的相邻值之间只有一位不同（Hamming 距离为 1）。如果在跨时钟域采样时恰好处于两个相邻值的过渡期，最多只有一位处于不确定状态，接收端只会得到旧值或新值之一，不会出现完全错误的中间值。而普通二进制计数器可能多位同时翻转，导致采样到毫无意义的组合。"
+      },
+      {
+        id: "s3-ch04-q6",
+        question: "经典的两级触发器同步器（Two-Flop Synchronizer）的工作原理是？",
+        options: [
+          "两个触发器对信号做逻辑与运算",
+          "第一个触发器采样异步信号并可能进入亚稳态，第二个触发器在下一个时钟周期采样已稳定的值",
+          "两个触发器分别采样上升沿和下降沿",
+          "两个触发器串联以倍增信号延迟"
+        ],
+        answer: 1,
+        explanation: "第一级触发器捕获异步信号，可能产生亚稳态输出。经过接近一个完整时钟周期的解析时间（Resolution Time），亚稳态信号有极高概率已收敛到稳定的 0 或 1。第二级触发器再次采样，得到干净稳定的信号。两级结构将亚稳态传播概率降低到可忽略的水平。"
+      },
+      {
+        id: "s3-ch04-q7",
+        question: "同步器的平均无故障时间（MTBF）与哪些因素相关？",
+        options: [
+          "仅与时钟频率相关",
+          "仅与输入信号变化频率相关",
+          "与时钟频率、输入变化频率及解析时间常数相关",
+          "仅与触发器的面积相关"
+        ],
+        answer: 2,
+        explanation: "MTBF = e^(t_r / τ) / (T_0 × f_clk × f_data)，其中 t_r 是可用解析时间，τ 是亚稳态时间常数（取决于工艺），f_clk 是时钟频率，f_data 是异步输入信号的变化频率。时钟频率和输入频率越高，亚稳态出现越频繁；解析时间越长（或 τ 越小），亚稳态越容易消除。"
+      },
+      {
+        id: "s3-ch04-q8",
+        question: "异步 FIFO 用于跨时钟域传输多比特数据时，读写指针通常使用什么编码？",
+        options: ["二进制编码", "独热码（One-Hot）", "格雷码（Gray Code）", "BCD 编码"],
+        answer: 2,
+        explanation: "异步 FIFO 的读写指针需要跨时钟域比较来判断空/满状态。使用格雷码可以确保指针每次只变化一位，即使在跨域采样的瞬间出现不确定，也最多只会读到旧值或新值，不会得到完全错误的指针值，从而保证空/满判断的安全性。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-3" data-module="ch04"
+      style="--domain-color: var(--c-memory);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 3</span>
+      <a href="index.html" class="module-name">记忆与时间</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.4 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 时钟信号的生成与分配</a></li>
+      <li><a href="#kp2">02 · 时钟歪斜与抖动</a></li>
+      <li><a href="#kp3">03 · 跨时钟域</a></li>
+      <li><a href="#kp4">04 · 同步器的设计</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 4</p>
+      <h1>时钟（Clock）与同步（Synchronization）</h1>
+    </header>
+
+    <!-- ============================================================ KP 1 -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>时钟信号的生成与分配</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>时钟信号是同步数字系统的"心跳"。所有触发器在时钟边沿采样数据，流水线在时钟节拍下逐级推进。如果时钟信号不稳定或分配不均匀，整个系统的时序将无法保证，数据传输就会出错。</p>
+            <p>现代处理器的时钟频率高达数 GHz，一个周期仅数百皮秒。在如此极端的时间尺度下，如何生成精确的时钟、又如何将它无偏差地分配到芯片上数十亿个触发器，是芯片设计中最核心的挑战之一。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>时钟系统可以拆解为两个子问题：<strong>生成</strong>和<strong>分配</strong>。</p>
+            <p><strong>生成（Generation）：</strong>使用晶体振荡器（Crystal Oscillator, XO）产生低频但极其稳定的参考时钟（如 25–100 MHz）。晶体的压电效应在特定频率下产生机械共振，使输出频率精度可达 ppm（百万分之一）级别。</p>
+            <p>然后使用<strong>锁相环（Phase-Locked Loop, PLL）</strong>将参考频率倍频到所需的高频时钟。PLL 由相位检测器（Phase Detector）、低通滤波器（Loop Filter）、压控振荡器（VCO）和分频器（Divider）组成，构成一个负反馈系统，将 VCO 输出锁定到参考时钟的整数或分数倍频率。</p>
+            <p><strong>分配（Distribution）：</strong>高频时钟必须以尽可能相等的延迟到达芯片上的所有触发器。常用的分配拓扑有：</p>
+            <p><strong>H-Tree：</strong>对称的二叉树结构，从中心向四个象限递归分裂，确保到每个叶节点的路径长度完全相同。</p>
+            <p><strong>平衡缓冲树（Balanced Buffer Tree）：</strong>使用时钟缓冲器（Clock Buffer）逐级扇出，通过插入适当延迟使各路径匹配。</p>
+            <p><strong>时钟网格（Clock Grid/Mesh）：</strong>在缓冲树末端用金属网格短接，通过冗余路径进一步减小歪斜。</p>
+            <p>此外，<strong>时钟门控（Clock Gating）</strong>是节省动态功耗的关键技术——对不活跃的模块关闭时钟，使其触发器停止翻转，功耗降至接近零（不计静态漏电）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>PLL 频率关系：</strong>如果 PLL 的分频器分频比为 \(N\)，参考频率为 \(f_{\text{ref}}\)，则锁定后的输出频率为：</p>
+            \[ f_{\text{out}} = N \times f_{\text{ref}} \]
+            <p>例如，参考频率 \(f_{\text{ref}} = 25\,\text{MHz}\)，分频比 \(N = 120\)，则 \(f_{\text{out}} = 25 \times 120 = 3000\,\text{MHz} = 3\,\text{GHz}\)。</p>
+            <p><strong>时钟功耗模型：</strong>CMOS 电路中时钟网络的动态功耗占芯片总功耗的 30–50%，其公式为：</p>
+            \[ P_{\text{clk}} = \alpha \cdot C_{\text{clk}} \cdot V_{DD}^2 \cdot f_{\text{clk}} \]
+            <p>其中 \(\alpha\) 是活动因子（时钟信号每周期翻转两次，\(\alpha = 1\)），\(C_{\text{clk}}\) 是时钟网络总负载电容，\(V_{DD}\) 是电源电压，\(f_{\text{clk}}\) 是时钟频率。</p>
+            <p><strong>时钟门控节省的功耗：</strong>如果某模块在占比 \(\beta\) 的时间内处于空闲状态，时钟门控可以节省：</p>
+            \[ \Delta P = \beta \cdot C_{\text{module}} \cdot V_{DD}^2 \cdot f_{\text{clk}} \]
+            <div class="warning-box">⚠️ <strong>注意：</strong>PLL 锁定需要时间（通常几百微秒到毫秒级）。在 PLL 锁定之前，输出频率不稳定，不能直接用于驱动逻辑电路。系统启动时必须等待 PLL Lock 指示信号有效后才能开始正常工作。另外，时钟门控的使能信号必须经过门控单元（ICG Cell）消除毛刺，否则可能产生短脉冲导致触发器误采样。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p>现代 SoC（System on Chip）通常集成多个 PLL，为不同子系统提供不同频率的时钟。例如，CPU 核心使用 3–5 GHz 时钟，GPU 使用 1–2 GHz，内存控制器使用与 DDR 匹配的频率（如 DDR5-4800 对应 2400 MHz），外设总线则使用更低频率的时钟。</p>
+            <p>Intel 和 AMD 的处理器使用精密的时钟网格结构：先通过 H-Tree 将时钟分配到芯片各区域，再用金属网格在局部区域均匀化时钟延迟。Apple M 系列芯片采用动态电压频率调节（DVFS），根据负载实时调整时钟频率和电压以平衡性能与功耗。</p>
+            <p>时钟门控在移动芯片中尤为重要。ARM 处理器广泛使用精细粒度的时钟门控——从整个核心到单个功能单元，当某段逻辑不活跃时立即切断其时钟，这是智能手机在待机时功耗极低的关键原因。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>某芯片使用 50 MHz 晶体振荡器和一个 PLL，目标输出频率为 2.4 GHz。PLL 的分频比 \(N\) 应设为多少？如果时钟网络总负载电容为 2 nF，电源电压 0.9 V，时钟门控覆盖率（平均空闲比例）为 40%，时钟门控前后的时钟功耗各是多少？</p>
+            <p>❌ <strong>错误做法：</strong>直接用 \(2.4\,\text{GHz} / 50\,\text{MHz} = 0.048\)，忘记了 PLL 是倍频而非分频，分频比应为整数。</p>
+            <p>✅ <strong>正确做法：</strong></p>
+            \[ N = \frac{f_{\text{out}}}{f_{\text{ref}}} = \frac{2400\,\text{MHz}}{50\,\text{MHz}} = 48 \]
+            <p>门控前时钟功耗：</p>
+            \[ P = C \cdot V_{DD}^2 \cdot f = 2 \times 10^{-9} \times 0.9^2 \times 2.4 \times 10^9 = 3.888\,\text{W} \]
+            <p>门控后节省 40%：</p>
+            \[ P' = P \times (1 - 0.4) = 3.888 \times 0.6 = 2.333\,\text{W} \]
+            <p>节省约 1.56 W，对于移动设备来说意义重大。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch04-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="16" class="fg" font-size="11" text-anchor="middle" font-weight="bold">PLL 结构与 H-Tree 时钟分配</text>
+          <!-- PLL block diagram -->
+          <rect x="10" y="30" width="185" height="85" rx="6" class="line" stroke-dasharray="4,2"/>
+          <text x="102" y="44" class="accent" font-size="9" text-anchor="middle" font-weight="bold">PLL</text>
+          <!-- Phase Detector -->
+          <rect x="20" y="55" width="38" height="22" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="39" y="69" class="fg" font-size="6" text-anchor="middle">PD</text>
+          <!-- Loop Filter -->
+          <rect x="68" y="55" width="38" height="22" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="87" y="69" class="fg" font-size="6" text-anchor="middle">LPF</text>
+          <!-- VCO -->
+          <rect x="116" y="55" width="38" height="22" rx="3" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+          <text x="135" y="69" class="fg" font-size="6" text-anchor="middle">VCO</text>
+          <!-- Divider -->
+          <rect x="80" y="90" width="38" height="18" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="99" y="102" class="fg" font-size="6" text-anchor="middle">÷ N</text>
+          <!-- Connections -->
+          <line x1="58" y1="66" x2="68" y2="66" class="line"/>
+          <line x1="106" y1="66" x2="116" y2="66" class="line"/>
+          <line x1="154" y1="66" x2="170" y2="66" class="line"/>
+          <!-- f_ref in -->
+          <text x="15" y="50" class="fg2" font-size="6">f_ref</text>
+          <line x1="5" y1="66" x2="20" y2="66" class="line"/>
+          <!-- f_out label -->
+          <text x="170" y="55" class="accent" font-size="7" font-weight="bold">f_out</text>
+          <!-- Feedback path -->
+          <line x1="154" y1="66" x2="165" y2="66" class="line"/>
+          <line x1="165" y1="66" x2="165" y2="99" class="line"/>
+          <line x1="165" y1="99" x2="118" y2="99" class="line"/>
+          <line x1="80" y1="99" x2="30" y2="99" class="line"/>
+          <line x1="30" y1="99" x2="30" y2="77" class="line"/>
+
+          <!-- H-Tree -->
+          <rect x="210" y="28" width="180" height="100" rx="6" class="line" stroke-dasharray="4,2"/>
+          <text x="300" y="42" class="accent" font-size="9" text-anchor="middle" font-weight="bold">H-Tree</text>
+          <!-- Root -->
+          <circle cx="300" cy="75" r="3" fill="#6366f1"/>
+          <!-- Level 1 horizontal -->
+          <line x1="265" y1="75" x2="335" y2="75" stroke="#6366f1" stroke-width="1.5" fill="none"/>
+          <!-- Level 1 vertical -->
+          <line x1="265" y1="60" x2="265" y2="90" stroke="#6366f1" stroke-width="1.2" fill="none"/>
+          <line x1="335" y1="60" x2="335" y2="90" stroke="#6366f1" stroke-width="1.2" fill="none"/>
+          <!-- Level 2 horizontal -->
+          <line x1="250" y1="60" x2="280" y2="60" stroke="#6366f1" stroke-width="0.8" fill="none"/>
+          <line x1="250" y1="90" x2="280" y2="90" stroke="#6366f1" stroke-width="0.8" fill="none"/>
+          <line x1="320" y1="60" x2="350" y2="60" stroke="#6366f1" stroke-width="0.8" fill="none"/>
+          <line x1="320" y1="90" x2="350" y2="90" stroke="#6366f1" stroke-width="0.8" fill="none"/>
+          <!-- Leaf nodes -->
+          <circle cx="250" cy="60" r="2.5" fill="#334155"/>
+          <circle cx="280" cy="60" r="2.5" fill="#334155"/>
+          <circle cx="250" cy="90" r="2.5" fill="#334155"/>
+          <circle cx="280" cy="90" r="2.5" fill="#334155"/>
+          <circle cx="320" cy="60" r="2.5" fill="#334155"/>
+          <circle cx="350" cy="60" r="2.5" fill="#334155"/>
+          <circle cx="320" cy="90" r="2.5" fill="#334155"/>
+          <circle cx="350" cy="90" r="2.5" fill="#334155"/>
+          <!-- Labels -->
+          <text x="300" y="120" class="fg2" font-size="7" text-anchor="middle">等长路径 → 最小歪斜</text>
+
+          <!-- Clock Gating concept -->
+          <rect x="10" y="140" width="385" height="90" rx="6" class="line" stroke-dasharray="4,2"/>
+          <text x="200" y="155" class="fg" font-size="9" text-anchor="middle" font-weight="bold">时钟门控（Clock Gating）</text>
+          <!-- Active module -->
+          <rect x="30" y="165" width="80" height="35" rx="4" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+          <text x="70" y="180" class="fg" font-size="7" text-anchor="middle">活跃模块</text>
+          <text x="70" y="192" class="accent" font-size="6" text-anchor="middle">CLK = ON</text>
+          <!-- Gated module -->
+          <rect x="160" y="165" width="80" height="35" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1"/>
+          <text x="200" y="180" class="fg2" font-size="7" text-anchor="middle">空闲模块</text>
+          <text x="200" y="192" class="fg2" font-size="6" text-anchor="middle">CLK = OFF</text>
+          <!-- Power savings -->
+          <rect x="290" y="165" width="95" height="35" rx="4" fill="#f0fdf4" stroke="#22c55e" stroke-width="1"/>
+          <text x="337" y="180" font-size="7" fill="#16a34a" text-anchor="middle" font-weight="bold">节省 30–50%</text>
+          <text x="337" y="192" font-size="6" fill="#16a34a" text-anchor="middle">动态功耗</text>
+          <!-- Arrow -->
+          <line x1="240" y1="182" x2="288" y2="182" class="line" stroke-width="1"/>
+          <polygon points="286,179 292,182 286,185" fill="#334155"/>
+          <text x="200" y="222" class="fg2" font-size="7" text-anchor="middle">P_clk = α · C_clk · V²_DD · f_clk</text>
+        </svg>
+        <figcaption>图 4-1　PLL 倍频结构、H-Tree 对称分配拓扑与时钟门控功耗节省</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">H-Tree 时钟分配拓扑的主要优势是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '时钟缓冲器数量取决于负载大小，H-Tree 并不一定使用最少的缓冲器。')">A. 使用最少的时钟缓冲器</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！H-Tree 是对称结构，从根节点到每个叶节点的路径长度完全相同，因此时钟到达各触发器的延迟一致，最大程度减小时钟歪斜。')">B. 从根到所有叶节点路径等长，最小化时钟歪斜</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'H-Tree 的布线拓扑较为复杂，不一定占用最少的芯片面积。')">C. 占用最少的芯片面积</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '频率不由分配拓扑决定，而由 PLL 和振荡器决定。')">D. 能直接提高时钟频率</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ============================================================ KP 2 -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>时钟歪斜（Clock Skew）与抖动（Jitter）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>同步电路中，数据必须在时钟边沿到来前的一小段时间（建立时间）就已稳定，并在时钟边沿后保持一小段时间（保持时间）。这一时序窗口极其狭小——在 3 GHz 时钟下，一个周期仅约 333 ps。</p>
+            <p>如果时钟信号到达发送方和接收方触发器的时间不一致（歪斜），或者时钟周期长度在不同周期间发生随机波动（抖动），都会侵蚀这个时序窗口。超出容忍范围，数据就会被错误采样，导致功能故障。理解和控制歪斜与抖动是高频设计的基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>时钟歪斜（Clock Skew）：</strong>同一时钟信号到达两个不同触发器的时间差。设时钟到达发送端触发器 FF1 的延迟为 \(t_{c1}\)，到达接收端触发器 FF2 的延迟为 \(t_{c2}\)，则歪斜为：</p>
+            <p>\(\delta = t_{c2} - t_{c1}\)</p>
+            <p>歪斜分为两种情况：</p>
+            <p><strong>正歪斜（Positive Skew）：</strong>\(\delta > 0\)，接收端时钟晚于发送端。对建立时间约束不利（减少可用时间），但对保持时间约束有利。</p>
+            <p><strong>负歪斜（Negative Skew）：</strong>\(\delta < 0\)，接收端时钟早于发送端。对建立时间约束有利（相当于增加了可用时间），但对保持时间约束不利。</p>
+            <p><strong>时钟抖动（Clock Jitter）：</strong>时钟边沿相对于理想位置的随机偏移。与歪斜不同，抖动是<strong>随机的、不可预测的</strong>，来源于电源噪声、热噪声、PLL 环路噪声等。周期抖动（Cycle-to-Cycle Jitter）衡量相邻两个周期之间的时间差变化。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>建立时间约束（Setup Constraint）：</strong>数据必须在接收时钟边沿之前 \(t_{\text{setup}}\) 稳定。考虑正歪斜 \(\delta > 0\)：</p>
+            \[ T_{\text{clk}} \geq t_{cq} + t_{\text{comb}} + t_{\text{setup}} + \delta \]
+            <p>其中 \(t_{cq}\) 是发送端触发器的时钟到输出延迟，\(t_{\text{comb}}\) 是组合逻辑延迟，\(t_{\text{setup}}\) 是接收端触发器的建立时间。正歪斜使得最小时钟周期增大，最大频率降低。</p>
+            <p><strong>保持时间约束（Hold Constraint）：</strong>数据必须在接收时钟边沿之后 \(t_{\text{hold}}\) 保持不变：</p>
+            \[ t_{cq} + t_{\text{comb}} \geq t_{\text{hold}} + \delta \]
+            <p>当 \(\delta < 0\)（负歪斜）时，保持约束变得更难满足。</p>
+            <p><strong>加入抖动的综合约束：</strong>将抖动 \(t_j\) 作为不确定性叠加：</p>
+            \[ T_{\text{clk}} \geq t_{cq} + t_{\text{comb}} + t_{\text{setup}} + \delta + t_j \]
+            <p>歪斜和抖动共同侵蚀时序裕量（Timing Margin），它们的影响是叠加的。</p>
+            <div class="warning-box">⚠️ <strong>注意：</strong>建立时间违规可以通过降低频率来修复（增大 \(T_{\text{clk}}\)），但保持时间违规与频率无关——它只取决于路径延迟和歪斜。保持时间违规必须通过调整物理路径延迟（如插入缓冲器）或重新平衡时钟树来修复，这也是为什么在后端设计中保持时间违规通常被视为更严重的问题。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p>在现代 5 nm / 3 nm 工艺节点，典型的时钟歪斜目标控制在 10–30 ps 以内，占时钟周期的比例约 5–10%。物理设计工具（如 Cadence Innovus、Synopsys IC Compiler）通过<strong>时钟树综合（CTS, Clock Tree Synthesis）</strong>自动构建平衡的时钟分配网络。</p>
+            <p>抖动方面，高性能 PLL 的周期抖动通常控制在 1–5 ps RMS。对于高速 SerDes（串行收发器）接口（如 PCIe Gen5、USB4），抖动预算更加严格——总抖动（Total Jitter）的分配精确到 UI（Unit Interval）的百分比。</p>
+            <p>有些设计会故意引入<strong>有用的歪斜（Useful Skew / Clock Borrowing）</strong>：如果相邻两级流水线中某一级的组合逻辑路径特别长，可以通过有意偏移时钟来"借用"相邻级的时间裕量，在不降低频率的前提下满足时序。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>某流水线级的参数如下：\(t_{cq} = 50\,\text{ps}\)，组合逻辑延迟 \(t_{\text{comb}} = 200\,\text{ps}\)，建立时间 \(t_{\text{setup}} = 30\,\text{ps}\)，时钟歪斜 \(\delta = 20\,\text{ps}\)，抖动 \(t_j = 10\,\text{ps}\)。求最大工作频率。</p>
+            <p>❌ <strong>错误做法：</strong>忽略歪斜和抖动，\(T_{\text{clk}} = 50 + 200 + 30 = 280\,\text{ps}\)，得 \(f_{\max} = 3.57\,\text{GHz}\)。</p>
+            <p>✅ <strong>正确做法：</strong></p>
+            \[ T_{\text{clk}} \geq t_{cq} + t_{\text{comb}} + t_{\text{setup}} + \delta + t_j \]
+            \[ = 50 + 200 + 30 + 20 + 10 = 310\,\text{ps} \]
+            \[ f_{\max} = \frac{1}{310 \times 10^{-12}} \approx 3.23\,\text{GHz} \]
+            <p>歪斜和抖动使最大频率从 3.57 GHz 下降到 3.23 GHz，降幅约 10%。在高频设计中，这个差距意味着显著的性能损失，凸显了精确控制歪斜和抖动的重要性。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch04-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="16" class="fg" font-size="11" text-anchor="middle" font-weight="bold">时钟歪斜与时序约束</text>
+          <!-- FF1 -->
+          <rect x="30" y="40" width="50" height="40" rx="4" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+          <text x="55" y="57" class="fg" font-size="8" text-anchor="middle" font-weight="bold">FF1</text>
+          <text x="55" y="70" class="fg2" font-size="6" text-anchor="middle">发送</text>
+          <!-- Combinational logic -->
+          <rect x="120" y="40" width="80" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="160" y="57" class="fg" font-size="8" text-anchor="middle" font-weight="bold">组合逻辑</text>
+          <text x="160" y="70" class="fg2" font-size="6" text-anchor="middle">t_comb</text>
+          <!-- FF2 -->
+          <rect x="240" y="40" width="50" height="40" rx="4" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+          <text x="265" y="57" class="fg" font-size="8" text-anchor="middle" font-weight="bold">FF2</text>
+          <text x="265" y="70" class="fg2" font-size="6" text-anchor="middle">接收</text>
+          <!-- Data path arrows -->
+          <line x1="80" y1="60" x2="118" y2="60" class="line"/>
+          <polygon points="116,57 122,60 116,63" fill="#334155"/>
+          <line x1="200" y1="60" x2="238" y2="60" class="line"/>
+          <polygon points="236,57 242,60 236,63" fill="#334155"/>
+          <!-- Clock source -->
+          <circle cx="160" cy="110" r="8" fill="#6366f1"/>
+          <text x="160" y="113" fill="white" font-size="7" text-anchor="middle">CLK</text>
+          <!-- Clock to FF1 -->
+          <line x1="152" y1="110" x2="55" y2="110" stroke="#6366f1" stroke-width="1" fill="none"/>
+          <line x1="55" y1="110" x2="55" y2="82" stroke="#6366f1" stroke-width="1" fill="none"/>
+          <text x="100" y="106" class="fg2" font-size="6" text-anchor="middle">t_c1</text>
+          <!-- Clock to FF2 -->
+          <line x1="168" y1="110" x2="265" y2="110" stroke="#6366f1" stroke-width="1" fill="none"/>
+          <line x1="265" y1="110" x2="265" y2="82" stroke="#6366f1" stroke-width="1" fill="none"/>
+          <text x="220" y="106" class="fg2" font-size="6" text-anchor="middle">t_c2</text>
+          <!-- Skew label -->
+          <text x="310" y="60" class="accent" font-size="7" font-weight="bold">δ = t_c2 − t_c1</text>
+
+          <!-- Timing diagram area -->
+          <rect x="10" y="130" width="380" height="105" rx="4" class="line" stroke-dasharray="3,2"/>
+          <text x="200" y="143" class="fg" font-size="9" text-anchor="middle" font-weight="bold">时序图</text>
+          <!-- CLK at FF1 -->
+          <text x="15" y="163" class="fg2" font-size="7">CLK@FF1</text>
+          <polyline points="70,170 70,155 110,155 110,170 150,170 150,155 190,155 190,170 230,170 230,155 270,155 270,170" stroke="#6366f1" stroke-width="1.5" fill="none"/>
+          <!-- CLK at FF2 (shifted right = positive skew) -->
+          <text x="15" y="193" class="fg2" font-size="7">CLK@FF2</text>
+          <polyline points="80,200 80,185 120,185 120,200 160,200 160,185 200,185 200,200 240,200 240,185 280,185 280,200" stroke="#f59e0b" stroke-width="1.5" fill="none"/>
+          <!-- Skew annotation -->
+          <line x1="70" y1="205" x2="80" y2="205" stroke="#ef4444" stroke-width="1.5" fill="none"/>
+          <text x="75" y="215" font-size="7" fill="#ef4444" text-anchor="middle">δ</text>
+          <!-- Jitter annotation -->
+          <line x1="148" y1="155" x2="152" y2="155" stroke="#ef4444" stroke-width="2" fill="none"/>
+          <text x="150" y="150" font-size="6" fill="#ef4444" text-anchor="middle">jitter</text>
+          <!-- Formula -->
+          <text x="200" y="230" class="fg" font-size="8" text-anchor="middle">T_clk ≥ t_cq + t_comb + t_setup + δ + t_j</text>
+        </svg>
+        <figcaption>图 4-2　时钟歪斜示意及其对建立时间约束的影响</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">为什么保持时间违规（Hold Violation）比建立时间违规更难修复？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '建立时间和保持时间都是触发器的固有特性，大小由工艺决定，两者无法简单比较。')">A. 保持时间通常比建立时间大得多</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！建立时间违规可以通过降低频率（增大 T_clk）来解决，但保持时间约束 t_cq + t_comb ≥ t_hold + δ 中不包含 T_clk，与频率无关。必须通过物理手段（如插入延迟缓冲器或调整时钟树）来修复。')">B. 保持时间约束与时钟频率无关，不能通过降频解决</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '保持时间违规可以在设计阶段检测到，问题在于它不能通过简单调整频率来修复。')">C. 保持时间违规无法被 EDA 工具检测到</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '保持时间违规在设计阶段可以修复，只是需要更多物理设计手段而非简单调参。')">D. 保持时间违规只能在流片后发现</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ============================================================ KP 3 -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>跨时钟域（Clock Domain Crossing）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>现代 SoC 内部通常存在多个时钟域——CPU 核心、GPU、内存控制器、外设总线各自运行在不同频率的时钟下。当数据需要从一个时钟域传递到另一个时钟域时，由于两个时钟之间没有固定的相位关系，接收端的时钟边沿可能恰好在数据变化的瞬间采样。</p>
+            <p>这种情况会导致触发器进入<strong>亚稳态（Metastability）</strong>——输出在 0 和 1 之间的中间电平悬停，不确定何时（甚至是否）能解析到一个有效的逻辑值。如果亚稳态信号传播到下游逻辑，可能导致不同部分的电路"看到"不同的值，引发灾难性的功能错误。跨时钟域（CDC）设计是所有多时钟系统的关键安全机制。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>CDC 问题可以按传输的数据宽度分为两类：</p>
+            <p><strong>单比特 CDC：</strong>最基本的情况，一个控制信号（如请求/应答）需要从域 A 传到域 B。解决方案是使用<strong>同步器（Synchronizer）</strong>——通常是两级或多级触发器串联。</p>
+            <p><strong>多比特 CDC：</strong>一个多位的数据总线或计数器需要跨域传输。如果多个位同时在不同时刻被采样，可能得到一个完全错误的组合值。例如，二进制计数器从 \(\texttt{0111}\) 变到 \(\texttt{1000}\) 时，所有 4 位同时翻转，若被部分采样，可能得到 \(\texttt{0000}\) 或 \(\texttt{1111}\) 等毫无意义的中间值。</p>
+            <p><strong>格雷码（Gray Code）解决方案：</strong>格雷码的相邻编码值之间只有一位不同（Hamming 距离为 1）。如果在跨域采样的瞬间恰好处于过渡期，最多只有一位不确定，结果只可能是旧值或新值，不会出现完全错误的第三种值。因此，跨域传输的计数器通常先转换为格雷码再传输。</p>
+            <p><strong>多比特数据传输：</strong>对于任意宽度的数据（非计数器），格雷码不适用。此时使用<strong>异步 FIFO</strong>或<strong>握手协议（Handshake Protocol）</strong>来安全地跨域传输完整的数据字。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>格雷码与二进制码的转换：</strong></p>
+            <p>二进制转格雷码（B → G）：</p>
+            \[ G_n = B_n, \quad G_i = B_{i+1} \oplus B_i \quad (i < n) \]
+            <p>格雷码转二进制（G → B）：</p>
+            \[ B_n = G_n, \quad B_i = B_{i+1} \oplus G_i \quad (i < n) \]
+            <p>例如，4 位二进制 \(\texttt{0111}\)（7）对应的格雷码为：</p>
+            \[ G_3 = 0, \quad G_2 = 0 \oplus 1 = 1, \quad G_1 = 1 \oplus 1 = 0, \quad G_0 = 1 \oplus 1 = 0 \]
+            <p>即 \(\texttt{0100}\)。而 \(\texttt{1000}\)（8）的格雷码为 \(\texttt{1100}\)。从 7 到 8，格雷码只有 \(G_3\) 从 0 变为 1，仅一位翻转，安全。</p>
+            <p><strong>亚稳态窗口：</strong>触发器的亚稳态窗口 \(t_w\) 定义为：在时钟边沿前后 \(t_w / 2\) 的范围内，如果输入发生变化，触发器有可能进入亚稳态。每个时钟周期内进入亚稳态的概率近似为：</p>
+            \[ P_{\text{meta/cycle}} \approx t_w \cdot f_{\text{data}} \]
+            <p>即亚稳态窗口宽度乘以输入信号的变化频率。系统级的亚稳态事件频率为 \(f_{\text{meta}} = t_w \cdot f_{\text{data}} \cdot f_{\text{clk}}\)，这也是 MTBF 公式分母的物理来源。</p>
+            <div class="warning-box">⚠️ <strong>注意：</strong>不能对格雷码直接进行算术运算（加减比较），只能将其转换回二进制后再运算。在异步 FIFO 设计中，空/满状态的判断是通过比较格雷码编码的读写指针来完成的，需要���殊的比较逻辑：如果两个格雷码指针完全相同则 FIFO 为空；如果高两位相反而其余位相同则 FIFO 为满。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p>CDC 问题在以下场景中无处不在：</p>
+            <p><strong>SoC 总线互连：</strong>ARM AMBA 总线协议中，AXI 异步桥（AXI Async Bridge）使用异步 FIFO 在不同频率的主设备和从设备之间传输数据，读写指针用格雷码跨域同步。</p>
+            <p><strong>以太网 MAC/PHY 接口：</strong>MAC 层运行在系统时钟域，PHY 层运行在接收数据恢复时钟域。两者之间通过异步 FIFO 缓冲接收数据，并通过同步器传递控制信号。</p>
+            <p><strong>DRAM 控制器：</strong>核心逻辑运行在 CPU 时钟域，而 DDR PHY 运行在内存时钟域。两者之间的读写数据通过精心设计的 CDC 机制传递。</p>
+            <p>EDA 工具（如 Synopsys SpyGlass CDC、Cadence JasperGold）提供专门的 CDC 静态检查，能自动识别设计中所有跨时钟域路径并报告缺少同步器的违规。这是现代芯片设计流程中的必检项。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>一个 3 位二进制计数器的值从 \(\texttt{011}\)（3）变化到 \(\texttt{100}\)（4），需要跨时钟域传输。分析直接传输二进制码的风险，并说明格雷码如何解决问题。</p>
+            <p>❌ <strong>错误做法：</strong>直接将 3 位二进制码 \(\texttt{011} \to \texttt{100}\) 跨域传输。三位同时翻转，如果采样时刻不一致，可能得到 \(\texttt{000}\)、\(\texttt{001}\)、\(\texttt{010}\)、\(\texttt{101}\)、\(\texttt{110}\)、\(\texttt{111}\) 等任意组合——6 种错误值中的任何一种！</p>
+            <p>✅ <strong>正确做法：</strong>转换为格雷码：\(\texttt{011}\) → 格雷码 \(\texttt{010}\)，\(\texttt{100}\) → 格雷码 \(\texttt{110}\)。从 \(\texttt{010}\) 到 \(\texttt{110}\) 只有最高位翻转。在采样瞬间，结果只可能是 \(\texttt{010}\)（旧值 3）或 \(\texttt{110}\)（新值 4），不会出现错误的第三种值。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch04-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="16" class="fg" font-size="11" text-anchor="middle" font-weight="bold">跨时钟域与格雷码</text>
+          <!-- Clock Domain A -->
+          <rect x="10" y="28" width="130" height="80" rx="6" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+          <text x="75" y="43" class="accent" font-size="9" text-anchor="middle" font-weight="bold">时钟域 A</text>
+          <text x="75" y="56" class="fg2" font-size="7" text-anchor="middle">f_A = 200 MHz</text>
+          <!-- Counter in domain A -->
+          <rect x="30" y="65" width="90" height="28" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="75" y="78" class="fg" font-size="7" text-anchor="middle">Binary Counter</text>
+          <text x="75" y="88" class="fg2" font-size="6" text-anchor="middle">011 → 100</text>
+
+          <!-- Clock Domain B -->
+          <rect x="260" y="28" width="130" height="80" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="325" y="43" font-size="9" text-anchor="middle" font-weight="bold" fill="#b45309">时钟域 B</text>
+          <text x="325" y="56" class="fg2" font-size="7" text-anchor="middle">f_B = 150 MHz</text>
+          <!-- Receiver -->
+          <rect x="280" y="65" width="90" height="28" rx="3" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+          <text x="325" y="78" class="fg" font-size="7" text-anchor="middle">Sampled Value</text>
+          <text x="325" y="88" class="fg2" font-size="6" text-anchor="middle">???</text>
+
+          <!-- Danger zone (direct transfer) -->
+          <line x1="140" y1="60" x2="258" y2="60" stroke="#ef4444" stroke-width="1.5" fill="none" stroke-dasharray="4,3"/>
+          <text x="200" y="53" font-size="7" fill="#ef4444" text-anchor="middle" font-weight="bold">✗ 直接传输 = 危险</text>
+          <!-- Metastability symbol -->
+          <text x="200" y="70" font-size="8" fill="#ef4444" text-anchor="middle">⚡ 亚稳态风险</text>
+
+          <!-- Gray code solution below -->
+          <rect x="10" y="120" width="380" height="110" rx="6" class="line" stroke-dasharray="4,2"/>
+          <text x="200" y="137" class="fg" font-size="9" text-anchor="middle" font-weight="bold">✓ 格雷码方案</text>
+
+          <!-- Binary to Gray conversion -->
+          <rect x="25" y="148" width="70" height="22" rx="3" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+          <text x="60" y="162" class="fg" font-size="7" text-anchor="middle">B→G 转换</text>
+          <!-- Gray code values -->
+          <rect x="115" y="148" width="75" height="22" rx="3" fill="#f0fdf4" stroke="#22c55e" stroke-width="1"/>
+          <text x="152" y="156" font-size="6" fill="#16a34a" text-anchor="middle">010 → 110</text>
+          <text x="152" y="166" font-size="6" fill="#16a34a" text-anchor="middle">仅 1 位翻转 ✓</text>
+          <!-- Synchronizer -->
+          <rect x="210" y="148" width="70" height="22" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="245" y="162" class="fg" font-size="7" text-anchor="middle">同步器</text>
+          <!-- Gray to Binary -->
+          <rect x="300" y="148" width="75" height="22" rx="3" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+          <text x="337" y="162" class="fg" font-size="7" text-anchor="middle">G→B 转换</text>
+          <!-- Arrows -->
+          <line x1="95" y1="159" x2="113" y2="159" class="line" stroke-width="1"/>
+          <polygon points="111,156 117,159 111,162" fill="#334155"/>
+          <line x1="190" y1="159" x2="208" y2="159" class="line" stroke-width="1"/>
+          <polygon points="206,156 212,159 206,162" fill="#334155"/>
+          <line x1="280" y1="159" x2="298" y2="159" class="line" stroke-width="1"/>
+          <polygon points="296,156 302,159 296,162" fill="#334155"/>
+
+          <!-- Binary vs Gray comparison table -->
+          <text x="60" y="190" class="fg" font-size="7" text-anchor="middle" font-weight="bold">十进制</text>
+          <text x="140" y="190" class="fg" font-size="7" text-anchor="middle" font-weight="bold">二进制</text>
+          <text x="230" y="190" class="fg" font-size="7" text-anchor="middle" font-weight="bold">格雷码</text>
+          <text x="330" y="190" class="fg" font-size="7" text-anchor="middle" font-weight="bold">翻转位数</text>
+
+          <text x="60" y="204" class="fg2" font-size="7" text-anchor="middle">3</text>
+          <text x="140" y="204" class="fg2" font-size="7" text-anchor="middle">011</text>
+          <text x="230" y="204" class="fg2" font-size="7" text-anchor="middle">010</text>
+          <text x="330" y="204" class="fg2" font-size="7" text-anchor="middle">—</text>
+
+          <text x="60" y="218" class="fg2" font-size="7" text-anchor="middle">4</text>
+          <text x="140" y="218" font-size="7" fill="#ef4444" text-anchor="middle">100 (3位)</text>
+          <text x="230" y="218" font-size="7" fill="#16a34a" text-anchor="middle">110 (1位)</text>
+          <text x="330" y="218" font-size="7" fill="#16a34a" text-anchor="middle">安全 ✓</text>
+        </svg>
+        <figcaption>图 4-3　跨时钟域传输风险与格雷码编码方案对比</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">一个 4 位二进制计数器从 7（\(\texttt{0111}\)）递增到 8（\(\texttt{1000}\)），直接跨时钟域传输时最多有几位同时翻转？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '从 0111 到 1000，每一位都发生了变化。')">A. 1 位</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '仔细对比 0111 和 1000，不止 2 位不同。')">B. 2 位</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '还差一位——0111 和 1000 的每一位都不相同。')">C. 3 位</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！0111 → 1000，全部 4 位同时翻转。这是二进制编码最危险的情况——如果跨域采样时各位到达时间不一致，可能得到 0000 到 1111 之间的任意值。使用格雷码（0100 → 1100）则只有 1 位翻转。')">D. 4 位</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ============================================================ KP 4 -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>同步器（Synchronizer）的设计</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>当我们知道跨时钟域传输会导致亚稳态后，下一个问题是：如何设计电路来"吸收"亚稳态，使之不扩散到下游逻辑？这就是同步器（Synchronizer）的核心使命。</p>
+            <p>同步器不能完全消除亚稳态——从物理上说，亚稳态的消除需要无限时间。但同步器可以将亚稳态传播的概率降低到极其微小的水平，使得系统的平均无故障时间（MTBF）达到数百年甚至数千年，满足工程上的可靠性要求。理解同步器的工作原理和 MTBF 计算方法，是设计可靠多时钟域系统的基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>两级触发器同步器（Two-Flop Synchronizer）：</strong>最经典的同步器设计。两个触发器串联，都由接收时钟域的时钟驱动：</p>
+            <p>第一级触发器 FF1 采样异步输入信号。如果输入恰好在时钟边沿附近变化，FF1 可能进入亚稳态，输出在 \(V_{DD}/2\) 附近振荡。</p>
+            <p>经过接近一个完整时钟周期的时间（称为<strong>解析时间 \(t_r\)</strong>），亚稳态信号有极高的概率已经自然衰减并收敛到稳定的 0 或 1。</p>
+            <p>第二级触发器 FF2 在下一个时钟边沿再次采样 FF1 的输出。此时 FF1 的输出已经稳定（概率极高），FF2 得到干净的信号传递给下游逻辑。</p>
+            <p><strong>多级同步器：</strong>在特别高频或可靠性要求极高的场景，可以串联 3 级甚至更多触发器。每多一级，亚稳态传播的概率就指数级下降，但也增加了一个周期的延迟。</p>
+            <p><strong>握手协议（Handshake Protocol）：</strong>用于跨域传输控制信号或单次数据传输。发送方发出请求（REQ），接收方同步后应答（ACK）。发送方看到 ACK 后撤销 REQ，形成完整的四阶段握手（4-Phase Handshake）。速度较慢但非常安全。</p>
+            <p><strong>异步 FIFO：</strong>用于高带宽的多比特数据跨域传输。双端口 RAM 存储数据，读写指针分别在各自时钟域递增。指针转为格雷码后同步到对方域，用于计算空/满状态。异步 FIFO 是最常用的 CDC 解决方案。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>MTBF（Mean Time Between Failures）：</strong>同步器失败是指亚稳态未能在解析时间内消除并传播到下游。对于两级同步器，MTBF 为：</p>
+            \[ \text{MTBF} = \frac{e^{t_r / \tau}}{T_0 \cdot f_{\text{clk}} \cdot f_{\text{data}}} \]
+            <p>其中：</p>
+            <p>\(t_r\) —— 可用解析时间（约等于一个时钟周期减去 FF 的建立时间）：\(t_r \approx T_{\text{clk}} - t_{\text{setup}}\)</p>
+            <p>\(\tau\) —— 亚稳态时间常数（工艺相关，先进工艺约 5–20 ps）</p>
+            <p>\(T_0\) —— 亚稳态窗口参数（工艺相关，典型值约数十飞秒到皮秒级）</p>
+            <p>\(f_{\text{clk}}\) —— 接收端时钟频率</p>
+            <p>\(f_{\text{data}}\) —— 异步输入信号的变化频率</p>
+            <p>MTBF 对 \(t_r / \tau\) 呈指数敏感。例如，若 \(\tau = 10\,\text{ps}\)，\(t_r\) 从 300 ps 增加到 310 ps，MTBF 就会提升 \(e^{1} \approx 2.72\) 倍。</p>
+            <p><strong>三级同步器的 MTBF：</strong>增加一级后，可用解析时间变为约 \(2 \times T_{\text{clk}} - t_{\text{setup}}\)，MTBF 呈双指数增长，可达到天文数字。</p>
+            <div class="warning-box">⚠️ <strong>注意：</strong>两级同步器中间不能插入组合逻辑——两个触发器必须直接相连（Q→D），且应物理上紧密放置以最大化解析时间。如果在两个 FF 之间插入了逻辑门，组合逻辑的延迟会减少可用的解析时间 \(t_r\)，严重降低 MTBF。此外，同步器引入的 2 个时钟周期延迟是不可消除的代价。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>异步 FIFO 在 UART 中的应用：</strong>UART 接收端的波特率时钟与系统时钟完全无关。接收到的数据首先在波特率时钟域写入异步 FIFO，再由系统时钟域读出。FIFO 的深度根据两个时钟频率的比值和突发长度计算。</p>
+            <p><strong>PCIe 接口：</strong>PCIe 的物理层使用恢复时钟（从数据中提取的时钟），与用户逻辑的时钟不同。弹性缓冲（Elastic Buffer）本质上就是一个异步 FIFO，用于吸收两个时钟域之间的 ppm 级频率偏差。</p>
+            <p><strong>复位信号同步：</strong>异步复位的释放必须经过同步器。常见做法是"异步置位、同步释放"（Async Assert, Sync De-assert）：复位信号异步生效（立即清除所有寄存器），但释放时通过同步器确保在时钟边沿干净地退出复位状态。</p>
+            <p>工业界标准实践是使用两级同步器作为最低要求，关键应用（如航天、医疗设备）可能使用三级同步器以获得更高的 MTBF。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>题目：</strong>某两级同步器的参数：接收时钟频率 \(f_{\text{clk}} = 500\,\text{MHz}\)，异步输入变化频率 \(f_{\text{data}} = 100\,\text{MHz}\)，触发器建立时间 \(t_{\text{setup}} = 50\,\text{ps}\)，亚稳态时间常数 \(\tau = 15\,\text{ps}\)，\(T_0 = 0.04\,\text{ps}\)。计算 MTBF。</p>
+            <p>❌ <strong>错误做法：</strong>忽略建立时间对解析时间的影响，直接用 \(t_r = T_{\text{clk}} = 2\,\text{ns}\)。</p>
+            <p>✅ <strong>正确做法：</strong></p>
+            \[ T_{\text{clk}} = \frac{1}{500 \times 10^6} = 2\,\text{ns} = 2000\,\text{ps} \]
+            \[ t_r = T_{\text{clk}} - t_{\text{setup}} = 2000 - 50 = 1950\,\text{ps} \]
+            \[ \frac{t_r}{\tau} = \frac{1950}{15} = 130 \]
+            \[ \text{MTBF} = \frac{e^{130}}{0.04 \times 10^{-12} \times 500 \times 10^6 \times 100 \times 10^6} \]
+            <p>\(e^{130}\) 是一个天文数字（约 \(10^{56}\)），而分母约 \(2 \times 10^{3}\)，因此 MTBF 约 \(10^{53}\) 秒——远超宇宙年龄。这说明在 500 MHz 下，两级同步器的可靠性绰绰有余。</p>
+            <p>然而，如果频率提高到 5 GHz（\(T_{\text{clk}} = 200\,\text{ps}\)），\(t_r = 150\,\text{ps}\)，\(t_r / \tau = 10\)，MTBF 会骤降到可能不足几小时——此时就需要三级同步器或降低时钟频率。</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch04-kp4">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="16" class="fg" font-size="11" text-anchor="middle" font-weight="bold">两级同步器与异步 FIFO</text>
+
+          <!-- Two-flop synchronizer -->
+          <rect x="10" y="28" width="185" height="80" rx="6" class="line" stroke-dasharray="4,2"/>
+          <text x="102" y="42" class="accent" font-size="9" text-anchor="middle" font-weight="bold">两级同步器</text>
+          <!-- Async input -->
+          <text x="18" y="68" class="fg2" font-size="7">异步 D</text>
+          <line x1="46" y1="68" x2="56" y2="68" class="line"/>
+          <!-- FF1 -->
+          <rect x="58" y="55" width="32" height="26" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="74" y="66" class="fg" font-size="7" text-anchor="middle">FF1</text>
+          <text x="74" y="76" font-size="5" fill="#ef4444" text-anchor="middle">可能亚稳</text>
+          <!-- Connection -->
+          <line x1="90" y1="68" x2="106" y2="68" class="line"/>
+          <!-- FF2 -->
+          <rect x="108" y="55" width="32" height="26" rx="3" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+          <text x="124" y="66" class="fg" font-size="7" text-anchor="middle">FF2</text>
+          <text x="124" y="76" font-size="5" fill="#16a34a" text-anchor="middle">稳定输出</text>
+          <!-- Output -->
+          <line x1="140" y1="68" x2="160" y2="68" class="line"/>
+          <text x="170" y="68" class="fg2" font-size="7">同步 Q</text>
+          <!-- Clock -->
+          <line x1="74" y1="95" x2="74" y2="81" stroke="#6366f1" stroke-width="1" fill="none"/>
+          <line x1="124" y1="95" x2="124" y2="81" stroke="#6366f1" stroke-width="1" fill="none"/>
+          <text x="99" y="103" class="accent" font-size="6" text-anchor="middle">CLK_B</text>
+
+          <!-- Async FIFO -->
+          <rect x="205" y="28" width="185" height="80" rx="6" class="line" stroke-dasharray="4,2"/>
+          <text x="297" y="42" class="accent" font-size="9" text-anchor="middle" font-weight="bold">异步 FIFO</text>
+          <!-- Write side -->
+          <rect x="215" y="52" width="45" height="45" rx="3" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+          <text x="237" y="68" class="fg" font-size="6" text-anchor="middle">写逻辑</text>
+          <text x="237" y="78" class="fg2" font-size="5" text-anchor="middle">CLK_A</text>
+          <text x="237" y="90" class="fg2" font-size="5" text-anchor="middle">wptr(Gray)</text>
+          <!-- Dual-port RAM -->
+          <rect x="270" y="52" width="50" height="45" rx="3" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="295" y="68" class="fg" font-size="6" text-anchor="middle">双端口</text>
+          <text x="295" y="78" class="fg" font-size="6" text-anchor="middle">RAM</text>
+          <!-- Read side -->
+          <rect x="330" y="52" width="45" height="45" rx="3" fill="#f0fdf4" stroke="#22c55e" stroke-width="1"/>
+          <text x="352" y="68" class="fg" font-size="6" text-anchor="middle">读逻辑</text>
+          <text x="352" y="78" class="fg2" font-size="5" text-anchor="middle">CLK_B</text>
+          <text x="352" y="90" class="fg2" font-size="5" text-anchor="middle">rptr(Gray)</text>
+          <!-- Sync arrows between write and read -->
+          <line x1="250" y1="100" x2="340" y2="100" stroke="#6366f1" stroke-width="0.8" fill="none" stroke-dasharray="3,2"/>
+          <text x="295" y="108" class="fg2" font-size="5" text-anchor="middle">wptr 同步到 CLK_B</text>
+
+          <!-- Metastability resolution timeline -->
+          <rect x="10" y="120" width="380" height="115" rx="6" class="line" stroke-dasharray="4,2"/>
+          <text x="200" y="137" class="fg" font-size="9" text-anchor="middle" font-weight="bold">亚稳态解析过程</text>
+
+          <!-- Clock edges -->
+          <line x1="60" y1="155" x2="60" y2="225" stroke="#6366f1" stroke-width="1" stroke-dasharray="3,2"/>
+          <text x="60" y="152" class="accent" font-size="6" text-anchor="middle">CLK ↑₁</text>
+          <line x1="180" y1="155" x2="180" y2="225" stroke="#6366f1" stroke-width="1" stroke-dasharray="3,2"/>
+          <text x="180" y="152" class="accent" font-size="6" text-anchor="middle">CLK ↑₂</text>
+          <line x1="300" y1="155" x2="300" y2="225" stroke="#6366f1" stroke-width="1" stroke-dasharray="3,2"/>
+          <text x="300" y="152" class="accent" font-size="6" text-anchor="middle">CLK ↑₃</text>
+
+          <!-- Async input signal -->
+          <text x="18" y="171" class="fg2" font-size="6">输入 D</text>
+          <polyline points="50,175 58,175 62,165 370,165" class="line" stroke-width="1.2"/>
+
+          <!-- FF1 output with metastability -->
+          <text x="18" y="191" class="fg2" font-size="6">FF1 Q</text>
+          <polyline points="50,195 60,195" class="line" stroke-width="1.2"/>
+          <!-- Metastable wiggle -->
+          <path d="M60,195 C70,185 75,205 85,190 C95,180 100,195 110,188 C120,185 130,186 140,185 L180,185" fill="none" stroke="#ef4444" stroke-width="1.5"/>
+          <polyline points="180,185 370,185" stroke="#334155" stroke-width="1.2" fill="none"/>
+          <text x="110" y="210" font-size="6" fill="#ef4444" text-anchor="middle">亚稳态解析中...</text>
+
+          <!-- FF2 output: clean -->
+          <text x="18" y="225" class="fg2" font-size="6">FF2 Q</text>
+          <polyline points="50,228 180,228 180,218 370,218" stroke="#16a34a" stroke-width="1.5" fill="none"/>
+          <text x="280" y="215" font-size="6" fill="#16a34a" text-anchor="middle">干净的稳定输出 ✓</text>
+
+          <!-- Resolution time annotation -->
+          <line x1="62" y1="230" x2="178" y2="230" stroke="#334155" stroke-width="0.8" fill="none"/>
+          <text x="120" y="234" class="fg2" font-size="5" text-anchor="middle">t_r ≈ T_clk − t_setup</text>
+        </svg>
+        <figcaption>图 4-4　两级同步器结构、异步 FIFO 架构及亚稳态解析时序</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">为什么两级同步器的两个触发器之间不能插入组合逻辑？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '组合逻辑不会导致额外的亚稳态来源，但会减少亚稳态的解析时间窗口。')">A. 组合逻辑会产生新的亚稳态</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！两个 FF 之间插入组合逻辑会增加路径延迟，减少第一级 FF 的亚稳态解析时间 t_r。由于 MTBF 对 t_r 呈指数敏感（MTBF ∝ e^(t_r/τ)），即使减少几十 ps 的 t_r，MTBF 也可能下降数个数量级，严重影响可靠性。')">B. 组合逻辑的延迟会减少可用的解析时间，导致 MTBF 急剧降低</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '功耗不是主要顾虑——同步器本身只有两个触发器，功耗很小。')">C. 组合逻辑会增加功耗</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '时钟频率由时钟源决定，与同步器内部结构无关。')">D. 组合逻辑会改变时钟频率</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ EXERCISES -->
+    <section id="exercises" class="exercises-section">
+      <h2 class="exercises-title">综合练习</h2>
+      <div id="quiz-container"></div>
+    </section>
+
+    <!-- ============================================================ NAV -->
+    <nav class="chapter-nav">
+      <a href="ch03.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="#" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

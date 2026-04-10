@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.1 锁存器与触发器 — 记忆与时间 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s3-ch01-q1",
+        question: "在 NOR 型 SR 锁存器中，当 \\(S = 1, R = 1\\) 时，输出 \\(Q\\) 和 \\(\\overline{Q}\\) 分别为？",
+        options: [
+          "\\(Q = 1, \\overline{Q} = 0\\)",
+          "\\(Q = 0, \\overline{Q} = 1\\)",
+          "\\(Q = 0, \\overline{Q} = 0\\)（禁止状态）",
+          "\\(Q = 1, \\overline{Q} = 1\\)"
+        ],
+        answer: 2,
+        explanation: "NOR 型 SR 锁存器中，\\(S = R = 1\\) 导致两个输出同时为 0，即 \\(Q = 0, \\overline{Q} = 0\\)。这违反了 \\(Q\\) 与 \\(\\overline{Q}\\) 互补的约定，且释放后状态不确定，因此称为禁止状态。"
+      },
+      {
+        id: "s3-ch01-q2",
+        question: "NAND 型 SR 锁存器的输入有效电平是什么？",
+        options: [
+          "高电平有效（Active High）",
+          "低电平有效（Active Low）",
+          "边沿触发",
+          "双边沿触发"
+        ],
+        answer: 1,
+        explanation: "NAND 型 SR 锁存器中，输入为低电平（0）时激活。当 \\(\\overline{S} = 0\\) 时置位，\\(\\overline{R} = 0\\) 时复位。禁止状态发生在 \\(\\overline{S} = \\overline{R} = 0\\) 时。"
+      },
+      {
+        id: "s3-ch01-q3",
+        question: "D 触发器相比 SR 锁存器的核心改进是什么？",
+        options: [
+          "速度更快",
+          "消除了禁止状态的可能性",
+          "功耗更低",
+          "面积更小"
+        ],
+        answer: 1,
+        explanation: "D 触发器通过将输入简化为单一的 D 信号，并在内部用反相器保证 S 和 R 永远互补（\\(S = D, R = \\overline{D}\\)），从根本上消除了 \\(S = R = 1\\) 的禁止状态。"
+      },
+      {
+        id: "s3-ch01-q4",
+        question: "边沿触发（Edge-Triggered）D 触发器在什么时刻采样数据？",
+        options: [
+          "时钟信号为高电平期间",
+          "时钟信号为低电平期间",
+          "时钟信号的上升沿或下降沿瞬间",
+          "时钟信号的任意时刻"
+        ],
+        answer: 2,
+        explanation: "边沿触发 D 触发器仅在时钟边沿（上升沿或下降沿，取决于设计）的极短窗口内采样 D 输入。这使得电路对噪声的敏感时间窗口极小，是同步电路设计的基础。"
+      },
+      {
+        id: "s3-ch01-q5",
+        question: "建立时间（Setup Time）的定义是？",
+        options: [
+          "时钟边沿之后数据必须保持稳定的最短时间",
+          "时钟边沿之前数据必须保持稳定的最短时间",
+          "数据从输入到输出的传播延迟",
+          "时钟信号的最小周期"
+        ],
+        answer: 1,
+        explanation: "建立时间 \\(t_{su}\\) 是指在时钟有效边沿到来之前，数据输入 D 必须保持稳定的最短时间。违反建立时间会导致触发器无法正确捕获数据，甚至进入亚稳态。"
+      },
+      {
+        id: "s3-ch01-q6",
+        question: "在同步电路中，若组合逻辑延迟为 \\(t_{comb}\\)，触发器的 \\(t_{clk \\to Q}\\) 为时钟到输出延迟，\\(t_{su}\\) 为建立时间，则最小时钟周期 \\(T_{min}\\) 的约束为？",
+        options: [
+          "\\(T_{min} \\geq t_{comb} + t_{su}\\)",
+          "\\(T_{min} \\geq t_{clk \\to Q} + t_{comb} + t_{su}\\)",
+          "\\(T_{min} \\geq t_{clk \\to Q} + t_{comb}\\)",
+          "\\(T_{min} \\geq t_{su} + t_{hold}\\)"
+        ],
+        answer: 1,
+        explanation: "数据路径的关键时序：上一个触发器在时钟边沿输出数据（\\(t_{clk \\to Q}\\)）→ 通过组合逻辑（\\(t_{comb}\\)）→ 在下一个时钟边沿前满足建立时间（\\(t_{su}\\)）。因此 \\(T_{min} \\geq t_{clk \\to Q} + t_{comb} + t_{su}\\)。"
+      },
+      {
+        id: "s3-ch01-q7",
+        question: "亚稳态（Metastability）发生时，触发器输出处于什么状态？",
+        options: [
+          "输出为确定的逻辑 0",
+          "输出为确定的逻辑 1",
+          "输出在 0 和 1 之间振荡",
+          "输出停留在 0 与 1 之间的中间电压，经过不确定的时间后才解析"
+        ],
+        answer: 3,
+        explanation: "亚稳态是触发器内部双稳态电路停留在两个稳定状态之间的不稳定平衡点。输出电压处于 \\(V_{OH}\\) 和 \\(V_{OL}\\) 之间，后级电路无法判断它是 0 还是 1。经过随机时间后，输出最终会解析到某一确定状态。"
+      },
+      {
+        id: "s3-ch01-q8",
+        question: "使用同步器（Synchronizer）串联两级触发器可以降低亚稳态故障率，其 MTBF 与时钟频率 \\(f_{clk}\\) 的关系是？",
+        options: [
+          "MTBF 与 \\(f_{clk}\\) 成正比",
+          "MTBF 与 \\(f_{clk}\\) 无关",
+          "MTBF 与 \\(f_{clk}\\) 成反比",
+          "MTBF 与 \\(f_{clk}^2\\) 成反比"
+        ],
+        answer: 2,
+        explanation: "MTBF（平均故障间隔时间）的公式为 \\(\\text{MTBF} = \\frac{e^{t_r / \\tau}}{T_0 \\cdot f_{clk} \\cdot f_{data}}\\)，其中 \\(t_r\\) 为解析时间，\\(\\tau\\) 为亚稳态时间常数。可见 MTBF 与 \\(f_{clk}\\) 成反比——时钟频率越高，亚稳态故障越频繁。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-3" data-module="ch01"
+      style="--domain-color: var(--c-memory);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 3</span>
+      <a href="index.html" class="module-name">记忆与时间</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.1 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · SR 锁存器与禁止状态</a></li>
+      <li><a href="#kp2">02 · D 触发器</a></li>
+      <li><a href="#kp3">03 · 建立时间与保持时间</a></li>
+      <li><a href="#kp4">04 · 亚稳态</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 1</p>
+      <h1>锁存器（Latch）与触发器（Flip-Flop）</h1>
+    </header>
+
+    <!-- ═══════════════════════ KP 1 ═══════════════════════ -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>SR 锁存器与禁止状态</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>组合逻辑（Combinational Logic）只能根据当前输入产生输出，一旦输入消失，信息就丢失了。要让计算机"记住"信息，我们需要一种电路，即使输入撤去后也能保持上一次的输出值。这就是<strong>存储</strong>的最基本需求。</p>
+            <p>SR 锁存器（Set-Reset Latch）是最原始的 1-bit 存储单元。它利用两个逻辑门的<strong>交叉反馈（Cross-Coupled Feedback）</strong>形成双稳态系统：输出 \(Q\) 和 \(\overline{Q}\) 互为补，一旦被"设置"或"复位"，即使输入恢复为无效状态，输出也不会改变。理解 SR 锁存器是后续一切时序电路的起点。</p>
+            <p>然而 SR 锁存器存在一个致命缺陷——当 S 和 R 同时有效时，电路进入<strong>禁止状态（Forbidden / Invalid State）</strong>。这个缺陷会在后续的 D 触发器设计中被巧妙地解决。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>我们可以从两种逻辑门来构建 SR 锁存器：<strong>NOR 型</strong>和 <strong>NAND 型</strong>。两种实现的有效输入电平恰好相反。</p>
+            <p><strong>NOR 型 SR 锁存器：</strong>两个 NOR 门的输出分别交叉连接到对方的输入端。S（Set）接第一个 NOR 门，R（Reset）接第二个 NOR 门。NOR 门的特性是"有 1 出 0"——任何输入为 1 时，输出被强制为 0。因此 NOR 型是<strong>高电平有效</strong>：\(S = 1\) 置位，\(R = 1\) 复位。</p>
+            <p><strong>NAND 型 SR 锁存器：</strong>两个 NAND 门交叉连接。NAND 的特性是"有 0 出 1"——任何输入为 0 时，输出被强制为 1。因此 NAND 型是<strong>低电平有效</strong>，输入通常标记为 \(\overline{S}\) 和 \(\overline{R}\)。</p>
+            <p>无论哪种实现，核心思想相同：正反馈（Positive Feedback）形成双稳态。可以把它想象成一个跷跷板——一旦倒向一边，就稳定在那里，直到外力把它推向另一边。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>以 NOR 型 SR 锁存器为例，设两个 NOR 门的输出分别为 \(Q\) 和 \(\overline{Q}\)，推导各输入组合下的行为：</p>
+            <p><strong>情况 1：\(S = 0, R = 0\)（保持）</strong><br>
+            两个门的输入都是"对方的输出 + 0"，NOR 运算不改变已有的反馈状态。\(Q\) 保持上一次的值。这是<strong>记忆状态</strong>。</p>
+            <p><strong>情况 2：\(S = 1, R = 0\)（置位）</strong><br>
+            \(S = 1\) 使得 \(\overline{Q} = \text{NOR}(S, Q) = 0\)；\(\overline{Q} = 0\) 反馈到另一门，使 \(Q = \text{NOR}(R, \overline{Q}) = \text{NOR}(0, 0) = 1\)。结果：\(Q = 1\)。</p>
+            <p><strong>情况 3：\(S = 0, R = 1\)（复位）</strong><br>
+            \(R = 1\) 强制 \(Q = 0\)，反馈使 \(\overline{Q} = 1\)。结果：\(Q = 0\)。</p>
+            <p><strong>情况 4：\(S = 1, R = 1\)（禁止）</strong><br>
+            两个 NOR 门的输入都有 1，两个输出同时被压为 0：\(Q = 0, \overline{Q} = 0\)。这违反了互补约定。更危险的是，当 S 和 R 同时回到 0 时，两个门同时尝试跳转到 1，最终稳定在哪个状态取决于微小的物理差异——<strong>不确定</strong>。</p>
+            <p>NOR 型 SR 锁存器的特征方程：</p>
+            \[ Q_{next} = S + \overline{R} \cdot Q_{prev} \quad (\text{约束：} S \cdot R = 0) \]
+            <div class="warning-box">⚠️ 禁止状态 \(S = R = 1\) 不仅导致输出违反互补性，更重要的是释放输入后输出<strong>不可预测</strong>。在实际电路中，必须通过逻辑约束或改用 D 触发器来避免这种情况。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>去抖动电路（Debounce Circuit）：</strong>机械开关在按下和释放时会产生多次弹跳，导致信号在 0 和 1 之间快速切换。将开关连接到 SR 锁存器的 S 和 R 端，可以利用锁存器的记忆特性过滤掉弹跳——第一次有效触发后锁存，后续弹跳不再影响输出。</p>
+            <p><strong>简单状态存储：</strong>在一些低成本嵌入式系统中，SR 锁存器直接用于存储报警标志（Alarm Flag）。一旦传感器触发报警（S = 1），即使传感器恢复正常，锁存器仍保持 \(Q = 1\)，直到人工复位（R = 1）。</p>
+            <p><strong>SRAM 单元的基础：</strong>静态随机存储器（SRAM）中的每个存储单元本质上就是一个交叉耦合反相器对——这正是 SR 锁存器的简化形式。SRAM 的读写操作可以理解为对锁存器的置位和复位。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个 NOR 型 SR 锁存器，初始状态 \(Q = 0\)。依次施加以下输入序列：①\(S=1, R=0\) → ②\(S=0, R=0\) → ③\(S=0, R=1\) → ④\(S=0, R=0\)。求每步结束后的 \(Q\) 值。</p>
+            <p><strong>解答：</strong>①置位 → \(Q = 1\)；②保持 → \(Q = 1\)；③复位 → \(Q = 0\)；④保持 → \(Q = 0\)。</p>
+            <p><strong>易错点 1：</strong>❌ 混淆 NOR 型和 NAND 型的有效电平。NOR 型高电平有效，NAND 型低电平有效。 ✅ 牢记 NOR 门"有 1 出 0"的特性：高电平输入能"压制"输出。</p>
+            <p><strong>易错点 2：</strong>❌ 认为禁止状态的输出是"随机的"。实际上，在 S = R = 1 <em>期间</em>，NOR 型输出是确定的 \(Q = \overline{Q} = 0\)。 ✅ 不确定性发生在 S 和 R <em>同时回到 0</em> 之后。</p>
+            <p><strong>易错点 3：</strong>❌ 画 NAND 型 SR 锁存器时把 S 和 R 的位置画反。 ✅ NAND 型中，\(\overline{S}\) 接到输出 \(Q\) 所在的那个门，\(\overline{R}\) 接到输出 \(\overline{Q}\) 所在的门。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch01-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <!-- NOR SR Latch -->
+          <text x="200" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">NOR 型 SR 锁存器</text>
+          <!-- Top NOR gate -->
+          <rect x="140" y="40" width="80" height="40" rx="6" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+          <text x="180" y="65" text-anchor="middle" class="accent" font-size="12" font-weight="bold">NOR</text>
+          <!-- Bottom NOR gate -->
+          <rect x="140" y="130" width="80" height="40" rx="6" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+          <text x="180" y="155" text-anchor="middle" class="accent" font-size="12" font-weight="bold">NOR</text>
+          <!-- S input -->
+          <line x1="60" y1="50" x2="140" y2="50" class="line"/>
+          <text x="55" y="54" text-anchor="end" class="fg" font-size="13" font-weight="bold">S</text>
+          <!-- R input -->
+          <line x1="60" y1="160" x2="140" y2="160" class="line"/>
+          <text x="55" y="164" text-anchor="end" class="fg" font-size="13" font-weight="bold">R</text>
+          <!-- Q output -->
+          <line x1="220" y1="60" x2="320" y2="60" class="line"/>
+          <text x="330" y="64" class="fg" font-size="13" font-weight="bold">Q</text>
+          <!-- Q-bar output -->
+          <line x1="220" y1="150" x2="320" y2="150" class="line"/>
+          <text x="330" y="154" class="fg" font-size="13" font-weight="bold">Q̅</text>
+          <!-- Cross feedback: Q output down to bottom NOR input -->
+          <line x1="260" y1="60" x2="260" y2="100" class="line" stroke="#6366f1"/>
+          <line x1="260" y1="100" x2="120" y2="100" class="line" stroke="#6366f1"/>
+          <line x1="120" y1="100" x2="120" y2="140" class="line" stroke="#6366f1"/>
+          <line x1="120" y1="140" x2="140" y2="140" class="line" stroke="#6366f1"/>
+          <!-- Cross feedback: Q-bar output up to top NOR input -->
+          <line x1="260" y1="150" x2="260" y2="110" class="line" stroke="#6366f1"/>
+          <line x1="260" y1="110" x2="280" y2="110" class="line" stroke="#6366f1"/>
+          <line x1="280" y1="110" x2="280" y2="70" class="line" stroke="#6366f1" stroke-dasharray="4,3"/>
+          <line x1="280" y1="70" x2="140" y2="70" class="line" stroke="#6366f1" stroke-dasharray="4,3"/>
+          <!-- Truth table -->
+          <text x="200" y="200" text-anchor="middle" class="fg2" font-size="11">S=0,R=0→保持 | S=1,R=0→Q=1 | S=0,R=1→Q=0</text>
+          <text x="200" y="220" text-anchor="middle" font-size="11" fill="#dc2626" font-weight="bold">S=1, R=1 → 禁止状态 ⚠️</text>
+          <!-- Feedback arrows -->
+          <circle cx="260" cy="60" r="3" fill="#6366f1"/>
+          <circle cx="260" cy="150" r="3" fill="#6366f1"/>
+        </svg>
+        <figcaption>图 1-1 NOR 型 SR 锁存器结构与交叉反馈路径（虚线为 \(\overline{Q}\) 到上方门的反馈）</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">NAND 型 SR 锁存器中，\(\overline{S} = 0, \overline{R} = 0\) 时输出是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '这是 NAND 型的保持状态条件 (S̅=1, R̅=1)，不是两个都为 0 的情况。')">A. 保持上一状态</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！NAND 门"有 0 出 1"，两个输入都为 0 时两个输出都被拉到 1，即 Q = Q̅ = 1，这是 NAND 型的禁止状态。')">B. \(Q = 1, \overline{Q} = 1\)（禁止状态）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'Q = Q̅ = 0 是 NOR 型 SR 锁存器在 S=R=1 时的禁止状态输出。注意区分 NOR 型和 NAND 型。')">C. \(Q = 0, \overline{Q} = 0\)</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '置位操作在 NAND 型中是 S̅=0, R̅=1，不是两个都为 0。')">D. \(Q = 1, \overline{Q} = 0\)</button>
+        </div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ═══════════════════════ KP 2 ═══════════════════════ -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>D 触发器（D Flip-Flop）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>SR 锁存器虽然能存储 1 bit，但它有两个严重的工程问题：一是禁止状态——设计者必须时刻保证 S 和 R 不同时有效，这增加了设计复杂度；二是<strong>透明性（Transparency）</strong>——当使能信号有效时，输入的任何变化都会立即传递到输出，这在多级串联的流水线电路中会导致数据"穿越"多个阶段。</p>
+            <p>D 触发器（D Flip-Flop）同时解决了这两个问题。通过将输入简化为单一的 D 端口，禁止状态在结构上被消除；通过引入<strong>边沿触发（Edge-Triggering）</strong>机制，数据只在时钟边沿的极短窗口内被采样，其余时间输入变化不影响输出。</p>
+            <p>D 触发器是现代同步数字电路的基石。CPU 中的寄存器文件（Register File）、流水线寄存器（Pipeline Register）、状态机的状态寄存器——全部由 D 触发器构成。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>从 SR 到 D——消除禁止状态：</strong>在 SR 锁存器的基础上，加一个反相器（Inverter），让 \(S = D\)、\(R = \overline{D}\)。这样无论 D 是 0 还是 1，S 和 R 永远互补，禁止状态在电路结构上变得不可能。这就是<strong>D 锁存器（D Latch）</strong>。</p>
+            <p><strong>电平敏感（Level-Sensitive）vs 边沿触发（Edge-Triggered）：</strong>D 锁存器在使能信号（Enable / Gate）为高时是"透明"的——D 的变化直接传到 Q。这在单独使用时没问题，但在流水线中，前一级的输出变化会直接穿过当前级到达后一级，导致错误。</p>
+            <p><strong>主从结构（Master-Slave）：</strong>将两个 D 锁存器串联，主锁存器（Master）在时钟低电平时透明，从锁存器（Slave）在时钟高电平时透明。两者<strong>永远不会同时透明</strong>，数据在一个时钟周期内只能前进一级。这就实现了边沿触发的效果。</p>
+            <p>从行为角度看，边沿触发 D 触发器的功能极其简单：\(Q_{next} = D\)（在时钟有效边沿时刻）。这是最干净的 1-bit 存储抽象。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>D 触发器的<strong>特征方程</strong>极其简洁：</p>
+            \[ Q(n+1) = D \]
+            <p>其中 \(Q(n+1)\) 是下一个有效时钟边沿后的输出，\(D\) 是在时钟边沿时刻的输入值。</p>
+            <p><strong>主从 D 触发器的工作过程：</strong></p>
+            <p>设时钟信号为 \(CLK\)，主锁存器的使能为 \(\overline{CLK}\)，从锁存器的使能为 \(CLK\)：</p>
+            <p>1. 当 \(CLK = 0\)（低电平阶段）：主锁存器透明，采样 D 输入并传到主锁存器输出 \(Q_M\)；从锁存器锁定，输出 \(Q\) 保持不变。</p>
+            <p>2. 当 \(CLK\) 从 0 跳变到 1（上升沿）：主锁存器锁定，\(Q_M\) 固定；从锁存器透明，\(Q_M\) 传到输出 \(Q\)。</p>
+            <p>3. 当 \(CLK = 1\)（高电平阶段）：主锁存器锁定，D 输入的变化被屏蔽；从锁存器仍然透明，但 \(Q_M\) 不变，所以 \(Q\) 也不变。</p>
+            <p>总结效果：输出 \(Q\) 仅在上升沿时刻反映 D 的值，实现了<strong>正边沿触发</strong>。</p>
+            <div class="warning-box">⚠️ D 锁存器 ≠ D 触发器！D 锁存器是电平敏感的（使能为高时透明），而 D 触发器是边沿触发的。考试中混淆两者是常见失分点。符号上，锁存器的使能端标注 \(E\) 或 \(G\)，触发器的时钟端标注三角形 \(\triangleright\)。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>寄存器（Register）：</strong>将 \(n\) 个 D 触发器并联，共享同一时钟信号，就构成了一个 \(n\) 位寄存器。CPU 中的通用寄存器（如 x86 的 EAX、ARM 的 R0-R15）就是这样实现的。</p>
+            <p><strong>流水线寄存器（Pipeline Register）：</strong>在 CPU 流水线的各个阶段之间插入 D 触发器组，每个时钟周期将前一阶段的计算结果传递到下一阶段。正是因为 D 触发器的边沿触发特性，数据才能在每个时钟周期精确地前进一级，而不会出现"穿越"。</p>
+            <p><strong>移位寄存器（Shift Register）：</strong>将多个 D 触发器首尾相连（前一个的 Q 接后一个的 D），每个时钟沿数据向前移动一位。移位寄存器广泛应用于串行通信（UART、SPI）、序列检测、伪随机数生成（LFSR）等场景。</p>
+            <p><strong>带使能端和异步复位的 D 触发器：</strong>实际 FPGA 和 ASIC 中的触发器通常还带有 CE（Clock Enable，时钟使能）和异步 Reset 端口。CE = 0 时触发器忽略时钟边沿，保持原值；Reset 有效时无论时钟如何都强制 \(Q = 0\)。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个正边沿触发的 D 触发器，初始 \(Q = 0\)。在连续的 4 个时钟上升沿时刻，D 的值依次为 1, 1, 0, 1。求每个上升沿后 Q 的值。</p>
+            <p><strong>解答：</strong>根据特征方程 \(Q(n+1) = D\)，直接代入：Q 依次为 1, 1, 0, 1。</p>
+            <p><strong>易错点 1：</strong>❌ 在高电平期间 D 发生变化时认为 Q 也会变化。 ✅ 对于<em>边沿触发</em>触发器，Q 只在上升沿瞬间更新。高电平期间 D 的任何变化都不会影响 Q。（但 D 锁存器在高电平期间是透明的！）</p>
+            <p><strong>易错点 2：</strong>❌ 分不清"上升沿触发"和"高电平透明"。 ✅ 上升沿触发 = 只在 \(CLK\) 从 0→1 的瞬间采样；高电平透明 = 整个 \(CLK = 1\) 期间持续采样。</p>
+            <p><strong>易错点 3：</strong>❌ 忘记主从触发器的"一次性采样"特性（Ones-Catching）。在某些老式主从 SR 触发器中，主锁存器在低电平期间是透明的，如果 D 在低电平期间出现短暂的毛刺，也可能被捕获。 ✅ 现代 CMOS D 触发器通过传输门（Transmission Gate）设计避免了这个问题。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch01-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="13" font-weight="bold">主从 D 触发器结构</text>
+          <!-- Master Latch -->
+          <rect x="30" y="55" width="130" height="80" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="95" y="75" text-anchor="middle" font-size="11" fill="#92400e" font-weight="bold">Master（主锁存器）</text>
+          <text x="95" y="95" text-anchor="middle" font-size="10" class="fg2">透明：CLK = 0</text>
+          <text x="95" y="115" text-anchor="middle" font-size="10" class="fg2">锁定：CLK = 1</text>
+          <!-- Slave Latch -->
+          <rect x="210" y="55" width="130" height="80" rx="8" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="275" y="75" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="bold">Slave（从锁存器）</text>
+          <text x="275" y="95" text-anchor="middle" font-size="10" class="fg2">透明：CLK = 1</text>
+          <text x="275" y="115" text-anchor="middle" font-size="10" class="fg2">锁定：CLK = 0</text>
+          <!-- D input -->
+          <line x1="5" y1="90" x2="30" y2="90" class="line"/>
+          <text x="3" y="94" text-anchor="end" class="fg" font-size="13" font-weight="bold">D</text>
+          <!-- Connection Master to Slave -->
+          <line x1="160" y1="90" x2="210" y2="90" class="line" stroke="#6366f1" stroke-width="2"/>
+          <text x="185" y="85" text-anchor="middle" font-size="10" class="accent">Q_M</text>
+          <!-- Q output -->
+          <line x1="340" y1="90" x2="380" y2="90" class="line"/>
+          <text x="390" y="94" class="fg" font-size="13" font-weight="bold">Q</text>
+          <!-- CLK input -->
+          <line x1="185" y1="170" x2="185" y2="155" class="line" stroke="#6366f1"/>
+          <line x1="95" y1="155" x2="275" y2="155" class="line" stroke="#6366f1" stroke-dasharray="4,3"/>
+          <line x1="95" y1="135" x2="95" y2="155" class="line" stroke="#6366f1"/>
+          <line x1="275" y1="135" x2="275" y2="155" class="line" stroke="#6366f1"/>
+          <text x="185" y="185" text-anchor="middle" class="accent" font-size="12" font-weight="bold">CLK</text>
+          <!-- Timing note -->
+          <text x="200" y="215" text-anchor="middle" class="fg2" font-size="10">CLK↑ 时：Master 锁定 → Slave 透明 → Q 更新为 D 在边沿时的值</text>
+          <text x="200" y="230" text-anchor="middle" class="fg2" font-size="10">关键：Master 和 Slave 永远不会同时透明</text>
+          <!-- Triangle symbol for edge trigger -->
+          <polygon points="180,168 190,168 185,160" fill="#6366f1"/>
+        </svg>
+        <figcaption>图 1-2 主从 D 触发器：两个锁存器交替透明，实现边沿触发行为</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">正边沿触发 D 触发器中，时钟高电平期间 D 从 0 变为 1，此时输出 Q 会？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'D 触发器不是锁存器，高电平期间不透明。')">A. 立即跟随变为 1</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！边沿触发触发器仅在上升沿采样。高电平期间 D 的变化不会影响当前输出，只有在下一个上升沿时才会被采样。')">B. 保持不变，直到下一个上升沿才可能更新</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '下降沿不是正边沿触发器的采样时刻。')">C. 在下降沿时变为 1</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '边沿触发器有确定的行为，不会进入不确定状态。')">D. 进入不确定状态</button>
+        </div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ═══════════════════════ KP 3 ═══════════════════════ -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>建立时间（Setup Time）与保持时间（Hold Time）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>虽然我们在行为模型中说"D 触发器在时钟边沿瞬间采样 D"，但物理世界中没有真正的"瞬间"。触发器内部的晶体管需要一段时间来建立稳定的电压状态。如果数据在时钟边沿附近变化，触发器可能无法正确捕获数据。</p>
+            <p><strong>建立时间（Setup Time, \(t_{su}\)）</strong>是时钟有效边沿<em>之前</em>数据必须稳定的最短时间。<strong>保持时间（Hold Time, \(t_{hold}\)）</strong>是时钟有效边沿<em>之后</em>数据必须继续保持稳定的最短时间。</p>
+            <p>这两个参数是数字设计中<strong>时序约束（Timing Constraints）</strong>的核心。它们直接决定了电路能跑多快（最高时钟频率）、数据能否正确传递。每一次芯片流片（Tape-out）前的时序分析（Static Timing Analysis, STA），都是在检查所有路径是否满足这两个约束。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>可以把触发器的采样窗口想象成一扇快速开合的门：</p>
+            <p>📌 <strong>建立时间 \(t_{su}\)：</strong>就像你要赶上一班即将关门的地铁——你必须在门关闭之前（时钟边沿之前）到达站台（数据稳定）。如果你在门关上的一瞬间才跑到，就可能被夹住（亚稳态）。</p>
+            <p>📌 <strong>保持时间 \(t_{hold}\)：</strong>进门之后你还需要站稳一小段时间，不能在门还没完全关上时又往后退。否则门夹不住你——数据还没被完全锁存就变了。</p>
+            <p>📌 <strong>时钟到输出延迟 \(t_{clk \to Q}\)（Clock-to-Q Delay）：</strong>这是触发器从接收到有效时钟边沿到输出端 Q 稳定为新值所需的时间。可以看作触发器自身的"反应时间"。</p>
+            <p>这三个参数共同描述了触发器的时序行为：\(t_{su}\) 和 \(t_{hold}\) 定义了输入窗口，\(t_{clk \to Q}\) 定义了输出延迟。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>考虑一个典型的同步电路：触发器 A → 组合逻辑 → 触发器 B，共享同一时钟 \(CLK\)。</p>
+            <p><strong>建立时间约束（Setup Constraint）——决定最高频率：</strong></p>
+            <p>数据路径：触发器 A 在时钟沿 \(n\) 输出（延迟 \(t_{clk \to Q}\)）→ 经过组合逻辑（延迟 \(t_{comb}\)）→ 到达触发器 B 的 D 端 → 必须在时钟沿 \(n+1\) 之前 \(t_{su}\) 稳定。</p>
+            \[ T_{clk} \geq t_{clk \to Q} + t_{comb} + t_{su} \]
+            <p>因此最高时钟频率为：</p>
+            \[ f_{max} = \frac{1}{t_{clk \to Q} + t_{comb} + t_{su}} \]
+            <p><strong>保持时间约束（Hold Constraint）——与频率无关：</strong></p>
+            <p>在<em>同一个</em>时钟边沿 \(n\)，触发器 A 的新输出经过组合逻辑到达触发器 B 的 D 端所需的最短时间，必须大于触发器 B 的保持时间：</p>
+            \[ t_{clk \to Q} + t_{comb,min} \geq t_{hold} \]
+            <p>如果这个不等式不满足（最短路径太快），就需要插入缓冲器（Buffer）来增加延迟。注意这个约束与时钟周期无关——它不能通过降频来解决。</p>
+            <div class="warning-box">⚠️ 保持时间违规（Hold Violation）比建立时间违规更难修复。建立时间违规可以通过降低时钟频率来解决，但保持时间违规与频率无关，必须修改电路路径延迟。在 FPGA/ASIC 设计中，保持时间违规通常在布局布线阶段通过插入延迟单元来修复。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>静态时序分析（STA）：</strong>在芯片设计流程中，综合（Synthesis）和布局布线（Place & Route）工具会对电路中的每一条数据路径执行 STA。工具检查所有路径是否满足建立和保持时间约束。这被称为"时序收敛（Timing Closure）"，是芯片流片前最关键的验证步骤之一。</p>
+            <p><strong>时钟偏斜（Clock Skew）的影响：</strong>在实际芯片中，时钟信号到达不同触发器的时间有微小差异（\(t_{skew}\)）。时钟偏斜会改变时序约束。对于建立时间，偏斜增大有效的路径延迟窗口（有利或有害取决于方向）；对于保持时间，偏斜可能使原本满足的约束变得违规。</p>
+            <p><strong>时钟树综合（Clock Tree Synthesis, CTS）：</strong>为了最小化时钟偏斜，EDA 工具会构建精心平衡的时钟分配网络（时钟树），使时钟信号尽可能同时到达所有触发器。</p>
+            <p><strong>多周期路径与伪路径：</strong>某些路径的组合逻辑延迟很大，但设计者知道数据不需要在一个周期内到达（多周期路径 Multi-Cycle Path），或者某条路径在功能上永远不会被激活（伪路径 False Path）。STA 工具需要这些约束来避免误报。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>某同步电路中，触发器的参数为 \(t_{clk \to Q} = 0.5\,\text{ns}\)，\(t_{su} = 0.3\,\text{ns}\)，\(t_{hold} = 0.1\,\text{ns}\)。两个触发器之间的组合逻辑最大延迟 \(t_{comb,max} = 3.0\,\text{ns}\)，最小延迟 \(t_{comb,min} = 0.2\,\text{ns}\)。求最高时钟频率和是否存在保持时间违规。</p>
+            <p><strong>解答：</strong></p>
+            <p>最高频率：\(f_{max} = \frac{1}{0.5 + 3.0 + 0.3} = \frac{1}{3.8\,\text{ns}} \approx 263\,\text{MHz}\)</p>
+            <p>保持时间检查：\(t_{clk \to Q} + t_{comb,min} = 0.5 + 0.2 = 0.7\,\text{ns} > t_{hold} = 0.1\,\text{ns}\) ✅ 满足。</p>
+            <p><strong>易错点 1：</strong>❌ 计算最高频率时忘记加 \(t_{clk \to Q}\)，只考虑 \(t_{comb} + t_{su}\)。 ✅ 数据路径从触发器 A 的输出开始，所以必须包含 \(t_{clk \to Q}\)。</p>
+            <p><strong>易错点 2：</strong>❌ 认为保持时间约束也用最大延迟来检查。 ✅ 保持时间检查的是<strong>最短路径</strong>（最小延迟），因为担心的是新数据太快到达，覆盖了还在被锁存的旧数据。</p>
+            <p><strong>易错点 3：</strong>❌ 认为降低时钟频率可以解决保持时间违规。 ✅ 保持时间约束与时钟周期无关，只与路径延迟有关。唯一的解决方法是增加最短路径的延迟。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch01-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="13" font-weight="bold">建立时间与保持时间示意图</text>
+          <!-- Clock signal -->
+          <text x="15" y="55" class="fg2" font-size="11">CLK</text>
+          <polyline points="40,60 40,40 80,40 80,60 120,60 120,40 160,40 160,60 200,60 200,40 240,40 240,60 280,60 280,40 320,40 320,60 360,60" class="line" stroke="#6366f1" stroke-width="2"/>
+          <!-- Data signal -->
+          <text x="15" y="105" class="fg2" font-size="11">D</text>
+          <polyline points="40,110 70,110 70,90 190,90 190,110 360,110" class="line" stroke="#10b981" stroke-width="2"/>
+          <!-- Setup time bracket -->
+          <line x1="70" y1="125" x2="120" y2="125" stroke="#dc2626" stroke-width="2"/>
+          <line x1="70" y1="120" x2="70" y2="130" stroke="#dc2626" stroke-width="1.5"/>
+          <line x1="120" y1="120" x2="120" y2="130" stroke="#dc2626" stroke-width="1.5"/>
+          <text x="95" y="140" text-anchor="middle" font-size="10" fill="#dc2626" font-weight="bold">t_su</text>
+          <!-- Hold time bracket -->
+          <line x1="120" y1="125" x2="155" y2="125" stroke="#2563eb" stroke-width="2"/>
+          <line x1="155" y1="120" x2="155" y2="130" stroke="#2563eb" stroke-width="1.5"/>
+          <text x="137" y="140" text-anchor="middle" font-size="10" fill="#2563eb" font-weight="bold">t_hold</text>
+          <!-- Arrow at clock edge -->
+          <line x1="120" y1="35" x2="120" y2="65" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,2"/>
+          <text x="120" y="30" text-anchor="middle" font-size="9" fill="#dc2626">采样沿</text>
+          <!-- Stable region -->
+          <rect x="70" y="82" width="85" height="35" rx="3" fill="#dcfce7" fill-opacity="0.5" stroke="#10b981" stroke-width="1" stroke-dasharray="3,2"/>
+          <text x="112" y="78" text-anchor="middle" font-size="9" fill="#10b981">数据必须稳定</text>
+          <!-- Q output -->
+          <text x="15" y="175" class="fg2" font-size="11">Q</text>
+          <polyline points="40,180 130,180 130,160 360,160" class="line" stroke="#f59e0b" stroke-width="2"/>
+          <!-- t_clk_to_Q -->
+          <line x1="120" y1="190" x2="130" y2="190" stroke="#f59e0b" stroke-width="2"/>
+          <line x1="120" y1="186" x2="120" y2="194" stroke="#f59e0b" stroke-width="1.5"/>
+          <line x1="130" y1="186" x2="130" y2="194" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="125" y="205" text-anchor="middle" font-size="9" fill="#d97706">t_clk→Q</text>
+          <!-- Legend -->
+          <line x1="40" y1="228" x2="60" y2="228" stroke="#6366f1" stroke-width="2"/>
+          <text x="65" y="232" class="fg2" font-size="9">CLK</text>
+          <line x1="100" y1="228" x2="120" y2="228" stroke="#10b981" stroke-width="2"/>
+          <text x="125" y="232" class="fg2" font-size="9">D</text>
+          <line x1="155" y1="228" x2="175" y2="228" stroke="#f59e0b" stroke-width="2"/>
+          <text x="180" y="232" class="fg2" font-size="9">Q</text>
+        </svg>
+        <figcaption>图 1-3 时序关系：数据 D 必须在时钟上升沿前 \(t_{su}\) 稳定，沿后 \(t_{hold}\) 保持；输出 Q 在沿后 \(t_{clk \to Q}\) 更新</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">以下哪种时序违规<strong>不能</strong>通过降低时钟频率来解决？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '建立时间违规可以通过增加时钟周期（降低频率）来提供更多的数据传播时间。')">A. 建立时间违规（Setup Violation）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！保持时间约束 t_hold ≤ t_{clk→Q} + t_{comb,min} 与时钟周期无关。它检查的是最短路径延迟，降频无法改变路径延迟。')">B. 保持时间违规（Hold Violation）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '时钟偏斜本身不是一种违规类型，而是影响时序约束的因素。')">C. 时钟偏斜（Clock Skew）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '脉冲宽度违规虽然存在，但与本题讨论的核心时序约束不同。')">D. 脉冲宽度违规（Pulse Width Violation）</button>
+        </div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ═══════════════════════ KP 4 ═══════════════════════ -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>亚稳态（Metastability）——真正的难点</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在前面的讨论中，我们知道违反建立时间或保持时间会导致触发器出问题——但具体会出什么问题？答案就是<strong>亚稳态（Metastability）</strong>。</p>
+            <p>亚稳态是触发器内部双稳态电路的一种异常状态：输出既不是稳定的逻辑 0，也不是稳定的逻辑 1，而是卡在两者之间的某个中间电压上。后级电路看到这个不伦不类的电压，无法判断它代表 0 还是 1，可能导致整条数据路径产生错误，甚至系统崩溃。</p>
+            <p>亚稳态在<strong>跨时钟域（Clock Domain Crossing, CDC）</strong>设计中尤为关键。当来自不同时钟域的信号需要交互时，由于两个时钟的相位关系不确定，建立/保持时间违反是不可避免的。我们无法消除亚稳态，只能通过设计手段将其发生的概率降到可接受的水平。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>将触发器内部的双稳态电路比作一个<strong>山丘上的球</strong>：</p>
+            <p>正常工作时，球稳定在山丘两侧的谷底——左谷代表逻辑 0，右谷代表逻辑 1。当我们施加输入（Set 或 Reset），相当于把球推到另一侧的谷底，球迅速滚下并稳定。</p>
+            <p>但如果输入在时钟边沿附近变化（违反建立/保持时间），相当于把球推到了<strong>山顶</strong>。球在山顶处于不稳定平衡——理论上它可以永远停在那里，但任何微小的扰动（热噪声、电源波动）都会使它最终滚向某一侧。问题是，我们不知道它什么时候滚下去、滚向哪一侧。</p>
+            <p>从电路角度看，亚稳态时输出电压停留在 \(V_{OH}\)（逻辑 1 的最低电压）和 \(V_{OL}\)（逻辑 0 的最高电压）之间的<strong>禁区</strong>。后级门电路看到这个电压，可能解读为 0，也可能解读为 1，甚至可能在 0 和 1 之间振荡。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>亚稳态的解析过程可以用指数衰减模型描述。设触发器进入亚稳态后，输出偏离中间值的幅度随时间指数增长（等价于停留在亚稳态的概率指数衰减）：</p>
+            \[ P(\text{亚稳态持续时间} > t_r) \propto e^{-t_r / \tau} \]
+            <p>其中 \(\tau\) 是亚稳态解析时间常数（Metastability Resolution Time Constant），通常在几十皮秒量级，取决于工艺。\(t_r\) 是留给触发器解析的时间。</p>
+            <p><strong>MTBF（Mean Time Between Failures）公式：</strong></p>
+            \[ \text{MTBF} = \frac{e^{t_r / \tau}}{T_0 \cdot f_{clk} \cdot f_{data}} \]
+            <p>其中：</p>
+            <p>• \(T_0\) —— 工艺相关常数（单位：秒），表征触发器进入亚稳态的"脆弱窗口"宽度</p>
+            <p>• \(f_{clk}\) —— 采样时钟频率</p>
+            <p>• \(f_{data}\) —— 异步输入信号的变化频率</p>
+            <p>• \(t_r\) —— 留给触发器解析亚稳态的时间（通常等于一个完整的时钟周期）</p>
+            <p>由于 \(e^{t_r / \tau}\) 在分子上，MTBF 对 \(t_r\) 非常敏感——多给一点解析时间，MTBF 就指数级增长。这就是<strong>双级同步器（Two-Stage Synchronizer）</strong>有效的数学原因：第二级触发器给第一级额外一个时钟周期的解析时间。</p>
+            <div class="warning-box">⚠️ 亚稳态<strong>不可能被完全消除</strong>——只要存在异步信号与时钟的交互，就存在建立/保持违反的可能。我们能做的只是通过同步器设计将 MTBF 提高到远超系统寿命的水平（例如数百万年），使故障在工程意义上"永远不会发生"。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>双级同步器（Two-Flip-Flop Synchronizer）：</strong>这是处理跨时钟域单 bit 信号最基本的方法。将异步信号依次通过两个串联的 D 触发器（共享目标时钟域的时钟）。第一级触发器可能进入亚稳态，但它有整整一个时钟周期的时间来解析；第二级触发器采样到的是已经解析稳定的信号。对于大多数应用，两级同步器就足够了。</p>
+            <p><strong>多级同步器：</strong>在极高可靠性要求的系统中（航空航天、医疗设备），可以使用三级甚至更多级同步器。每多一级，MTBF 就增加 \(e^{T_{clk}/\tau}\) 倍。但代价是增加了延迟（每多一级增加一个时钟周期的延迟）。</p>
+            <p><strong>异步 FIFO（Asynchronous FIFO）：</strong>当需要在两个不同时钟域之间传输多 bit 数据时，不能简单地对每一位用同步器（因为各位可能在不同时刻解析，导致数据错误）。解决方案是使用格雷码（Gray Code）指针的异步 FIFO：每次只有一位指针变化，确保即使亚稳态发生，最多导致"多读/少读一个条目"而不会产生完全错误的数据。</p>
+            <p><strong>复位同步（Reset Synchronization）：</strong>异步复位信号也需要同步处理，否则可能在时钟边沿附近释放复位，导致部分触发器复位、部分不复位。典型做法是"异步复位、同步释放（Async Assert, Sync Deassert）"。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>某系统使用双级同步器，触发器参数 \(T_0 = 0.004\,\text{ns}\)，\(\tau = 0.032\,\text{ns}\)，时钟频率 \(f_{clk} = 200\,\text{MHz}\)，异步输入频率 \(f_{data} = 50\,\text{MHz}\)，同步器的解析时间 \(t_r\) 等于一个时钟周期（5 ns）。求 MTBF。</p>
+            <p><strong>解答：</strong></p>
+            <p>\(\text{MTBF} = \frac{e^{5 / 0.032}}{0.004 \times 10^{-9} \times 200 \times 10^6 \times 50 \times 10^6}\)</p>
+            <p>\(= \frac{e^{156.25}}{0.004 \times 10^{-9} \times 10^{16}} = \frac{e^{156.25}}{4 \times 10^4}\)</p>
+            <p>\(e^{156.25}\) 是一个天文数字（约 \(10^{67.8}\)），因此 MTBF 约为 \(10^{63}\) 秒，远超宇宙年龄（约 \(4.3 \times 10^{17}\) 秒）。系统在工程意义上完全安全。</p>
+            <p><strong>易错点 1：</strong>❌ 认为双级同步器能"消除"亚稳态。 ✅ 同步器只是将 MTBF 提高到极高水平，概率从不为零——但可以低到忽略不计。</p>
+            <p><strong>易错点 2：</strong>❌ 对多 bit 信号的每一位分别使用独立同步器。 ✅ 各位可能在不同时钟沿解析，导致数据不一致。多 bit 跨时钟域传输应使用异步 FIFO 或握手协议。</p>
+            <p><strong>易错点 3：</strong>❌ 忽略 MTBF 公式中 \(f_{clk}\) 和 \(f_{data}\) 的影响。 ✅ 频率越高，单位时间内发生亚稳态的机会越多。高速系统需要更多的解析时间或更多级同步器。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s3-ch01-kp4">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="13" font-weight="bold">亚稳态能量模型与双级同步器</text>
+          <!-- Energy landscape -->
+          <text x="100" y="38" text-anchor="middle" class="fg2" font-size="10" font-weight="bold">能量景观（Energy Landscape）</text>
+          <!-- Hill curve -->
+          <path d="M20,130 Q55,130 70,90 Q85,50 100,50 Q115,50 130,90 Q145,130 180,130" fill="none" stroke="#6366f1" stroke-width="2"/>
+          <!-- Valley labels -->
+          <text x="35" y="145" text-anchor="middle" font-size="10" fill="#10b981" font-weight="bold">Q = 0</text>
+          <text x="165" y="145" text-anchor="middle" font-size="10" fill="#10b981" font-weight="bold">Q = 1</text>
+          <!-- Ball on top (metastable) -->
+          <circle cx="100" cy="45" r="7" fill="#dc2626" stroke="#991b1b" stroke-width="1.5"/>
+          <text x="100" y="35" text-anchor="middle" font-size="9" fill="#dc2626" font-weight="bold">亚稳态!</text>
+          <!-- Arrows showing possible fall directions -->
+          <path d="M90,52 L65,80" fill="none" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrowR)"/>
+          <path d="M110,52 L135,80" fill="none" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrowR)"/>
+          <defs>
+            <marker id="arrowR" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6" fill="#dc2626"/>
+            </marker>
+          </defs>
+          <text x="68" y="92" text-anchor="middle" font-size="8" fill="#dc2626">?</text>
+          <text x="132" y="92" text-anchor="middle" font-size="8" fill="#dc2626">?</text>
+          <!-- Two-stage synchronizer -->
+          <text x="310" y="38" text-anchor="middle" class="fg2" font-size="10" font-weight="bold">双级同步器</text>
+          <!-- Async signal -->
+          <text x="215" y="68" class="fg2" font-size="9">异步</text>
+          <line x1="215" y1="72" x2="245" y2="72" class="line"/>
+          <!-- FF1 -->
+          <rect x="245" y="56" width="40" height="32" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="265" y="76" text-anchor="middle" font-size="9" fill="#92400e" font-weight="bold">FF1</text>
+          <text x="265" y="100" text-anchor="middle" font-size="8" fill="#dc2626">可能亚稳</text>
+          <!-- Connection -->
+          <line x1="285" y1="72" x2="315" y2="72" class="line" stroke="#f59e0b"/>
+          <!-- FF2 -->
+          <rect x="315" y="56" width="40" height="32" rx="4" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="335" y="76" text-anchor="middle" font-size="9" fill="#1e40af" font-weight="bold">FF2</text>
+          <text x="335" y="100" text-anchor="middle" font-size="8" fill="#10b981">已稳定 ✓</text>
+          <!-- Output -->
+          <line x1="355" y1="72" x2="390" y2="72" class="line"/>
+          <text x="393" y="76" class="fg2" font-size="9">同步</text>
+          <!-- CLK -->
+          <line x1="265" y1="88" x2="265" y2="115" class="line" stroke="#6366f1" stroke-dasharray="2,2"/>
+          <line x1="335" y1="88" x2="335" y2="115" class="line" stroke="#6366f1" stroke-dasharray="2,2"/>
+          <line x1="255" y1="115" x2="345" y2="115" class="line" stroke="#6366f1"/>
+          <text x="300" y="128" text-anchor="middle" class="accent" font-size="9">CLK（目标域）</text>
+          <!-- Resolution time annotation -->
+          <line x1="285" y1="55" x2="315" y2="55" stroke="#dc2626" stroke-width="1.5"/>
+          <line x1="285" y1="51" x2="285" y2="59" stroke="#dc2626" stroke-width="1"/>
+          <line x1="315" y1="51" x2="315" y2="59" stroke="#dc2626" stroke-width="1"/>
+          <text x="300" y="49" text-anchor="middle" font-size="8" fill="#dc2626">t_r ≈ T_clk</text>
+          <!-- MTBF formula -->
+          <text x="200" y="170" text-anchor="middle" class="fg" font-size="11">MTBF = e^(t_r/τ) / (T₀ · f_clk · f_data)</text>
+          <text x="200" y="190" text-anchor="middle" class="fg2" font-size="10">t_r 每增加一个 τ，MTBF 增长 e ≈ 2.718 倍</text>
+          <text x="200" y="210" text-anchor="middle" class="fg2" font-size="10">多一级同步器 → t_r 多一个 T_clk → MTBF 指数级提升</text>
+          <!-- Stable balls in valleys -->
+          <circle cx="40" cy="125" r="6" fill="#10b981" stroke="#059669" stroke-width="1.5"/>
+          <circle cx="160" cy="125" r="6" fill="#10b981" stroke="#059669" stroke-width="1.5"/>
+        </svg>
+        <figcaption>图 1-4 左：亚稳态的能量景观——球停在山顶，方向不确定；右：双级同步器结构</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在跨时钟域传输 8-bit 数据时，为什么不能对每一位分别使用独立的双级同步器？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '面积确实增加了，但这不是功能正确性上的关键问题。')">A. 因为需要的面积太大</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '功耗增加不是最核心的技术问题。')">B. 因为功耗过高</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！各位的同步器可能在不同时钟沿完成解析，导致在同一时刻读到的 8 位中有些是新值、有些是旧值，组合出从未出现过的错误数据。这就是为什么多 bit 跨时钟域传输必须使用格雷码 FIFO 或握手协议。')">C. 因为各位可能在不同时刻解析，导致读到新旧混合的错误数据</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '双级同步器引入的延迟仅为 2 个时钟周期，通常不会造成显著延迟问题。')">D. 因为延迟太大</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 综合练习 ═══════════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>综合练习</h2>
+      <div class="exercises-container" id="exercises-container">
+        <p class="exercises-intro">本节包含 8 道综合题，涵盖 SR 锁存器、D 触发器、时序约束和亚稳态。点击选项即可作答。</p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ 章节导航 ═══════════════════════ -->
+    <nav class="chapter-nav">
+      <a href="#" class="nav-prev disabled">← 上一章</a>
+      <a href="ch02.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

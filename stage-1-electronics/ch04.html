@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.4 从模拟到数字 — 电的语言 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s1-ch04-q1",
+        question: "计算机选择二进制而非十进制的根本原因是？",
+        options: ["二进制计算更快", "二进制更容易理解", "两个状态之间的噪声容限最大", "历史惯例"],
+        answer: 2,
+        explanation: "给定电压范围，状态越少，每个状态占据的电压区间越宽，噪声容限越大，系统越可靠。二进制将电压分为两个状态，最大化了噪声容限。"
+      },
+      {
+        id: "s1-ch04-q2",
+        question: "根据奈奎斯特采样定理，要完整重建一个最高频率为 \\(f_{max}\\) 的信号，采样频率至少为？",
+        options: ["\\(f_{max}\\)", "\\(2f_{max}\\)", "\\(4f_{max}\\)", "\\(\\pi f_{max}\\)"],
+        answer: 1,
+        explanation: "奈奎斯特定理要求 \\(f_s \\geq 2f_{max}\\)。如果采样频率低于此值，会产生混叠（Aliasing），丢失高频信息且无法恢复。"
+      },
+      {
+        id: "s1-ch04-q3",
+        question: "一个 8-bit ADC，参考电压为 \\(3.3\\,\\text{V}\\)，其量化步长（分辨率）约为？",
+        options: ["\\(3.3\\,\\text{mV}\\)", "\\(12.9\\,\\text{mV}\\)", "\\(25.8\\,\\text{mV}\\)", "\\(33\\,\\text{mV}\\)"],
+        answer: 1,
+        explanation: "量化步长 \\(\\Delta = V_{ref}/2^N = 3.3/256 \\approx 12.9\\,\\text{mV}\\)。8-bit 意味着 \\(2^8 = 256\\) 个量化级。"
+      },
+      {
+        id: "s1-ch04-q4",
+        question: "量化（Quantization）引入的误差最大值为？",
+        options: ["\\(\\pm \\Delta\\)", "\\(\\pm \\Delta/2\\)", "\\(\\pm 2\\Delta\\)", "取决于信号频率"],
+        answer: 1,
+        explanation: "量化误差最大为 \\(\\pm \\Delta/2\\)，其中 \\(\\Delta\\) 是量化步长。这是因为每个量化级代表一个宽度为 \\(\\Delta\\) 的区间，实际值距离最近量化点最远为 \\(\\Delta/2\\)。"
+      },
+      {
+        id: "s1-ch04-q5",
+        question: "Flash ADC（并行比较型）的 N-bit 转换需要多少个比较器？",
+        options: ["\\(N\\)", "\\(2N\\)", "\\(2^N\\)", "\\(2^N - 1\\)"],
+        answer: 3,
+        explanation: "N-bit Flash ADC 需要 \\(2^N - 1\\) 个比较器，每个对应一个量化阈值。这使得 Flash ADC 速度最快但面积随位数指数增长，通常仅用于 6-8 bit。"
+      },
+      {
+        id: "s1-ch04-q6",
+        question: "DAC 中 R-2R 梯形网络的优势是？",
+        options: ["速度最快", "只需要两种电阻值", "精度最高", "功耗最低"],
+        answer: 1,
+        explanation: "R-2R 梯形网络只使用 R 和 2R 两种阻值的电阻，制造时容易匹配，成本低。相比二进制加权 DAC 需要精确的 R, 2R, 4R, 8R... 电阻，R-2R 更实用。"
+      },
+      {
+        id: "s1-ch04-q7",
+        question: "在 TTL 标准中，输出高电平最低为 \\(2.4\\,\\text{V}\\)，输入识别为高电平的最低电压为 \\(2.0\\,\\text{V}\\)。高电平噪声容限为？",
+        options: ["\\(0.2\\,\\text{V}\\)", "\\(0.4\\,\\text{V}\\)", "\\(2.0\\,\\text{V}\\)", "\\(2.4\\,\\text{V}\\)"],
+        answer: 1,
+        explanation: "噪声容限 = \\(V_{OH,min} - V_{IH,min} = 2.4 - 2.0 = 0.4\\,\\text{V}\\)。这意味着高电平信号可以容忍 0.4V 的噪声干扰而不被误判。"
+      },
+      {
+        id: "s1-ch04-q8",
+        question: "一个逻辑门的扇出（Fan-out）为 10，这意味着？",
+        options: ["它有 10 个输入", "它可以驱动最多 10 个同类逻辑门的输入", "它的增益为 10", "它的延迟为 10ns"],
+        answer: 1,
+        explanation: "扇出是指一个逻辑门的输出最多能驱动多少个同类逻辑门的输入，同时保证逻辑电平仍在有效范围内。超过扇出限制会导致电平退化和逻辑错误。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-1" data-module="ch04"
+      style="--domain-color: var(--c-electronics);">
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 1</span>
+      <a href="index.html" class="module-name">电的语言</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.4 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 为什么选择二进制？</a></li>
+      <li><a href="#kp2">02 · 采样与量化</a></li>
+      <li><a href="#kp3">03 · ADC / DAC 原理</a></li>
+      <li><a href="#kp4">04 · 逻辑电平与扇出</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 4</p>
+      <h1>从模拟到数字</h1>
+    </header>
+
+    <!-- ═══════════ KP 1 ═══════════ -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>为什么选择二进制（Binary）？——噪声容限的精妙</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>前三章我们学习了电压、电流、电容、电感、二极管和晶体管。这些都是<strong>模拟世界</strong>（Analog World）的概念——信号可以取连续范围内的任何值。</p>
+            <p>但计算机是<strong>数字的</strong>（Digital）——它只理解 0 和 1。为什么不用十进制（0–9 十个电压级别）？为什么不用三进制（0、1、2）？答案不是"因为大家都这么做"，而是有深刻的物理原因。</p>
+            <p>这个选择的核心在于<strong>噪声容限（Noise Margin）</strong>——用更少的状态来换取更强的抗干扰能力。这是一个信息理论与电路物理的完美结合。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>假设我们的电路电压范围是 0–5V。如果用十进制：每个数字占 0.5V 的区间（0.0–0.5V 代表 0，0.5–1.0V 代表 1，……）。任何超过 0.25V 的噪声就可能导致误判——一个数字变成相邻的另一个。</p>
+            <p>如果用二进制：0–2.5V 代表"0"，2.5–5.0V 代表"1"。噪声需要超过约 1V 才会导致误判——抗干扰能力提高了 4 倍！</p>
+            <p>这就是二进制的核心优势：<strong>用信息密度换取可靠性。</strong></p>
+            <p>定义<strong>噪声容限</strong>：信号在传输过程中可以叠加的最大噪声幅度，且不会导致接收端误判。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>定量分析：</strong></p>
+            <p>设电压范围为 \(V_{range}\)，使用 \(M\) 个状态。每个状态的电压区间宽度为：</p>
+            \[\Delta V = \frac{V_{range}}{M}\]
+            <p>噪声容限约为 \(\Delta V / 2\)（噪声超过半个区间才会跨入相邻状态）：</p>
+            \[NM \approx \frac{V_{range}}{2M}\]
+            <p>信息量为 \(\log_2 M\) bit。每 bit 的噪声容限为：</p>
+            \[\frac{NM}{\log_2 M} = \frac{V_{range}}{2M \log_2 M}\]
+            <p>这个值在 \(M = 2\)（二进制）时最大！虽然 \(M = 2\) 每个符号只携带 1 bit，但每 bit 的可靠性最高。</p>
+            <p>香农（Shannon）的信息论告诉我们：在给定信噪比下，可以通过编码达到理论极限速率。实际工程中，二进制是实现简单且接近理论极限的最佳选择。</p>
+            <div class="warning-box">⚠️ <strong>二进制并非唯一选择！</strong>有些特殊应用使用三进制甚至更高基数。例如，闪存（Flash Memory）中的 MLC（Multi-Level Cell）用 4 个电压级别存储 2 bit，TLC 用 8 个级别存储 3 bit。代价是读写速度更慢、寿命更短、错误率更高——正是因为噪声容限减小了。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>SSD 中的多级单元：</strong>SSD 用 NAND 闪存存储数据。SLC（1 bit/cell）最快最可靠，QLC（4 bit/cell, 16 电压级别）密度最高但最脆弱。这是噪声容限与存储密度的直接权衡。</p>
+            <p><strong>PAM-4 通信：</strong>高速以太网（如 400GbE）使用 PAM-4（Pulse Amplitude Modulation, 4-level），4 个电压级别传输 2 bit/symbol。需要更复杂的纠错编码来弥补降低的噪声容限。</p>
+            <p><strong>为什么 CPU 坚持二进制？</strong>CPU 需要极高的可靠性（错误率 < \(10^{-15}\)）和极高的速度（GHz 频率）。在这种条件下，二进制是唯一实用的选择。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个系统电压范围 0–3.3V，使用二进制。高电平定义为 2.0–3.3V，低电平定义为 0–1.0V。求高电平和低电平的噪声容限。</p>
+            <p><strong>❌ 常见错误：</strong>忽略"禁区"（1.0–2.0V），直接用 3.3/2 作为噪声容限。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>假设输出高电平最低 \(V_{OH} = 2.4\,\text{V}\)，输入高电平阈值 \(V_{IH} = 2.0\,\text{V}\)：</p>
+            <p>高电平噪声容限 \(NM_H = V_{OH} - V_{IH} = 2.4 - 2.0 = 0.4\,\text{V}\)</p>
+            <p>假设输出低电平最高 \(V_{OL} = 0.4\,\text{V}\)，输入低电平阈值 \(V_{IL} = 1.0\,\text{V}\)：</p>
+            <p>低电平噪声容限 \(NM_L = V_{IL} - V_{OL} = 1.0 - 0.4 = 0.6\,\text{V}\)</p>
+            <p>系统噪声容限取较小值：\(NM = \min(0.4, 0.6) = 0.4\,\text{V}\)。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch04-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">二进制 vs 十进制噪声容限对比</text>
+          <!-- Binary side -->
+          <text x="100" y="40" text-anchor="middle" class="fg" font-size="11" font-weight="bold">二进制（2 状态）</text>
+          <rect x="60" y="50" width="80" height="80" fill="#dcfce7" stroke="#10b981" stroke-width="1.5" rx="4"/>
+          <text x="100" y="95" text-anchor="middle" fill="#059669" font-size="14" font-weight="bold">"1"</text>
+          <rect x="60" y="140" width="80" height="80" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5" rx="4"/>
+          <text x="100" y="185" text-anchor="middle" fill="#dc2626" font-size="14" font-weight="bold">"0"</text>
+          <!-- Noise margin arrow (binary) -->
+          <line x1="150" y1="130" x2="150" y2="140" stroke="#f59e0b" stroke-width="2"/>
+          <line x1="145" y1="132" x2="155" y2="132" stroke="#f59e0b" stroke-width="1"/>
+          <line x1="145" y1="138" x2="155" y2="138" stroke="#f59e0b" stroke-width="1"/>
+          <text x="100" y="138" text-anchor="middle" fill="#f59e0b" font-size="8">大噪声容限</text>
+          <!-- Decimal side -->
+          <text x="300" y="40" text-anchor="middle" class="fg" font-size="11" font-weight="bold">十进制（10 状态）</text>
+          <rect x="270" y="50" width="60" height="16" fill="#dcfce7" stroke="#10b981" stroke-width="0.8" rx="2"/>
+          <text x="300" y="62" text-anchor="middle" class="fg2" font-size="7">"9"</text>
+          <rect x="270" y="68" width="60" height="16" fill="#e0f2fe" stroke="#3b82f6" stroke-width="0.8" rx="2"/>
+          <text x="300" y="80" text-anchor="middle" class="fg2" font-size="7">"8"</text>
+          <rect x="270" y="86" width="60" height="16" fill="#fef9c3" stroke="#f59e0b" stroke-width="0.8" rx="2"/>
+          <text x="300" y="98" text-anchor="middle" class="fg2" font-size="7">"7"</text>
+          <rect x="270" y="104" width="60" height="16" fill="#e0f2fe" stroke="#3b82f6" stroke-width="0.8" rx="2"/>
+          <text x="300" y="116" text-anchor="middle" class="fg2" font-size="7">"6"</text>
+          <rect x="270" y="122" width="60" height="16" fill="#dcfce7" stroke="#10b981" stroke-width="0.8" rx="2"/>
+          <text x="300" y="134" text-anchor="middle" class="fg2" font-size="7">"5"</text>
+          <rect x="270" y="140" width="60" height="16" fill="#fef9c3" stroke="#f59e0b" stroke-width="0.8" rx="2"/>
+          <text x="300" y="152" text-anchor="middle" class="fg2" font-size="7">"4"</text>
+          <rect x="270" y="158" width="60" height="16" fill="#e0f2fe" stroke="#3b82f6" stroke-width="0.8" rx="2"/>
+          <text x="300" y="170" text-anchor="middle" class="fg2" font-size="7">"3"</text>
+          <rect x="270" y="176" width="60" height="16" fill="#dcfce7" stroke="#10b981" stroke-width="0.8" rx="2"/>
+          <text x="300" y="188" text-anchor="middle" class="fg2" font-size="7">"2"</text>
+          <rect x="270" y="194" width="60" height="16" fill="#fef9c3" stroke="#f59e0b" stroke-width="0.8" rx="2"/>
+          <text x="300" y="206" text-anchor="middle" class="fg2" font-size="7">"1"</text>
+          <rect x="270" y="212" width="60" height="16" fill="#fee2e2" stroke="#ef4444" stroke-width="0.8" rx="2"/>
+          <text x="300" y="224" text-anchor="middle" class="fg2" font-size="7">"0"</text>
+          <text x="350" y="135" fill="#f59e0b" font-size="7">小噪声</text>
+          <text x="350" y="145" fill="#f59e0b" font-size="7">容限</text>
+        </svg>
+        <figcaption>图 4-1：状态越少，每个状态的噪声容限越大</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">SSD 中的 TLC 闪存用 8 个电压级别存储 3 bit/cell，相比 SLC（2 级别，1 bit/cell），其噪声容限约为 SLC 的？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '8 个级别意味着每个级别占的电压范围远小于 2 个级别。')">A. 1/2</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '电压区间缩小了更多。')">B. 1/3</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！SLC: ΔV = V/2，TLC: ΔV = V/8。噪声容限比为 (V/8)/(V/2) = 1/4。')">C. 1/4</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '虽然 TLC 存储 3 倍的 bit 数，但噪声容限的缩小与级别数（非 bit 数）有关。')">D. 1/8</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 2 ═══════════ -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>采样（Sampling）与量化（Quantization）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>自然界的信号——声音、温度、光照——都是<strong>连续</strong>的模拟量。但计算机只能处理<strong>离散</strong>的数字量（有限个 0 和 1）。如何把连续信号变成离散数字？这需要两个步骤：</p>
+            <ol>
+              <li><strong>采样（Sampling）</strong>：在时间上离散化——按固定间隔取值</li>
+              <li><strong>量化（Quantization）</strong>：在幅度上离散化——将连续值映射到最近的离散级别</li>
+            </ol>
+            <p>音频 CD 用 44.1 kHz 采样率和 16-bit 量化；你的声音传到 Siri 用的是 16 kHz 采样和 16-bit 量化。这些数字是怎么确定的？为什么不能随意选择？</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>采样</strong>是在时间轴上每隔 \(T_s = 1/f_s\) 秒"拍一张快照"。关键问题是：采样间隔多大才不会丢失信息？</p>
+            <p>奈奎斯特（Nyquist）和香农（Shannon）给出了答案：<strong>采样频率必须至少是信号最高频率的 2 倍。</strong></p>
+            \[f_s \geq 2f_{max}\]
+            <p>这被称为<strong>奈奎斯特采样定理（Nyquist-Shannon Sampling Theorem）</strong>。如果违反这个条件，高频成分会"伪装"成低频信号（混叠，Aliasing），且无法恢复。</p>
+            <p><strong>量化</strong>是在幅度轴上将连续值"四舍五入"到最近的离散级别。N-bit 量化有 \(2^N\) 个级别。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>采样定理的直觉推导：</strong></p>
+            <p>一个频率为 \(f\) 的正弦波，每个周期至少需要 2 个采样点（一个在峰值，一个在谷值）才能确定其频率和幅度。如果采样点更少，你无法区分 \(f\) 和另一个较低频率的正弦波——这就是混叠。</p>
+            <p><strong>量化分析：</strong></p>
+            <p>设模拟信号范围为 \([0, V_{ref}]\)，N-bit 量化。</p>
+            <p>量化步长（LSB）：</p>
+            \[\Delta = \frac{V_{ref}}{2^N}\]
+            <p>量化误差范围：\(\pm \Delta/2\)。信噪比（SNR）：</p>
+            \[\text{SNR} \approx 6.02N + 1.76\,\text{dB}\]
+            <p>这意味着每增加 1 bit，SNR 提高约 6 dB（幅度精度提高一倍）。</p>
+            <p>例：16-bit 量化的 SNR ≈ 98 dB，这就是 CD 音频能达到如此高动态范围的原因。</p>
+            <div class="warning-box">⚠️ <strong>采样定理要求 \(f_s > 2f_{max}\)，不是 \(f_s \geq 2f_{max}\)！</strong>严格来说，等于 \(2f_{max}\) 时，只有在完美条件下才能重建（需要无限长信号和理想低通滤波器），实际中总要留余量。音频 CD 的 44.1 kHz 对应 22.05 kHz 带宽，略高于人耳上限 20 kHz。此外，采样前必须使用<strong>抗混叠滤波器（Anti-aliasing Filter）</strong>去除超过 \(f_s/2\) 的频率成分。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>音频数字化：</strong>CD 音质 = 44.1 kHz × 16 bit × 2 声道 = 1411.2 kbps。电话语音 = 8 kHz × 8 bit = 64 kbps。采样率和量化位数直接决定了音质和数据量。</p>
+            <p><strong>数字摄像：</strong>摄像机的图像传感器将每个像素的光强度量化为数字值。14-bit RAW 图像比 8-bit JPEG 保留了更多的亮度细节。</p>
+            <p><strong>CPU 中的 ADC：</strong>微控制器（MCU）内置的 ADC 通常为 10–12 bit，用于读取传感器（温度、加速度、触摸）的模拟信号。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个信号包含频率成分从 DC 到 \(10\,\text{kHz}\)。若使用 \(15\,\text{kHz}\) 的采样率，会发生什么？</p>
+            <p><strong>❌ 常见错误：</strong>认为"15 kHz > 10 kHz 所以足够了"。</p>
+            <p><strong>✅ 正确分析：</strong></p>
+            <p>奈奎斯特要求 \(f_s \geq 2 \times 10 = 20\,\text{kHz}\)。当前 \(f_s = 15\,\text{kHz}\)，不满足！</p>
+            <p>奈奎斯特频率 \(f_N = f_s/2 = 7.5\,\text{kHz}\)。高于 7.5 kHz 的信号成分（7.5–10 kHz）会混叠到 5–7.5 kHz 的范围内，产生失真。</p>
+            <p>解决方案：要么提高采样率到 ≥20 kHz，要么在采样前加低通滤波器截除 7.5 kHz 以上的成分。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch04-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">采样与量化过程</text>
+          <!-- Original signal -->
+          <path d="M30,120 Q70,50 110,90 Q150,130 190,70 Q230,30 270,100 Q310,160 350,80 Q370,60 390,90" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+          <text x="30" y="50" class="fg2" font-size="9">模拟信号</text>
+          <!-- Sampling points -->
+          <circle cx="70" cy="72" r="4" fill="#10b981"/>
+          <line x1="70" y1="76" x2="70" y2="200" stroke="#10b981" stroke-width="0.8" stroke-dasharray="3"/>
+          <circle cx="120" cy="93" r="4" fill="#10b981"/>
+          <line x1="120" y1="97" x2="120" y2="200" stroke="#10b981" stroke-width="0.8" stroke-dasharray="3"/>
+          <circle cx="170" cy="108" r="4" fill="#10b981"/>
+          <line x1="170" y1="112" x2="170" y2="200" stroke="#10b981" stroke-width="0.8" stroke-dasharray="3"/>
+          <circle cx="220" cy="52" r="4" fill="#10b981"/>
+          <line x1="220" y1="56" x2="220" y2="200" stroke="#10b981" stroke-width="0.8" stroke-dasharray="3"/>
+          <circle cx="270" cy="100" r="4" fill="#10b981"/>
+          <line x1="270" y1="104" x2="270" y2="200" stroke="#10b981" stroke-width="0.8" stroke-dasharray="3"/>
+          <circle cx="320" cy="145" r="4" fill="#10b981"/>
+          <line x1="320" y1="149" x2="320" y2="200" stroke="#10b981" stroke-width="0.8" stroke-dasharray="3"/>
+          <circle cx="370" cy="75" r="4" fill="#10b981"/>
+          <line x1="370" y1="79" x2="370" y2="200" stroke="#10b981" stroke-width="0.8" stroke-dasharray="3"/>
+          <!-- Quantization levels -->
+          <line x1="25" y1="50" x2="395" y2="50" stroke="#e2e8f0" stroke-width="0.5"/>
+          <line x1="25" y1="80" x2="395" y2="80" stroke="#e2e8f0" stroke-width="0.5"/>
+          <line x1="25" y1="110" x2="395" y2="110" stroke="#e2e8f0" stroke-width="0.5"/>
+          <line x1="25" y1="140" x2="395" y2="140" stroke="#e2e8f0" stroke-width="0.5"/>
+          <line x1="25" y1="170" x2="395" y2="170" stroke="#e2e8f0" stroke-width="0.5"/>
+          <!-- Quantized staircase -->
+          <path d="M70,80 L120,80 L120,110 L170,110 L170,110 L220,110 L220,50 L270,50 L270,110 L320,110 L320,140 L370,140 L370,80" stroke="#f59e0b" stroke-width="2" fill="none"/>
+          <text x="380" y="135" fill="#f59e0b" font-size="8">量化后</text>
+          <!-- Labels -->
+          <text x="70" y="218" text-anchor="middle" class="fg2" font-size="8">T_s</text>
+          <text x="200" y="235" text-anchor="middle" class="fg" font-size="10">采样间隔 T_s = 1/f_s</text>
+          <text x="15" y="53" class="fg2" font-size="7">111</text>
+          <text x="15" y="83" class="fg2" font-size="7">110</text>
+          <text x="15" y="113" class="fg2" font-size="7">101</text>
+          <text x="15" y="143" class="fg2" font-size="7">100</text>
+          <text x="15" y="173" class="fg2" font-size="7">011</text>
+        </svg>
+        <figcaption>图 4-2：模拟信号经过采样（绿点）和量化（阶梯）变为数字信号</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">人耳能听到的最高频率约为 20 kHz。CD 音频的采样率为 44.1 kHz，这满足奈奎斯特定理吗？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！44.1 kHz > 2 × 20 kHz = 40 kHz，满足奈奎斯特定理。多余的 4.1 kHz 留给抗混叠滤波器的过渡带。')">A. 满足，因为 44.1 > 2 × 20</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '44.1 kHz 确实大于 2 × 20 kHz = 40 kHz。')">B. 不满足，需要至少 80 kHz</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '不需要乘以 π，奈奎斯特定理的系数是 2。')">C. 恰好满足，因为 44.1 ≈ π × 14</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '采样率和最高频率之间有确定的数学关系。')">D. 无法确定</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 3 ═══════════ -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>ADC / DAC 原理</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>采样和量化是理论概念——实际实现它们的电路分别是 <strong>ADC（Analog-to-Digital Converter，模数转换器）</strong>和 <strong>DAC（Digital-to-Analog Converter，数模转换器）</strong>。</p>
+            <p>ADC 是数字世界的"入口"：麦克风信号、温度传感器输出、摄像头像素……所有模拟信号都必须经过 ADC 才能被 CPU 处理。DAC 是"出口"：CPU 处理完的数字音频必须经过 DAC 才能变成你耳朵能听的声波。</p>
+            <p>不同的 ADC 架构在速度、精度、面积和功耗之间做着不同的权衡。理解这些权衡，是理解混合信号（Mixed-Signal）芯片设计的基础。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>ADC 的核心任务：</strong>将模拟电压 \(V_{in}\) 转换为 N-bit 数字编码。</p>
+            <p>\(\text{数字输出} = \text{round}\left(\frac{V_{in}}{V_{ref}} \times 2^N\right)\)</p>
+            <p>主要 ADC 架构：</p>
+            <ul>
+              <li><strong>Flash ADC（并行比较型）</strong>：用 \(2^N - 1\) 个比较器同时比较，速度最快，面积最大</li>
+              <li><strong>SAR ADC（逐次逼近型）</strong>：用二分搜索法逐 bit 确定，速度和精度中等，最常用</li>
+              <li><strong>Sigma-Delta ADC（Σ-Δ型）</strong>：过采样+噪声整形，精度最高，速度较慢</li>
+            </ul>
+            <p><strong>DAC 的核心任务：</strong>将 N-bit 数字编码转换为模拟电压。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>SAR ADC 工作原理（二分搜索）：</strong></p>
+            <p>1. 将 MSB（最高位）设为 1，其余为 0 → DAC 输出 \(V_{ref}/2\)</p>
+            <p>2. 比较器判断 \(V_{in}\) 与 \(V_{ref}/2\)：若 \(V_{in} > V_{ref}/2\)，MSB = 1；否则 MSB = 0</p>
+            <p>3. 设下一位为 1，再次比较……重复 N 次</p>
+            <p>N-bit SAR ADC 需要 N 个时钟周期完成一次转换。转换速率 \(f_{\text{sample}} = f_{\text{clk}}/N\)。</p>
+            <p><strong>R-2R DAC 工作原理：</strong></p>
+            <p>使用只含 R 和 2R 两种阻值的梯形电阻网络。每个 bit 控制一个开关：</p>
+            \[V_{out} = V_{ref} \times \frac{D}{2^N}\]
+            <p>其中 \(D\) 是数字输入的十进制值（0 到 \(2^N - 1\)）。例如 8-bit DAC，D = 128 时 \(V_{out} = V_{ref}/2\)。</p>
+            <p><strong>Flash ADC 的面积问题：</strong></p>
+            <p>N-bit Flash ADC 需要 \(2^N - 1\) 个比较器。8-bit 需要 255 个，10-bit 需要 1023 个。面积和功耗随 N 指数增长，所以 Flash ADC 通常限于 6–8 bit，用于超高速应用（如高速示波器）。</p>
+            <div class="warning-box">⚠️ <strong>ADC 的有效位数（ENOB）通常低于标称位数！</strong>一个标称 12-bit 的 ADC，由于噪声、非线性等因素，实际有效位数可能只有 10.5 bit。ENOB 通过 SINAD（信纳比）计算：\(\text{ENOB} = (\text{SINAD} - 1.76)/6.02\)。选择 ADC 时不能只看标称位数。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>手机音频：</strong>手机麦克风输出的模拟信号由内置 Sigma-Delta ADC 数字化（通常 24-bit），然后经 DSP 处理。播放音乐时，数字信号经 DAC 转换为模拟信号驱动扬声器。</p>
+            <p><strong>微控制器：</strong>Arduino 的 ATmega328p 内置 10-bit SAR ADC，可以读取 0–5V 的模拟信号，分辨率约 4.9mV。</p>
+            <p><strong>高速通信：</strong>5G 基站中的 ADC 需要在 GHz 采样率下工作，通常使用时间交错（Time-Interleaved）Flash ADC 阵列。</p>
+            <p><strong>数字示波器：</strong>高端示波器使用 8-bit Flash ADC 以 20 GS/s（每秒 200 亿次采样）的速率捕获信号。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个 10-bit SAR ADC，参考电压 \(V_{ref} = 3.3\,\text{V}\)，时钟频率 \(f_{clk} = 10\,\text{MHz}\)。求：(a) 量化步长，(b) 最大采样率。</p>
+            <p><strong>❌ 常见错误：</strong>忘记 SAR ADC 需要 N 个时钟周期完成一次转换，直接用时钟频率作为采样率。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>(a) \(\Delta = V_{ref}/2^{10} = 3.3/1024 \approx 3.22\,\text{mV}\)</p>
+            <p>(b) \(f_s = f_{clk}/N = 10\,\text{MHz}/10 = 1\,\text{MS/s}\)（每秒 100 万次采样）</p>
+            <p>（实际中还需要额外时钟用于采样保持和设置，所以真实采样率更低一些。）</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch04-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">SAR ADC 逐次逼近过程</text>
+          <!-- Horizontal axis -->
+          <line x1="40" y1="200" x2="380" y2="200" class="line"/>
+          <text x="40" y="215" class="fg2" font-size="9">步骤1</text>
+          <text x="140" y="215" class="fg2" font-size="9">步骤2</text>
+          <text x="240" y="215" class="fg2" font-size="9">步骤3</text>
+          <text x="340" y="215" class="fg2" font-size="9">步骤4</text>
+          <!-- V_in line -->
+          <line x1="40" y1="80" x2="380" y2="80" stroke="#f43f5e" stroke-width="1.5" stroke-dasharray="5"/>
+          <text x="390" y="84" fill="#f43f5e" font-size="9">V_in</text>
+          <!-- SAR steps (binary search) -->
+          <!-- Step 1: compare with Vref/2 -->
+          <line x1="60" y1="120" x2="120" y2="120" stroke="#10b981" stroke-width="2"/>
+          <text x="90" y="138" text-anchor="middle" fill="#10b981" font-size="8">V/2</text>
+          <text x="90" y="150" text-anchor="middle" class="fg2" font-size="7">V_in > V/2</text>
+          <text x="90" y="162" text-anchor="middle" fill="#059669" font-size="8" font-weight="bold">bit3=1</text>
+          <!-- Step 2: compare with 3V/4 -->
+          <line x1="160" y1="60" x2="220" y2="60" stroke="#10b981" stroke-width="2"/>
+          <text x="190" y="54" text-anchor="middle" fill="#10b981" font-size="8">3V/4</text>
+          <text x="190" y="150" text-anchor="middle" class="fg2" font-size="7">V_in &lt; 3V/4</text>
+          <text x="190" y="162" text-anchor="middle" fill="#dc2626" font-size="8" font-weight="bold">bit2=0</text>
+          <!-- Step 3: compare with 5V/8 -->
+          <line x1="260" y1="90" x2="320" y2="90" stroke="#10b981" stroke-width="2"/>
+          <text x="290" y="106" text-anchor="middle" fill="#10b981" font-size="8">5V/8</text>
+          <text x="290" y="150" text-anchor="middle" class="fg2" font-size="7">V_in &lt; 5V/8</text>
+          <text x="290" y="162" text-anchor="middle" fill="#dc2626" font-size="8" font-weight="bold">bit1=0</text>
+          <!-- Step 4 -->
+          <line x1="340" y1="105" x2="380" y2="105" stroke="#10b981" stroke-width="2"/>
+          <text x="360" y="122" text-anchor="middle" fill="#10b981" font-size="8">9V/16</text>
+          <text x="360" y="162" text-anchor="middle" fill="#059669" font-size="8" font-weight="bold">bit0=1</text>
+          <!-- Result -->
+          <rect x="120" y="175" width="160" height="20" rx="4" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+          <text x="200" y="190" text-anchor="middle" class="accent" font-size="10" font-weight="bold">结果：1001</text>
+        </svg>
+        <figcaption>图 4-3：SAR ADC 使用二分搜索逐步逼近 V_in</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">一个 12-bit Flash ADC 需要多少个比较器？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'Flash ADC 需要 2^N - 1 个比较器，不是 N 个。')">A. 12</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '是 2^12 - 1，不是 2 × 12。')">B. 24</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '接近但差一个。')">C. 4096</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！2^12 - 1 = 4095。这也是为什么高位数 Flash ADC 不实际——面积和功耗太大。')">D. 4095</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 4 ═══════════ -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>数字信号的逻辑电平（Logic Level）与扇出（Fan-out）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>我们已经决定使用二进制，也知道了如何用 ADC/DAC 在模拟和数字之间转换。但还有一个根本性的问题：<strong>数字电路中，什么电压算"1"？什么电压算"0"？</strong></p>
+            <p>如果我们不严格定义这些规则，不同芯片之间就无法可靠通信。这就是<strong>逻辑电平标准（Logic Level Standard）</strong>存在的意义——它精确规定了输出和输入的电压范围、噪声容限和驱动能力。</p>
+            <p>此外，一个逻辑门的输出能驱动多少个输入？这就是<strong>扇出（Fan-out）</strong>——它限制了数字电路的连接方式和信号完整性。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>逻辑电平标准定义了四个关键电压参数：</p>
+            <ul>
+              <li>\(V_{OH}\)：输出高电平最低电压（Output High minimum）</li>
+              <li>\(V_{OL}\)：输出低电平最高电压（Output Low maximum）</li>
+              <li>\(V_{IH}\)：输入识别为高电平的最低电压（Input High minimum）</li>
+              <li>\(V_{IL}\)：输入识别为低电平的最高电压（Input Low maximum）</li>
+            </ul>
+            <p>关键约束：\(V_{OH} > V_{IH} > V_{IL} > V_{OL}\)。</p>
+            <p>这种设计确保输出的有效范围总是比输入的判定范围更窄——留出了噪声容限。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>噪声容限计算：</strong></p>
+            \[NM_H = V_{OH} - V_{IH}\]
+            \[NM_L = V_{IL} - V_{OL}\]
+            <p>系统噪声容限：\(NM = \min(NM_H, NM_L)\)</p>
+            <p><strong>常见逻辑电平标准对比：</strong></p>
+            <table style="width:100%;border-collapse:collapse;font-size:0.9em;margin:10px 0;">
+              <tr style="border-bottom:2px solid #e2e8f0;"><th style="text-align:left;padding:4px;">标准</th><th>V_DD</th><th>V_OH</th><th>V_OL</th><th>V_IH</th><th>V_IL</th></tr>
+              <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:4px;">TTL</td><td>5V</td><td>2.4V</td><td>0.4V</td><td>2.0V</td><td>0.8V</td></tr>
+              <tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:4px;">CMOS 3.3V</td><td>3.3V</td><td>2.4V</td><td>0.4V</td><td>2.0V</td><td>0.8V</td></tr>
+              <tr><td style="padding:4px;">LVCMOS 1.8V</td><td>1.8V</td><td>1.2V</td><td>0.45V</td><td>1.17V</td><td>0.63V</td></tr>
+            </table>
+            <p><strong>扇出的推导：</strong></p>
+            <p>假设驱动门输出低电平时的灌电流能力为 \(I_{OL}\)，每个负载门输入低电平时需要的电流为 \(I_{IL}\)：</p>
+            \[\text{Fan-out} = \left\lfloor\frac{I_{OL}}{I_{IL}}\right\rfloor\]
+            <p>对于 CMOS 逻辑，输入电流极小（仅充放电电容），扇出主要由 RC 延迟决定：</p>
+            \[t_d \approx 0.7 \times R_{out} \times (C_{out} + n \times C_{in})\]
+            <p>其中 \(n\) 是扇出数。扇出越大，延迟越大。</p>
+            <div class="warning-box">⚠️ <strong>不同逻辑电平标准的芯片不能直接连接！</strong>例如 5V TTL 输出直接连 1.8V LVCMOS 输入，会超过后者的绝对最大额定电压，可能损坏芯片。不同电平之间需要使用电平转换器（Level Shifter）。即使电压兼容，也要检查噪声容限是否满足。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>芯片接口设计：</strong>现代 SoC 的 I/O pad 通常支持多种电平标准（通过可编程的供电电压和阈值），方便与不同芯片互连。FPGA 更是可以配置每个 I/O bank 的电平标准。</p>
+            <p><strong>信号完整性：</strong>在高速数字设计（PCB 布线）中，走线上的阻抗不匹配会导致信号反射，使电压在 \(V_{IH}\) 和 \(V_{IL}\) 之间振荡——这就是为什么高速信号需要阻抗控制和端接电阻。</p>
+            <p><strong>缓冲器（Buffer）：</strong>当扇出需求超过单个门的驱动能力时，插入缓冲器（本质上是两个反相器级联）来增强驱动能力。现代综合工具会自动插入缓冲器。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>一个 CMOS 逻辑门，\(V_{OH} = 3.0\,\text{V}\)，\(V_{OL} = 0.2\,\text{V}\)，\(V_{IH} = 2.0\,\text{V}\)，\(V_{IL} = 1.0\,\text{V}\)。求噪声容限。在传输线上叠加了 0.8V 的噪声，信号还可靠吗？</p>
+            <p><strong>❌ 常见错误：</strong>混淆 \(NM_H\) 和 \(NM_L\) 的计算方向，或者忘记取较小值。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>\(NM_H = V_{OH} - V_{IH} = 3.0 - 2.0 = 1.0\,\text{V}\)</p>
+            <p>\(NM_L = V_{IL} - V_{OL} = 1.0 - 0.2 = 0.8\,\text{V}\)</p>
+            <p>\(NM = \min(1.0, 0.8) = 0.8\,\text{V}\)</p>
+            <p>0.8V 噪声 = 恰好等于噪声容限的边界值。<strong>不可靠！</strong>工程上需要留至少 20% 的余量，即噪声应 < 0.64V。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s1-ch04-kp4">
+        <svg viewBox="0 0 400 260" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#10b981}</style>
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">逻辑电平与噪声容限</text>
+          <!-- Output side -->
+          <text x="100" y="38" text-anchor="middle" class="fg" font-size="11" font-weight="bold">输出端</text>
+          <rect x="50" y="45" width="100" height="60" fill="#dcfce7" stroke="#10b981" stroke-width="1.5" rx="4"/>
+          <text x="100" y="75" text-anchor="middle" fill="#059669" font-size="10">输出 HIGH</text>
+          <text x="100" y="88" text-anchor="middle" fill="#059669" font-size="9">≥ V_OH</text>
+          <rect x="50" y="112" width="100" height="30" fill="#fef3c7" stroke="#f59e0b" stroke-width="1" rx="4"/>
+          <text x="100" y="132" text-anchor="middle" fill="#b45309" font-size="9">禁区</text>
+          <rect x="50" y="149" width="100" height="60" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5" rx="4"/>
+          <text x="100" y="180" text-anchor="middle" fill="#dc2626" font-size="10">输出 LOW</text>
+          <text x="100" y="193" text-anchor="middle" fill="#dc2626" font-size="9">≤ V_OL</text>
+          <!-- Input side -->
+          <text x="300" y="38" text-anchor="middle" class="fg" font-size="11" font-weight="bold">输入端</text>
+          <rect x="250" y="45" width="100" height="75" fill="#dcfce7" stroke="#10b981" stroke-width="1.5" rx="4"/>
+          <text x="300" y="83" text-anchor="middle" fill="#059669" font-size="10">识别为 HIGH</text>
+          <text x="300" y="96" text-anchor="middle" fill="#059669" font-size="9">≥ V_IH</text>
+          <rect x="250" y="125" width="100" height="24" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1" rx="4"/>
+          <text x="300" y="141" text-anchor="middle" class="fg2" font-size="8">不确定区</text>
+          <rect x="250" y="154" width="100" height="65" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5" rx="4"/>
+          <text x="300" y="188" text-anchor="middle" fill="#dc2626" font-size="10">识别为 LOW</text>
+          <text x="300" y="201" text-anchor="middle" fill="#dc2626" font-size="9">≤ V_IL</text>
+          <!-- Noise margin arrows -->
+          <line x1="175" y1="75" x2="225" y2="83" stroke="#10b981" stroke-width="2" stroke-dasharray="5" marker-end="url(#arrowNM)"/>
+          <text x="200" y="68" text-anchor="middle" fill="#10b981" font-size="8" font-weight="bold">NM_H</text>
+          <line x1="175" y1="180" x2="225" y2="188" stroke="#ef4444" stroke-width="2" stroke-dasharray="5" marker-end="url(#arrowNM2)"/>
+          <text x="200" y="198" text-anchor="middle" fill="#ef4444" font-size="8" font-weight="bold">NM_L</text>
+          <!-- Fan-out section -->
+          <rect x="40" y="225" width="320" height="28" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+          <text x="200" y="244" text-anchor="middle" class="fg" font-size="10">扇出 = 一个输出最多驱动 N 个输入，保持电平有效</text>
+          <defs>
+            <marker id="arrowNM" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#10b981"/></marker>
+            <marker id="arrowNM2" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#ef4444"/></marker>
+          </defs>
+        </svg>
+        <figcaption>图 4-4：输出范围比输入判定范围更严格，留出噪声容限</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">一个 5V TTL 输出（V_OH = 2.4V）直接连接到 1.8V LVCMOS 输入，会有什么问题？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '虽然可以识别为高电平，但这不是主要问题。')">A. 没有问题，电压足够高</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！TTL 高电平输出最高可达 5V，远超 1.8V 芯片的绝对最大额定输入电压（通常 2.1V），可能损坏芯片。需要电平转换器。')">B. 可能损坏 1.8V 芯片，因为电压超限</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '电压不是太低，而是太高了。')">C. 信号太弱无法识别</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '速度问题不是首要风险，过压损坏才是。')">D. 信号速度会变慢</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ═══════════ Exercises ═══════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+    <nav class="chapter-nav">
+      <a href="ch03.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="#" class="nav-next"></a>
+    </nav>
+  </main>
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

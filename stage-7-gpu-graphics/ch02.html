@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.2 图形管线（Graphics Pipeline） — 看见的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s7-ch02-q1", question: "在 MVP 变换链中，View 矩阵的作用是什么？", options: ["将模型从本地坐标变换到世界坐标","将世界坐标变换到相机坐标","执行透视除法","将 NDC 映射到屏幕像素"], answer: 1, explanation: "View（视图）矩阵将世界坐标系中的物体变换到以相机为原点的相机坐标系，等效于'移动整个世界使相机位于原点'。Model 矩阵负责本地→世界，Projection 矩阵负责相机→裁剪空间。" },
+      { id: "s7-ch02-q2", question: "透视投影（Perspective Projection）中，透视除法（Perspective Divide）的操作是？", options: ["乘以 w 分量","将 (x,y,z) 各除以 w 得到 NDC","对 z 取对数","将坐标归一化到 [0,1]"], answer: 1, explanation: "透视除法将裁剪坐标 (x,y,z,w) 变为 NDC (x/w, y/w, z/w)。w 分量编码了深度信息，除以 w 产生近大远小的透视效果。" },
+      { id: "s7-ch02-q3", question: "边缘函数（Edge Function）用于光栅化时，判断点在三角形内部的条件是？", options: ["三个边缘函数值之和为零","三个边缘函数值均同号（全正或全负）","至少一个边缘函数值为正","三个边缘函数值互不相等"], answer: 1, explanation: "对三角形三条边分别计算边缘函数 E(P)，若三个值均为正（或均为负，取决于顶点绕序），则点 P 在三角形内部。这是光栅化中最基本的内外测试方法。" },
+      { id: "s7-ch02-q4", question: "为什么屏幕空间中的线性插值不能直接用于透视投影后的属性插值？", options: ["因为屏幕空间是二维的","因为透视投影后深度是非线性的，线性插值会产生错误结果","因为浮点精度不够","因为屏幕像素是离散的"], answer: 1, explanation: "透视投影将 3D 空间映射到 2D 屏幕时引入了非线性变形。直接在屏幕空间线性插值属性（如纹理坐标）会产生失真，必须使用透视校正插值（基于 1/w 加权）。" },
+      { id: "s7-ch02-q5", question: "Phong 光照模型中，镜面反射（Specular）项的高光指数 n 增大时，效果是？", options: ["高光区域变大、更模糊","高光区域变小、更集中","漫反射增强","环境光增强"], answer: 1, explanation: "镜面反射项为 (R·V)^n，指数 n 越大，函数衰减越快，只有非常接近理想反射方向时才有高亮度，因此高光区域更小更集中，模拟更光滑的表面。" },
+      { id: "s7-ch02-q6", question: "Z-buffer 算法在透视投影下的主要精度问题是什么？", options: ["近平面处精度过高","远处物体的 z 值分辨率过低，导致深度冲突（Z-fighting）","Z-buffer 不支持透明物体","Z-buffer 占用内存过大"], answer: 1, explanation: "透视投影后 z 值与 1/z 成正比，导致深度精度在近平面集中、远平面稀疏。远处两个很近的表面可能映射到相同的 z 值，导致 Z-fighting（交替闪烁）。" },
+      { id: "s7-ch02-q7", question: "双缓冲（Double Buffering）中，前缓冲和后缓冲的交换时机通常与什么同步？", options: ["CPU 时钟","显示器的垂直同步信号（V-Sync）","GPU 着色器执行完成","内存带宽利用率"], answer: 1, explanation: "为避免画面撕裂（Tearing），缓冲交换通常与显示器的垂直回扫（V-Blank）同步，即 V-Sync。在 V-Blank 期间交换前后缓冲，确保显示器始终读取完整的一帧。" },
+      { id: "s7-ch02-q8", question: "4K 分辨率（3840×2160）双缓冲帧缓冲区（含 32-bit 颜色 + 32-bit 深度 + 8-bit 模板）所需显存约为？", options: ["约 50 MB","约 75 MB","约 149 MB","约 300 MB"], answer: 2, explanation: "每像素 = 4(颜色) + 4(深度) + 1(模板) = 9 字节。总计 = 3840 × 2160 × 9 × 2(双缓冲) = 149,299,200 字节 ≈ 149 MB。" }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-7" data-module="ch02" style="--domain-color: var(--c-gpu-graphics);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 7</span><a href="index.html" class="module-name">看见的世界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.2 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 顶点着色阶段</a></li>
+      <li><a href="#kp2">02 · 光栅化</a></li>
+      <li><a href="#kp3">03 · 片段着色与深度测试</a></li>
+      <li><a href="#kp4">04 · 帧缓冲与显示输出</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 2</p>
+      <h1>图形管线（Graphics Pipeline）</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 顶点着色（Vertex Shading）阶段</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>一个 3D 场景可能包含数百万个三角形，每个三角形由三个顶点定义，而这些顶点最初位于各自模型的<strong>本地坐标系（Model Space）</strong>中。要在屏幕上正确显示它们，必须经历一系列坐标变换——从模型空间到世界空间，再到相机空间，最终到屏幕像素坐标。</p>
+            <p>这一过程被称为<strong>顶点着色阶段（Vertex Shading Stage）</strong>，是图形管线的第一个可编程阶段。理解 <strong>MVP（Model-View-Projection）变换链</strong>和齐次坐标是理解一切 3D 渲染的基础。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>顶点着色器对每个顶点执行以下变换链：</p>
+            <p><strong>① Model 变换</strong>：将顶点从本地坐标变换到<strong>世界坐标系（World Space）</strong>。包括平移、旋转、缩放，用 4×4 矩阵 \(M_{\text{model}}\) 表示。</p>
+            <p><strong>② View 变换</strong>：将世界坐标变换到<strong>相机坐标系（View/Camera Space）</strong>。等效于移动整个世界，使相机位于原点、朝 \(-z\) 方向看。用矩阵 \(M_{\text{view}}\) 表示（通常是相机位置和朝向的逆变换）。</p>
+            <p><strong>③ Projection 变换</strong>：将相机空间映射到<strong>裁剪空间（Clip Space）</strong>。<strong>透视投影（Perspective）</strong>产生近大远小效果；<strong>正交投影（Orthographic）</strong>保持物体大小不变。输出齐次坐标 \((x, y, z, w)\)。</p>
+            <p><strong>④ 透视除法 → NDC</strong>：将齐次坐标除以 \(w\)，得到<strong>归一化设备坐标（NDC）</strong> \((x/w,\ y/w,\ z/w)\)，各分量在 \([-1, 1]\)（OpenGL）或 \([0, 1]\)（DirectX 深度）范围内。</p>
+            <p><strong>⑤ Viewport 变换</strong>：将 NDC 映射到<strong>屏幕像素坐标</strong>。</p>
+            <p>整个变换链：\(v_{\text{clip}} = M_{\text{proj}} \cdot M_{\text{view}} \cdot M_{\text{model}} \cdot v_{\text{local}}\)。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>透视投影矩阵（OpenGL 风格）</strong>：给定近平面 \(n\)、远平面 \(f\)、垂直视场角 \(\text{fov}\)、宽高比 \(a\)：</p>
+            \[
+            M_{\text{persp}} = \begin{pmatrix}
+            \frac{1}{a \cdot \tan(\text{fov}/2)} & 0 & 0 & 0 \\
+            0 & \frac{1}{\tan(\text{fov}/2)} & 0 & 0 \\
+            0 & 0 & -\frac{f+n}{f-n} & -\frac{2fn}{f-n} \\
+            0 & 0 & -1 & 0
+            \end{pmatrix}
+            \]
+            <p>关键点：最后一行 \((0,\ 0,\ -1,\ 0)\) 使输出的 \(w = -z_{\text{eye}}\)。<strong>透视除法</strong>后：</p>
+            \[
+            \text{NDC}: \quad x' = \frac{x}{w}, \quad y' = \frac{y}{w}, \quad z' = \frac{z}{w}
+            \]
+            <p><strong>Viewport 变换</strong>（NDC → 屏幕）：</p>
+            \[
+            x_{\text{screen}} = \frac{(x'+1)}{2} \cdot W, \quad y_{\text{screen}} = \frac{(1-y')}{2} \cdot H
+            \]
+            <p>其中 \(W, H\) 是视口宽高像素数。\(y\) 翻转是因为屏幕坐标 \(y\) 轴向下。</p>
+            <div class="warning-box">⚠️ 透视除法（除以 \(w\)）是产生近大远小效果的关键步骤。如果忘记除以 \(w\)（例如直接使用裁剪空间坐标），画面会严重变形——远近物体大小相同，丧失所有深度感。这是初学图形编程最常犯的错误之一。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>实例化渲染（Instanced Rendering）</strong>：游戏中大量相同模型（如树木、草丛）只需上传一份顶点数据，通过不同的 Model 矩阵实例化绘制。GPU 用一次 Draw Call 渲染数千个实例，大幅减少 CPU-GPU 通信开销。</p>
+            <p><strong>曲面细分（Tessellation）</strong>：在顶点着色之后、光栅化之前，Tessellation 阶段可以动态增加三角形细节。近处物体使用更多三角形，远处物体使用较少——实现 LOD（Level of Detail）而无需存储多份模型。</p>
+            <p><strong>视锥裁剪（Frustum Clipping）</strong>：不在相机视野内的三角形会被裁剪掉，避免浪费后续管线阶段的计算资源。裁剪在裁剪空间中进行，判断条件为 \(-w \le x, y, z \le w\)。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>顶点在相机空间坐标为 \((2, 3, -5, 1)\)，近平面 \(n=1\)，远平面 \(f=100\)，fov=90°，宽高比 \(a=16/9\)。计算透视投影后的裁剪坐标和 NDC 坐标。</p>
+            <p><em>解答：</em></p>
+            <p>\(\tan(45°) = 1\)，所以 \(M_{00} = 1/(a \cdot 1) = 9/16 = 0.5625\)，\(M_{11} = 1/1 = 1\)。</p>
+            <p>\(M_{22} = -(100+1)/(100-1) = -101/99 \approx -1.0202\)。</p>
+            <p>\(M_{23} = -2 \times 100 \times 1/(100-1) = -200/99 \approx -2.0202\)。</p>
+            <p>裁剪坐标：\(x_c = 0.5625 \times 2 = 1.125\)，\(y_c = 1 \times 3 = 3\)，\(z_c = -1.0202 \times (-5) + (-2.0202) = 5.101 - 2.0202 = 3.0808\)，\(w_c = -(-5) = 5\)。</p>
+            <p>NDC：\((1.125/5,\ 3/5,\ 3.0808/5) = (0.225,\ 0.6,\ 0.616)\)。均在 \([-1,1]\) 范围内，顶点在视锥内。</p>
+            <p>❌ <strong>常见错误：</strong>忘记 \(w_c = -z_{\text{eye}}\)（即 \(w_c = 5\) 而非 \(w_c = 1\)），导致 NDC 计算错误。</p>
+            <p>✅ <strong>正确做法：</strong>始终追踪 \(w\) 分量，透视除法是变换链中不可或缺的步骤。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch02-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:4}.arrow{stroke:#334155;fill:none;stroke-width:1.2;marker-end:url(#ah)}</style>
+          <defs><marker id="ah" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#334155"/></marker></defs>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">MVP 变换链：从模型空间到屏幕</text>
+          <!-- Pipeline boxes -->
+          <rect x="10" y="35" width="68" height="36" fill="#3b82f6" opacity="0.15" rx="4"/>
+          <text class="accent" x="44" y="50" text-anchor="middle" font-size="8" font-weight="bold">Model</text>
+          <text class="fg2" x="44" y="62" text-anchor="middle" font-size="7">本地→世界</text>
+          <line x1="78" y1="53" x2="88" y2="53" class="arrow"/>
+          <rect x="90" y="35" width="60" height="36" fill="#3b82f6" opacity="0.15" rx="4"/>
+          <text class="accent" x="120" y="50" text-anchor="middle" font-size="8" font-weight="bold">View</text>
+          <text class="fg2" x="120" y="62" text-anchor="middle" font-size="7">世界→相机</text>
+          <line x1="150" y1="53" x2="160" y2="53" class="arrow"/>
+          <rect x="162" y="35" width="72" height="36" fill="#3b82f6" opacity="0.15" rx="4"/>
+          <text class="accent" x="198" y="50" text-anchor="middle" font-size="8" font-weight="bold">Projection</text>
+          <text class="fg2" x="198" y="62" text-anchor="middle" font-size="7">相机→裁剪</text>
+          <line x1="234" y1="53" x2="244" y2="53" class="arrow"/>
+          <rect x="246" y="35" width="62" height="36" fill="#f59e0b" opacity="0.2" rx="4"/>
+          <text class="fg" x="277" y="50" text-anchor="middle" font-size="8" font-weight="bold">÷ w</text>
+          <text class="fg2" x="277" y="62" text-anchor="middle" font-size="7">→ NDC</text>
+          <line x1="308" y1="53" x2="318" y2="53" class="arrow"/>
+          <rect x="320" y="35" width="72" height="36" fill="#10b981" opacity="0.15" rx="4"/>
+          <text class="fg" x="356" y="50" text-anchor="middle" font-size="8" font-weight="bold">Viewport</text>
+          <text class="fg2" x="356" y="62" text-anchor="middle" font-size="7">NDC→屏幕</text>
+          <!-- Frustum diagram -->
+          <text class="fg" x="120" y="95" text-anchor="middle" font-size="10" font-weight="bold">视锥体（View Frustum）</text>
+          <!-- Camera point -->
+          <circle cx="40" cy="165" r="4" fill="#3b82f6"/>
+          <text class="accent" x="40" y="185" text-anchor="middle" font-size="8">相机</text>
+          <!-- Near plane -->
+          <line x1="90" y1="130" x2="90" y2="200" stroke="#10b981" stroke-width="1.5"/>
+          <text class="fg2" x="90" y="215" text-anchor="middle" font-size="7">近平面 n</text>
+          <!-- Far plane -->
+          <line x1="220" y1="110" x2="220" y2="220" stroke="#ef4444" stroke-width="1.5"/>
+          <text class="fg2" x="220" y="232" text-anchor="middle" font-size="7">远平面 f</text>
+          <!-- Frustum trapezoid -->
+          <polygon points="40,165 90,130 220,110 220,220 90,200" fill="#3b82f6" opacity="0.06" stroke="#334155" stroke-width="1"/>
+          <!-- Vertex inside -->
+          <circle cx="150" cy="155" r="4" fill="#f59e0b"/>
+          <text class="fg" x="150" y="148" text-anchor="middle" font-size="7">顶点 v</text>
+          <!-- NDC cube -->
+          <rect x="280" y="110" width="90" height="90" fill="#3b82f6" opacity="0.06" stroke="#334155" stroke-width="1" rx="2"/>
+          <text class="fg2" x="325" y="125" text-anchor="middle" font-size="7">NDC [-1,1]³</text>
+          <circle cx="310" cy="155" r="4" fill="#f59e0b"/>
+          <text class="fg" x="310" y="170" text-anchor="middle" font-size="7">v' (NDC)</text>
+          <!-- Arrow from frustum to NDC -->
+          <line x1="235" y1="160" x2="270" y2="155" class="arrow"/>
+          <text class="fg2" x="252" y="150" font-size="7">÷w</text>
+        </svg>
+        <figcaption>图 2-1 MVP 变换链与视锥体到 NDC 的映射</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在透视投影中，裁剪坐标 (x, y, z, w) 的 w 分量等于什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'w 不总是 1。齐次坐标中 w=1 仅在仿射变换（Model/View）后成立，投影后 w 会改变。')">A. 始终为 1</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！透视投影矩阵最后一行为 (0,0,−1,0)，因此 w_clip = −z_eye。这使透视除法产生近大远小效果。')">B. −z_eye（相机空间 z 坐标的负值）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'w 不等于深度缓冲值。深度缓冲值是透视除法后的 z/w，经非线性变换后的结果。')">C. 深度缓冲中的值</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '近平面距离是投影矩阵的参数，不是 w 的值。w 随每个顶点的 z_eye 变化。')">D. 近平面距离 n</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 光栅化（Rasterization）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>经过顶点着色阶段，三角形的顶点已经投影到了屏幕空间。但屏幕是由离散的像素组成的——我们需要知道<strong>每个三角形覆盖了哪些像素</strong>。这就是光栅化（Rasterization）要解决的核心问题。</p>
+            <p>此外，每个像素的属性（颜色、纹理坐标、法线等）需要从三角形三个顶点的属性<strong>插值</strong>得到。光栅化阶段的效率直接决定了 GPU 每秒能处理多少三角形——这是实时渲染的性能瓶颈之一。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>边缘函数（Edge Function）</strong>是判断像素是否在三角形内部的核心工具。对于三角形边 \(V_0 \to V_1\)，边缘函数定义为：</p>
+            \[
+            E_{01}(P) = (V_1 - V_0) \times (P - V_0)
+            \]
+            <p>其中 \(\times\) 是 2D 叉积（即 \((V_{1x}-V_{0x})(P_y-V_{0y}) - (V_{1y}-V_{0y})(P_x-V_{0x})\)）。若点 \(P\) 对三条边的 \(E_{01}(P)\)、\(E_{12}(P)\)、\(E_{20}(P)\) <strong>均同号</strong>，则 \(P\) 在三角形内部。</p>
+            <p><strong>重心坐标（Barycentric Coordinates）</strong>：三角形内任意一点 \(P\) 可以表示为三个顶点的加权组合 \(P = \alpha V_0 + \beta V_1 + \gamma V_2\)，其中 \(\alpha + \beta + \gamma = 1\)。重心坐标用于<strong>属性插值</strong>：颜色、UV 坐标、法线等都通过 \(\alpha, \beta, \gamma\) 加权。</p>
+            <p>重心坐标与边缘函数的关系：\(\alpha = E_{12}(P)/E_{12}(V_0)\)，\(\beta = E_{20}(P)/E_{20}(V_1)\)，\(\gamma = E_{01}(P)/E_{01}(V_2)\)。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>边缘函数计算</strong>：给定三角形顶点 \(V_0=(x_0,y_0)\)，\(V_1=(x_1,y_1)\)，\(V_2=(x_2,y_2)\)，对像素中心 \(P=(p_x,p_y)\)：</p>
+            \[
+            E_{01}(P) = (x_1-x_0)(p_y-y_0)-(y_1-y_0)(p_x-x_0)
+            \]
+            \[
+            E_{12}(P) = (x_2-x_1)(p_y-y_1)-(y_2-y_1)(p_x-x_1)
+            \]
+            \[
+            E_{20}(P) = (x_0-x_2)(p_y-y_2)-(y_0-y_2)(p_x-x_2)
+            \]
+            <p>重心坐标：令 \(A = E_{01}(V_2)\)（三角形面积的两倍），则：</p>
+            \[
+            \alpha = \frac{E_{12}(P)}{A}, \quad \beta = \frac{E_{20}(P)}{A}, \quad \gamma = \frac{E_{01}(P)}{A}
+            \]
+            <p><strong>透视校正插值</strong>：屏幕空间中的线性插值在透视投影下不正确。正确的插值方法使用 \(1/w\) 加权：</p>
+            \[
+            \frac{F}{w} = \alpha \frac{F_0}{w_0} + \beta \frac{F_1}{w_1} + \gamma \frac{F_2}{w_2}, \quad \frac{1}{w} = \frac{\alpha}{w_0} + \frac{\beta}{w_1} + \frac{\gamma}{w_2}
+            \]
+            \[
+            F_{\text{correct}} = \frac{F/w}{1/w}
+            \]
+            <div class="warning-box">⚠️ 在屏幕空间中直接对纹理坐标做线性插值（不考虑透视校正）会导致纹理"游泳"和扭曲——这是早期 PS1 游戏中常见的视觉伪影。现代 GPU 硬件自动执行透视校正插值，但理解原理对 Shader 调试至关重要。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>基于 Tile 的光栅化（Tile-Based Rasterization）</strong>：移动 GPU（如 ARM Mali、Apple GPU、Qualcomm Adreno）将屏幕划分为小 Tile（如 16×16 或 32×32 像素）。每个 Tile 的所有三角形在片上缓存中完成光栅化和着色后才写回显存，大幅减少带宽消耗——这是移动 GPU 省电的关键设计。</p>
+            <p><strong>Early-Z Rejection</strong>：在执行片段着色器之前，硬件可以先进行深度测试——如果片段被前方物体遮挡，直接丢弃，避免执行昂贵的着色计算。这需要从前到后排序渲染不透明物体。</p>
+            <p><strong>MSAA（Multi-Sample Anti-Aliasing）</strong>：每个像素采样多个子像素点（如 4x MSAA = 4 个采样点），对三角形边缘进行覆盖率测试。着色只执行一次（像素中心），但覆盖信息取多个采样点的平均，平滑锯齿。比超采样（SSAA）节省大量计算。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>三角形顶点 \(V_0=(1,1)\)，\(V_1=(5,1)\)，\(V_2=(3,4)\)。判断像素中心 \(P=(3,2)\) 是否在三角形内部。</p>
+            <p><em>解答：</em></p>
+            <p>\(E_{01}(P) = (5-1)(2-1)-(1-1)(3-1) = 4 \times 1 - 0 \times 2 = 4 > 0\)</p>
+            <p>\(E_{12}(P) = (3-5)(2-1)-(4-1)(3-5) = (-2)(1) - (3)(-2) = -2+6 = 4 > 0\)</p>
+            <p>\(E_{20}(P) = (1-3)(2-4)-(1-4)(3-3) = (-2)(-2) - (-3)(0) = 4 > 0\)</p>
+            <p>三个边缘函数值 \((4, 4, 4)\) 全为正 → <strong>P 在三角形内部 ✓</strong></p>
+            <p>重心坐标：\(A = E_{01}(V_2) = (5-1)(4-1)-(1-1)(3-1) = 12\)。\(\alpha = 4/12 = 1/3\)，\(\beta = 4/12 = 1/3\)，\(\gamma = 4/12 = 1/3\)。\(P\) 恰好是三角形的<strong>重心</strong>。</p>
+            <p>❌ <strong>常见错误：</strong>叉积计算时搞混 \(x\) 和 \(y\) 的顺序，导致符号反转。</p>
+            <p>✅ <strong>正确做法：</strong>统一使用 \(\Delta x \cdot \Delta p_y - \Delta y \cdot \Delta p_x\) 的顺序，并确保顶点绕序（逆时针或顺时针）一致。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch02-kp2">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.ok{fill:#10b981}.warn{fill:#ef4444}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">光栅化：边缘函数与重心坐标</text>
+          <!-- Grid -->
+          <g stroke="#e2e8f0" stroke-width="0.5">
+            <line x1="30" y1="30" x2="30" y2="210"/><line x1="60" y1="30" x2="60" y2="210"/>
+            <line x1="90" y1="30" x2="90" y2="210"/><line x1="120" y1="30" x2="120" y2="210"/>
+            <line x1="150" y1="30" x2="150" y2="210"/><line x1="180" y1="30" x2="180" y2="210"/>
+            <line x1="30" y1="30" x2="180" y2="30"/><line x1="30" y1="60" x2="180" y2="60"/>
+            <line x1="30" y1="90" x2="180" y2="90"/><line x1="30" y1="120" x2="180" y2="120"/>
+            <line x1="30" y1="150" x2="180" y2="150"/><line x1="30" y1="180" x2="180" y2="180"/>
+            <line x1="30" y1="210" x2="180" y2="210"/>
+          </g>
+          <!-- Triangle -->
+          <polygon points="30,180 150,180 90,60" fill="#3b82f6" opacity="0.1" stroke="#3b82f6" stroke-width="2"/>
+          <!-- Vertices -->
+          <circle cx="30" cy="180" r="4" fill="#3b82f6"/><text class="accent" x="20" y="198" font-size="8">V₀</text>
+          <circle cx="150" cy="180" r="4" fill="#3b82f6"/><text class="accent" x="155" y="198" font-size="8">V₁</text>
+          <circle cx="90" cy="60" r="4" fill="#3b82f6"/><text class="accent" x="96" y="55" font-size="8">V₂</text>
+          <!-- Inside pixels (green dots) -->
+          <circle cx="75" cy="135" r="3" fill="#10b981"/><circle cx="105" cy="135" r="3" fill="#10b981"/>
+          <circle cx="75" cy="165" r="3" fill="#10b981"/><circle cx="105" cy="165" r="3" fill="#10b981"/>
+          <circle cx="90" cy="105" r="3" fill="#10b981"/>
+          <circle cx="60" cy="165" r="3" fill="#10b981"/><circle cx="120" cy="165" r="3" fill="#10b981"/>
+          <!-- Outside pixels (red x) -->
+          <text class="warn" x="45" y="108" font-size="10">✗</text>
+          <text class="warn" x="135" y="108" font-size="10">✗</text>
+          <text class="warn" x="45" y="78" font-size="10">✗</text>
+          <!-- Legend -->
+          <circle cx="195" cy="70" r="3" fill="#10b981"/><text class="fg2" x="203" y="74" font-size="8">E₀₁,E₁₂,E₂₀ 全正 → 内部</text>
+          <text class="warn" x="192" y="92" font-size="10">✗</text><text class="fg2" x="203" y="92" font-size="8">至少一个为负 → 外部</text>
+          <!-- Barycentric illustration -->
+          <text class="fg" x="310" y="45" text-anchor="middle" font-size="10" font-weight="bold">重心坐标插值</text>
+          <polygon points="240,200 380,200 310,80" fill="#3b82f6" opacity="0.08" stroke="#334155" stroke-width="1"/>
+          <circle cx="240" cy="200" r="3" fill="#3b82f6"/><text class="fg2" x="230" y="215" font-size="7">α=1</text>
+          <circle cx="380" cy="200" r="3" fill="#3b82f6"/><text class="fg2" x="380" y="215" font-size="7">β=1</text>
+          <circle cx="310" cy="80" r="3" fill="#3b82f6"/><text class="fg2" x="316" y="75" font-size="7">γ=1</text>
+          <!-- Center point P -->
+          <circle cx="310" cy="160" r="4" fill="#f59e0b"/>
+          <text class="fg" x="320" y="155" font-size="8">P(α,β,γ)</text>
+          <text class="fg2" x="310" y="230" text-anchor="middle" font-size="8">F(P) = αF₀ + βF₁ + γF₂</text>
+        </svg>
+        <figcaption>图 2-2 光栅化中的边缘函数内外测试与重心坐标插值</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">透视校正插值相比屏幕空间线性插值，额外需要的关键信息是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '三角形面积在光栅化中已知，不是透视校正的额外需求。')">A. 三角形面积</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！透视校正插值需要每个顶点的 1/w 值，对属性做 F/w 的线性插值后再除以插值后的 1/w，还原正确的属性值。')">B. 每个顶点的 w（裁剪空间 w 分量）</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '屏幕分辨率影响光栅化的像素数量，但不影响插值的数学方法。')">C. 屏幕分辨率</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '光源位置影响光照计算（片段着色），不影响光栅化阶段的属性插值。')">D. 光源位置</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 片段着色（Fragment Shading）与深度测试</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>光栅化确定了每个三角形覆盖的像素，但每个像素的<strong>最终颜色</strong>还没有确定。我们需要为每个<strong>片段（Fragment）</strong>——一个候选像素——计算光照、纹理采样等效果。同时，多个三角形可能覆盖同一个像素，必须解决<strong>遮挡（Occlusion）</strong>问题。</p>
+            <p><strong>片段着色器（Fragment Shader / Pixel Shader）</strong>是图形管线中最灵活、计算量最大的阶段。每个片段都独立运行着色器代码——这意味着 1080p 画面每帧可能执行超过 200 万次着色器调用。<strong>Z-buffer（深度缓冲）</strong>则以优雅的方式解决了遮挡排序问题。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>Phong 光照模型</strong>将表面颜色分解为三个分量：</p>
+            <p><strong>① 环境光（Ambient）</strong>：\(I_a = k_a \cdot L_a\)。模拟间接光照的近似常量项，确保阴影区域不完全黑暗。</p>
+            <p><strong>② 漫反射（Diffuse）</strong>：\(I_d = k_d \cdot L_d \cdot \max(\mathbf{N} \cdot \mathbf{L},\ 0)\)。根据<strong>Lambert 余弦定律</strong>，表面亮度与表面法线 \(\mathbf{N}\) 和光照方向 \(\mathbf{L}\) 的夹角余弦成正比。</p>
+            <p><strong>③ 镜面反射（Specular）</strong>：\(I_s = k_s \cdot L_s \cdot (\max(\mathbf{R} \cdot \mathbf{V},\ 0))^n\)。模拟光滑表面的高光。\(\mathbf{R}\) 是光的反射方向，\(\mathbf{V}\) 是观察方向，\(n\) 是高光指数（值越大，高光越集中）。</p>
+            <p><strong>最终颜色</strong>：\(I = I_a + I_d + I_s\)。</p>
+            <p><strong>纹理采样</strong>：片段着色器通过 UV 坐标从纹理贴图中查找颜色，替代或调制顶点颜色。UV 坐标由光栅化阶段从顶点插值得到。</p>
+            <p><strong>Z-buffer 算法</strong>：为每个像素维护一个深度值 \(\text{zbuf}[x][y]\)。对每个片段，若其深度 \(z < \text{zbuf}[x][y]\)，则写入颜色并更新深度；否则丢弃。无需排序三角形。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>Phong 反射模型完整公式</strong>：</p>
+            \[
+            I = k_a L_a + k_d L_d \max(\mathbf{N} \cdot \mathbf{L},\, 0) + k_s L_s \left(\max(\mathbf{R} \cdot \mathbf{V},\, 0)\right)^n
+            \]
+            <p>其中反射方向 \(\mathbf{R}\) 由入射方向 \(\mathbf{L}\) 和法线 \(\mathbf{N}\) 计算：</p>
+            \[
+            \mathbf{R} = 2(\mathbf{N} \cdot \mathbf{L})\mathbf{N} - \mathbf{L}
+            \]
+            <p><strong>Z-buffer 伪代码</strong>：</p>
+            <p>初始化：\(\text{zbuf}[x][y] = +\infty\)，\(\text{color}[x][y] = \text{background}\)。</p>
+            <p>对每个片段 \((x, y, z, \text{fragColor})\)：</p>
+            <p style="padding-left:2em;">若 \(z < \text{zbuf}[x][y]\)：</p>
+            <p style="padding-left:3em;">\(\text{zbuf}[x][y] = z\)；\(\text{color}[x][y] = \text{fragColor}\)</p>
+            <p>Z-buffer 的<strong>空间复杂度</strong>为 \(O(W \times H)\)（每像素一个深度值），<strong>时间复杂度</strong>与片段总数成线性关系——不需要对三角形进行全局排序。</p>
+            <div class="warning-box">⚠️ 透视投影后的 \(z\) 值与原始深度 \(z_{\text{eye}}\) 不是线性关系，而是近似 \(1/z_{\text{eye}}\)。这意味着深度精度在近平面处很高，在远平面处急剧下降。两个距相机 100m 和 100.1m 的表面在 Z-buffer 中可能映射到同一个值，导致<strong>深度冲突（Z-fighting）</strong>——交替闪烁的视觉伪影。解决方法：近平面尽量远、远平面尽量近；或使用<strong>反转 Z（Reversed-Z）</strong>技术。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>法线贴图（Normal Mapping）</strong>：不增加几何复杂度，通过纹理存储每像素的法线扰动，在片段着色器中用扰动后的法线计算光照，产生凹凸细节的视觉错觉。一张 1024×1024 的法线贴图可以替代数百万个三角形的细节。</p>
+            <p><strong>阴影映射（Shadow Mapping）</strong>：从光源视角渲染场景的深度图（Shadow Map），然后在主相机渲染时，将每个片段变换到光源空间，比较深度——若片段深度大于 Shadow Map 中的值，则该片段在阴影中。这本质上是两次 Z-buffer 的应用。</p>
+            <p><strong>延迟渲染（Deferred Rendering）</strong>：不在第一遍直接计算光照，而是将几何信息（位置、法线、材质颜色、深度）写入多个 G-buffer 纹理。第二遍对每个光源只处理受影响的像素。这使得光源数量不再与几何复杂度耦合——适合大量动态光源的场景。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>表面法线 \(\mathbf{N} = (0, 1, 0)\)，光照方向 \(\mathbf{L} = (0.577, 0.577, 0.577)\)（单位化），观察方向 \(\mathbf{V} = (0, 0, 1)\)。材质：\(k_a=0.1\)，\(k_d=0.6\)，\(k_s=0.3\)，\(n=32\)。光强 \(L_a = L_d = L_s = 1\)。求 Phong 光照强度。</p>
+            <p><em>解答：</em></p>
+            <p>① 环境光：\(I_a = 0.1 \times 1 = 0.1\)</p>
+            <p>② 漫反射：\(\mathbf{N} \cdot \mathbf{L} = 0 \times 0.577 + 1 \times 0.577 + 0 \times 0.577 = 0.577\)。\(I_d = 0.6 \times 0.577 = 0.346\)</p>
+            <p>③ 反射方向：\(\mathbf{R} = 2(0.577)(0,1,0) - (0.577,0.577,0.577) = (1.154)(0,1,0) - (0.577,0.577,0.577)\)</p>
+            <p>\(= (-0.577, 0.577, -0.577)\)。</p>
+            <p>\(\mathbf{R} \cdot \mathbf{V} = 0 + 0 + (-0.577) = -0.577 < 0\)，取 \(\max = 0\)。\(I_s = 0\)。</p>
+            <p><strong>总强度</strong>：\(I = 0.1 + 0.346 + 0 = 0.446\)。</p>
+            <p>镜面反射为 0 是因为观察方向与反射方向夹角大于 90°（从当前视角看不到高光）。</p>
+            <p>❌ <strong>常见错误：</strong>忘记对 \(\mathbf{N} \cdot \mathbf{L}\) 和 \(\mathbf{R} \cdot \mathbf{V}\) 取 \(\max(\cdot, 0)\)，导致出现负值光照（物理上不合理）。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch02-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.warn{fill:#ef4444}.ok{fill:#10b981}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">Phong 光照模型与 Z-buffer 深度测试</text>
+          <!-- Phong components -->
+          <text class="fg" x="100" y="38" text-anchor="middle" font-size="10" font-weight="bold">Phong = A + D + S</text>
+          <!-- Ambient -->
+          <rect x="10" y="48" width="55" height="50" fill="#64748b" opacity="0.2" rx="4"/>
+          <text class="fg2" x="37" y="63" text-anchor="middle" font-size="8" font-weight="bold">Ambient</text>
+          <text class="fg2" x="37" y="78" text-anchor="middle" font-size="7">k_a · L_a</text>
+          <text class="fg2" x="37" y="90" text-anchor="middle" font-size="7">（常量）</text>
+          <text class="fg2" x="72" y="75" font-size="12">+</text>
+          <!-- Diffuse -->
+          <rect x="82" y="48" width="70" height="50" fill="#3b82f6" opacity="0.15" rx="4"/>
+          <text class="accent" x="117" y="63" text-anchor="middle" font-size="8" font-weight="bold">Diffuse</text>
+          <text class="fg2" x="117" y="78" text-anchor="middle" font-size="7">k_d·(N·L)</text>
+          <text class="fg2" x="117" y="90" text-anchor="middle" font-size="7">（Lambert）</text>
+          <text class="fg2" x="158" y="75" font-size="12">+</text>
+          <!-- Specular -->
+          <rect x="166" y="48" width="70" height="50" fill="#f59e0b" opacity="0.2" rx="4"/>
+          <text class="fg" x="201" y="63" text-anchor="middle" font-size="8" font-weight="bold">Specular</text>
+          <text class="fg2" x="201" y="78" text-anchor="middle" font-size="7">k_s·(R·V)ⁿ</text>
+          <text class="fg2" x="201" y="90" text-anchor="middle" font-size="7">（高光）</text>
+          <!-- Surface diagram -->
+          <line x1="40" y1="130" x2="190" y2="130" stroke="#334155" stroke-width="2"/>
+          <text class="fg2" x="115" y="142" text-anchor="middle" font-size="7">表面</text>
+          <!-- Normal arrow -->
+          <line x1="115" y1="130" x2="115" y2="108" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#ah2)"/>
+          <text class="accent" x="122" y="112" font-size="8">N</text>
+          <!-- Light arrow -->
+          <line x1="60" y1="108" x2="110" y2="128" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#ah2)"/>
+          <text class="fg" x="65" y="105" font-size="8">L</text>
+          <!-- Reflection arrow -->
+          <line x1="115" y1="130" x2="168" y2="108" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3" marker-end="url(#ah2)"/>
+          <text class="warn" x="172" y="105" font-size="8">R</text>
+          <!-- View arrow -->
+          <line x1="115" y1="130" x2="145" y2="108" stroke="#10b981" stroke-width="1.5" marker-end="url(#ah2)"/>
+          <text class="ok" x="148" y="112" font-size="8">V</text>
+          <defs><marker id="ah2" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0 0,6 2,0 4" fill="#334155"/></marker></defs>
+          <!-- Z-buffer section -->
+          <text class="fg" x="320" y="38" text-anchor="middle" font-size="10" font-weight="bold">Z-buffer</text>
+          <!-- Pixel column -->
+          <rect x="270" y="48" width="100" height="20" fill="#3b82f6" opacity="0.15" rx="2"/>
+          <text class="fg2" x="320" y="62" text-anchor="middle" font-size="7">Color Buffer</text>
+          <rect x="270" y="72" width="100" height="20" fill="#64748b" opacity="0.15" rx="2"/>
+          <text class="fg2" x="320" y="86" text-anchor="middle" font-size="7">Depth Buffer (z)</text>
+          <!-- Depth test diagram -->
+          <rect x="260" y="105" width="120" height="90" fill="none" stroke="#334155" stroke-width="1" rx="3"/>
+          <text class="fg2" x="320" y="120" text-anchor="middle" font-size="8">深度测试逻辑</text>
+          <text class="fg2" x="320" y="138" text-anchor="middle" font-size="7">if (z_frag &lt; zbuf[x][y])</text>
+          <text class="ok" x="320" y="153" text-anchor="middle" font-size="7">  写入颜色 + 更新深度 ✓</text>
+          <text class="fg2" x="320" y="166" text-anchor="middle" font-size="7">else</text>
+          <text class="warn" x="320" y="181" text-anchor="middle" font-size="7">  丢弃片段 ✗</text>
+          <!-- Z-fighting warning -->
+          <text class="fg2" x="200" y="215" text-anchor="middle" font-size="9" font-style="italic">Z 值精度随距离非线性衰减 → 远处出现 Z-fighting</text>
+          <text class="fg2" x="200" y="232" text-anchor="middle" font-size="8">解决方案：Reversed-Z / 减小远近比 f/n</text>
+        </svg>
+        <figcaption>图 2-3 Phong 光照模型三分量与 Z-buffer 深度测试流程</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">Z-buffer 算法相比画家算法（Painter's Algorithm）的核心优势是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '两种算法使用的内存量级相当（Z-buffer 额外需要一个深度缓冲区），但这不是核心区别。')">A. 使用更少的内存</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！Z-buffer 对每个片段独立做深度测试（O(1)），不需要预先对所有三角形排序（画家算法需要 O(n log n) 排序，且无法处理相互穿透的情况）。')">B. 无需全局排序三角形即可正确处理遮挡</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '画质取决于着色模型和分辨率，Z-buffer 解决的是正确性而非画质问题。')">C. 渲染画质更高</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '两种算法都可以并行化，但 Z-buffer 的优势在于消除排序需求。')">D. 更容易并行化</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 帧缓冲（Framebuffer）与显示输出</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>经过片段着色和深度测试后，所有像素的颜色已经确定。但如果 GPU 正在写入帧缓冲的同时，显示器正在读取同一块缓冲区进行显示，就会出现<strong>画面撕裂（Tearing）</strong>——屏幕上半部分显示旧帧、下半部分显示新帧。</p>
+            <p>帧缓冲的<strong>组织方式</strong>和<strong>交换策略</strong>直接影响画面质量和输入延迟。理解 Color/Depth/Stencil 缓冲区的组成、双缓冲/三缓冲机制以及后处理效果，是理解完整图形管线"最后一英里"的关键。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>帧缓冲（Framebuffer）</strong>不是单一缓冲区，而是多个缓冲区的集合：</p>
+            <p><strong>① 颜色缓冲区（Color Buffer）</strong>：存储每个像素的 RGBA 颜色值。通常 8 位/通道 = 32 位/像素，HDR 渲染时使用 16 位浮点/通道 = 64 位/像素。</p>
+            <p><strong>② 深度缓冲区（Depth Buffer / Z-Buffer）</strong>：存储每个像素的深度值，用于深度测试。通常 24 位或 32 位浮点。</p>
+            <p><strong>③ 模板缓冲区（Stencil Buffer）</strong>：8 位/像素的掩码，用于实现复杂渲染效果（如镜面反射区域限制、阴影体积、门户渲染）。</p>
+            <p><strong>双缓冲（Double Buffering）</strong>：前缓冲（Front Buffer）正在被显示器读取显示；后缓冲（Back Buffer）是 GPU 正在渲染的目标。渲染完成后，两者<strong>交换（Swap）</strong>。配合 V-Sync 在垂直回扫期间交换，消除画面撕裂。</p>
+            <p><strong>交换链（Swap Chain）</strong>：现代图形 API（Vulkan/DirectX 12）使用显式的交换链管理多个缓冲区的轮转。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>帧缓冲显存需求计算</strong>：</p>
+            \[
+            \text{Memory} = W \times H \times (C + D + S) \times B
+            \]
+            <p>其中 \(W, H\) 是分辨率，\(C\) 是颜色字节数/像素，\(D\) 是深度字节数/像素，\(S\) 是模板字节数/像素，\(B\) 是缓冲区数量（双缓冲 = 2）。</p>
+            <p><strong>实例：4K 双缓冲</strong></p>
+            \[
+            3840 \times 2160 \times (4 + 4 + 1) \times 2 = 3840 \times 2160 \times 9 \times 2
+            \]
+            \[
+            = 149{,}299{,}200 \text{ 字节} \approx 149 \text{ MB}
+            \]
+            <p><strong>常见分辨率的帧缓冲需求</strong>（32-bit color + 32-bit depth + 8-bit stencil，双缓冲）：</p>
+            <p>• 1080p (1920×1080)：\(1920 \times 1080 \times 9 \times 2 \approx 37.3 \text{ MB}\)</p>
+            <p>• 1440p (2560×1440)：\(2560 \times 1440 \times 9 \times 2 \approx 66.4 \text{ MB}\)</p>
+            <p>• 4K (3840×2160)：\(\approx 149 \text{ MB}\)</p>
+            <p>• 8K (7680×4320)：\(\approx 597 \text{ MB}\)</p>
+            <p>若使用 HDR（64-bit color）+ 32-bit depth + 8-bit stencil，每像素增加到 13 字节，4K 双缓冲约 215 MB。</p>
+            <div class="warning-box">⚠️ <strong>双缓冲 + V-Sync 会引入最多一帧的输入延迟。</strong>因为 GPU 必须等到下一个 V-Blank 才能交换缓冲区。在 60Hz 显示器上，这最多增加 16.7ms 的延迟。竞技游戏玩家通常关闭 V-Sync 以降低输入延迟，代价是可能出现画面撕裂。现代自适应同步技术（G-Sync / FreeSync）通过让显示器刷新率匹配 GPU 帧率来同时解决撕裂和延迟问题。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>三缓冲（Triple Buffering）</strong>：使用三个缓冲区——一个显示，一个等待交换，一个正在渲染。GPU 不必等 V-Sync 就可以开始渲染下一帧（写入第三个缓冲区），有效降低延迟。代价是额外一个缓冲区的显存开销（4K 约 75 MB）。</p>
+            <p><strong>后处理效果（Post-Processing）</strong>：在主渲染完成后，对帧缓冲进行全屏像素处理。常见效果包括：<strong>泛光（Bloom）</strong>——提取高亮区域并模糊叠加；<strong>色调映射（Tone Mapping）</strong>——将 HDR 值映射到 SDR 显示范围；<strong>FXAA/TAA</strong>——基于帧缓冲的抗锯齿。</p>
+            <p><strong>多渲染目标（MRT, Multiple Render Targets）</strong>：片段着色器一次可以写入多个颜色缓冲区（如延迟渲染中的 G-buffer：位置纹理、法线纹理、反照率纹理、深度纹理）。现代 GPU 支持 8 个同时写入的 MRT。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>游戏运行在 4K（3840×2160），使用延迟渲染。G-buffer 包含：(a) 位置纹理 (RGBA16F = 8 字节/像素)；(b) 法线纹理 (RGBA16F = 8 字节/像素)；(c) 反照率纹理 (RGBA8 = 4 字节/像素)；(d) 深度纹理 (32-bit = 4 字节/像素)。加上最终渲染的双缓冲帧缓冲（RGBA8 + 24-bit depth + 8-bit stencil）。求总显存开销。</p>
+            <p><em>解答：</em></p>
+            <p>像素数：\(3840 \times 2160 = 8{,}294{,}400\)。</p>
+            <p>G-buffer（单份）：\((8 + 8 + 4 + 4) \times 8{,}294{,}400 = 24 \times 8{,}294{,}400 = 199.1 \text{ MB}\)</p>
+            <p>最终帧缓冲（双缓冲）：\((4 + 3 + 1) \times 8{,}294{,}400 \times 2 = 8 \times 8{,}294{,}400 \times 2 = 132.7 \text{ MB}\)</p>
+            <p><strong>总计</strong>：\(199.1 + 132.7 = 331.8 \text{ MB}\)。</p>
+            <p>这还没算纹理、顶点缓冲、着色器等资源——4K 延迟渲染对显存的需求非常高。</p>
+            <p>❌ <strong>常见错误：</strong>忘记 G-buffer 只需单份（不需要双缓冲），或忘记将深度/模板缓冲计入总量。</p>
+            <p>✅ <strong>正确做法：</strong>逐项列出每个缓冲区的大小和份数，防止遗漏。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch02-kp4">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.warn{fill:#ef4444}.ok{fill:#10b981}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="12" font-weight="bold">帧缓冲组成与双缓冲交换</text>
+          <!-- Framebuffer composition -->
+          <text class="fg" x="100" y="38" text-anchor="middle" font-size="9" font-weight="bold">帧缓冲组成</text>
+          <rect x="15" y="45" width="56" height="55" fill="#3b82f6" opacity="0.2" rx="3"/>
+          <text class="accent" x="43" y="60" text-anchor="middle" font-size="7" font-weight="bold">Color</text>
+          <text class="fg2" x="43" y="72" text-anchor="middle" font-size="6">RGBA 32-bit</text>
+          <text class="fg2" x="43" y="82" text-anchor="middle" font-size="6">4 字节/像素</text>
+          <text class="fg2" x="43" y="92" text-anchor="middle" font-size="6">🎨</text>
+          <rect x="76" y="45" width="56" height="55" fill="#64748b" opacity="0.2" rx="3"/>
+          <text class="fg" x="104" y="60" text-anchor="middle" font-size="7" font-weight="bold">Depth</text>
+          <text class="fg2" x="104" y="72" text-anchor="middle" font-size="6">32-bit float</text>
+          <text class="fg2" x="104" y="82" text-anchor="middle" font-size="6">4 字节/像素</text>
+          <text class="fg2" x="104" y="92" text-anchor="middle" font-size="6">📏</text>
+          <rect x="137" y="45" width="56" height="55" fill="#f59e0b" opacity="0.15" rx="3"/>
+          <text class="fg" x="165" y="60" text-anchor="middle" font-size="7" font-weight="bold">Stencil</text>
+          <text class="fg2" x="165" y="72" text-anchor="middle" font-size="6">8-bit</text>
+          <text class="fg2" x="165" y="82" text-anchor="middle" font-size="6">1 字节/像素</text>
+          <text class="fg2" x="165" y="92" text-anchor="middle" font-size="6">✂️</text>
+          <!-- Double buffering -->
+          <text class="fg" x="310" y="38" text-anchor="middle" font-size="9" font-weight="bold">双缓冲交换</text>
+          <!-- Front buffer -->
+          <rect x="250" y="48" width="55" height="40" fill="#10b981" opacity="0.2" rx="3" stroke="#10b981" stroke-width="1"/>
+          <text class="ok" x="277" y="63" text-anchor="middle" font-size="7" font-weight="bold">Front</text>
+          <text class="fg2" x="277" y="78" text-anchor="middle" font-size="6">正在显示</text>
+          <!-- Back buffer -->
+          <rect x="320" y="48" width="55" height="40" fill="#3b82f6" opacity="0.2" rx="3" stroke="#3b82f6" stroke-width="1"/>
+          <text class="accent" x="347" y="63" text-anchor="middle" font-size="7" font-weight="bold">Back</text>
+          <text class="fg2" x="347" y="78" text-anchor="middle" font-size="6">正在渲染</text>
+          <!-- Swap arrows -->
+          <path d="M 295 50 Q 312 38 330 50" fill="none" stroke="#334155" stroke-width="1" marker-end="url(#ah3)"/>
+          <path d="M 330 86 Q 312 96 295 86" fill="none" stroke="#334155" stroke-width="1" marker-end="url(#ah3)"/>
+          <text class="fg2" x="312" y="100" text-anchor="middle" font-size="6">V-Sync Swap</text>
+          <defs><marker id="ah3" markerWidth="5" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0,5 2,0 4" fill="#334155"/></marker></defs>
+          <!-- Memory calculation -->
+          <rect x="15" y="110" width="178" height="50" fill="#3b82f6" opacity="0.05" rx="3" stroke="#334155" stroke-width="0.5"/>
+          <text class="fg" x="104" y="126" text-anchor="middle" font-size="8" font-weight="bold">4K 双缓冲显存计算</text>
+          <text class="fg2" x="104" y="140" text-anchor="middle" font-size="7">3840 × 2160 × (4+4+1) × 2</text>
+          <text class="accent" x="104" y="154" text-anchor="middle" font-size="8" font-weight="bold">≈ 149 MB</text>
+          <!-- Timeline: tearing vs vsync -->
+          <text class="fg" x="200" y="178" text-anchor="middle" font-size="9" font-weight="bold">V-Sync 的权衡</text>
+          <!-- V-Sync OFF -->
+          <rect x="20" y="186" width="170" height="22" fill="#ef4444" opacity="0.1" rx="3"/>
+          <text class="warn" x="105" y="196" text-anchor="middle" font-size="7" font-weight="bold">V-Sync OFF</text>
+          <text class="fg2" x="105" y="206" text-anchor="middle" font-size="6">低延迟 ✓ · 画面撕裂 ✗</text>
+          <!-- V-Sync ON -->
+          <rect x="210" y="186" width="170" height="22" fill="#10b981" opacity="0.1" rx="3"/>
+          <text class="ok" x="295" y="196" text-anchor="middle" font-size="7" font-weight="bold">V-Sync ON</text>
+          <text class="fg2" x="295" y="206" text-anchor="middle" font-size="6">无撕裂 ✓ · +1帧延迟 ✗</text>
+          <!-- Best solution -->
+          <text class="fg2" x="200" y="232" text-anchor="middle" font-size="8" font-style="italic">G-Sync / FreeSync：显示器同步 GPU 帧率，兼顾两者优点</text>
+        </svg>
+        <figcaption>图 2-4 帧缓冲组成、双缓冲交换机制与 V-Sync 权衡</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">三缓冲（Triple Buffering）相比双缓冲的核心优势是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '三缓冲的颜色精度与双缓冲相同，缓冲区数量不影响颜色位深。')">A. 更高的颜色精度</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '三缓冲使用更多显存（多一个缓冲区），不会减少显存用量。')">B. 减少显存使用</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！三缓冲允许 GPU 在等待 V-Sync 交换时继续渲染到第三个缓冲区，减少 GPU 空闲时间，降低帧延迟。')">C. GPU 无需等待 V-Sync 即可开始渲染下一帧，降低延迟</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '抗锯齿效果取决于 MSAA/TAA 等技术，与缓冲区数量无关。')">D. 更好的抗锯齿效果</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch01.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch03.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

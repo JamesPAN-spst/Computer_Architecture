@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.5 多核与一致性 — 计算的引擎 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s4-ch05-q1", question: "SMP（Symmetric Multiprocessing）架构的核心特征是？", options: ["每个处理器拥有独立的内存空间","所有处理器共享统一的内存地址空间且访问延迟相同","处理器之间通过消息传递通信","只有一个处理器可以访问共享内存"], answer: 1, explanation: "SMP 的核心特征是所有处理器对称地共享同一个主存，访问延迟对所有处理器相同（Uniform Memory Access, UMA）。这简化了编程模型，但随着核心数增加，共享总线会成为瓶颈。" },
+      { id: "s4-ch05-q2", question: "NUMA 架构中，处理器访问远程内存（Remote Memory）相比本地内存（Local Memory）有什么特点？", options: ["延迟相同，带宽不同","延迟更高","延迟更低","无法访问远程内存"], answer: 1, explanation: "NUMA（Non-Uniform Memory Access）中，每个处理器有自己的本地内存（访问快），也能访问其他处理器的内存（访问慢）。远程访问需要通过互连网络（如 Intel QPI/UPI、AMD Infinity Fabric），延迟是本地的 1.5-3 倍。" },
+      { id: "s4-ch05-q3", question: "MESI 协议中，缓存行处于 Exclusive 状态意味着？", options: ["该行已被修改，与主存不一致","该行是只读的，多个核心拥有副本","该行只在本核心缓存中存在，且与主存一致","该行已失效，不可使用"], answer: 2, explanation: "Exclusive 表示只有本核心拥有该缓存行的副本，且内容与主存一致。与 Modified 的区别是：Exclusive 未被修改（干净的），Modified 已被修改（脏的）。" },
+      { id: "s4-ch05-q4", question: "MESI 协议中，当核心 A 要写入一个处于 Shared 状态的缓存行时，需要先执行什么操作？", options: ["直接写入，无需任何操作","发送失效消息（Invalidate）使其他核心的副本失效","从主存重新读取最新数据","等待所有核心完成读操作"], answer: 1, explanation: "Shared 状态表示多个核心持有副本。写入前必须通过总线发送 Invalidate 消息，使其他核心的副本转为 Invalid，确保本核心成为唯一持有者（转为 Modified），然后才能写入。" },
+      { id: "s4-ch05-q5", question: "伪共享（False Sharing）发生的根本原因是？", options: ["两个线程访问同一个变量","两个线程访问不同变量但它们位于同一缓存行","缓存容量不足导致频繁替换","一致性协议存在设计缺陷"], answer: 1, explanation: "伪共享发生在两个线程分别读写不同的变量，但这些变量恰好位于同一缓存行中。由于缓存一致性以缓存行为单位工作，一个线程的写操作会使另一个线程的缓存行失效，导致不必要的缓存缺失和性能下降。" },
+      { id: "s4-ch05-q6", question: "以下哪种方法可以有效缓解伪共享？", options: ["减小缓存行大小","在变量之间插入填充（Padding），使它们位于不同缓存行","增加共享变量的数量","使用更弱的内存模型"], answer: 1, explanation: "通过插入填充字节（padding），强制让不同线程访问的变量位于不同的缓存行中，从而避免伪共享。例如在 C/C++ 中使用 alignas(64) 或手动添加 padding 数组。" },
+      { id: "s4-ch05-q7", question: "内存屏障（Memory Barrier / Fence）的作用是？", options: ["加速内存访问","阻止编译器和 CPU 对屏障前后的内存操作进行重排序","清空缓存中的所有数据","防止缓存行被替换"], answer: 1, explanation: "内存屏障是一条特殊指令，保证屏障之前的内存操作在屏障之后的操作之前对其他核心可见。它同时约束编译器和处理器的重排序行为，是实现正确同步的底层原语。" },
+      { id: "s4-ch05-q8", question: "x86 架构采用的内存模型是？", options: ["完全松散模型（Relaxed）","顺序一致性模型（Sequential Consistency）","总存储有序模型（Total Store Order, TSO）","释放一致性模型（Release Consistency）"], answer: 2, explanation: "x86 采用 TSO（Total Store Order）模型：所有核心观察到的 Store 操作顺序是一致的，Store-Load 可以被重排但 Store-Store 不可以。TSO 比顺序一致性稍弱但比 ARM/RISC-V 的松散模型强，编程更直觉。" }
+    ];
+  </script>
+  <script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre']}};</script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-4" data-module="ch05" style="--domain-color: var(--c-cpu);">
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 4</span><a href="index.html" class="module-name">计算的引擎</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.5 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · SMP 与 NUMA 架构</a></li>
+      <li><a href="#kp2">02 · MESI 协议</a></li>
+      <li><a href="#kp3">03 · 伪共享的性能陷阱</a></li>
+      <li><a href="#kp4">04 · 内存模型与内存屏障</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+  <main class="main-content">
+    <header class="chapter-hero"><p class="chapter-label">Chapitre 5</p><h1>多核（Multi-core）与一致性（Coherence）</h1></header>
+
+    <!-- ════════ KP 1 ════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · SMP 与 NUMA 架构（SMP vs NUMA Architecture）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>单核处理器的性能提升受到<strong>"功耗墙"（Power Wall）</strong>和<strong>"指令级并行度墙"（ILP Wall）</strong>的限制。从 2005 年左右开始，处理器厂商不再追求更高的单核频率，转而在单芯片上集成多个核心——多核时代由此开启。但多核设计面临一个根本性的架构选择：多个核心如何共享内存？</p>
+            <p>不同的内存共享方式决定了编程模型的复杂度、系统的可扩展性（核心数从 2 到 100+）以及实际的性能表现。SMP 和 NUMA 是两种最重要的共享内存架构，理解它们的区别对于编写高性能并行程序至关重要。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>SMP（Symmetric Multiprocessing，对称多处理）</strong>：所有处理器通过一条共享总线（或交叉开关）连接到统一的主存。每个处理器访问任何内存地址的延迟<strong>相同</strong>——称为<strong>UMA（Uniform Memory Access）</strong>。优点是编程简单（不需要考虑数据放置），缺点是共享总线带宽有限，随着核心数增加成为严重瓶颈。典型的 SMP 系统核心数通常不超过 8–16 个。</p>
+            <p><strong>NUMA（Non-Uniform Memory Access，非均匀内存访问）</strong>：每个处理器（或处理器组）有自己的<strong>本地内存</strong>，通过高速互连网络（如 Intel QPI/UPI、AMD Infinity Fabric、ARM CCIX）也能访问其他处理器的内存。访问本地内存快（~100ns），访问远程内存慢（~150-300ns）。NUMA 避免了共享总线瓶颈，可扩展到数十甚至数百个核心。但程序员或操作系统必须注意<strong>数据亲和性（Data Affinity）</strong>——尽量让线程访问本地内存。</p>
+            <p>现代服务器普遍采用 NUMA 架构。即使是消费级的 AMD Ryzen（chiplet 设计）也具有 NUMA 特征——不同 CCD（Core Complex Die）之间的内存访问延迟略有差异。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>NUMA 系统的平均内存访问时间取决于本地/远程访问比例：</p>
+            \[
+            \text{AMAT}_{\text{NUMA}} = f_{\text{local}} \times t_{\text{local}} + (1 - f_{\text{local}}) \times t_{\text{remote}}
+            \]
+            <p>其中 \(f_{\text{local}}\) 是本地访问比例，\(t_{\text{local}}\) 和 \(t_{\text{remote}}\) 分别是本地和远程访问延迟。</p>
+            <p>定义 <strong>NUMA 比率</strong>（NUMA Ratio）为远程与本地延迟之比：</p>
+            \[
+            R_{\text{NUMA}} = \frac{t_{\text{remote}}}{t_{\text{local}}}
+            \]
+            <p>典型值：Intel 双路服务器 \(R_{\text{NUMA}} \approx 1.5\text{–}2.0\)；四路服务器 \(R_{\text{NUMA}} \approx 2.0\text{–}3.0\)。</p>
+            <p>例如 \(t_{\text{local}} = 80\text{ns}\)，\(R_{\text{NUMA}} = 2.0\)，\(f_{\text{local}} = 70\%\)：</p>
+            \[
+            \text{AMAT} = 0.70 \times 80 + 0.30 \times 160 = 56 + 48 = 104\text{ ns}
+            \]
+            <p>如果优化数据放置使 \(f_{\text{local}} = 95\%\)：</p>
+            \[
+            \text{AMAT} = 0.95 \times 80 + 0.05 \times 160 = 76 + 8 = 84\text{ ns}
+            \]
+            <p>数据亲和性优化将平均延迟降低了约 19%！</p>
+            <div class="warning-box">⚠️ 共享总线的 SMP 带宽公式为 \(B_{\text{total}} = B_{\text{bus}}\)（固定的总线带宽），与核心数无关。当核心数 \(n\) 增加时，每核可用带宽为 \(B_{\text{bus}} / n\)，线性下降。这就是 SMP 不可扩展的根本原因。NUMA 的互连网络带宽随节点数增加而扩展。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>操作系统 NUMA 感知调度：</strong>Linux 内核的 NUMA balancing 机制会自动监测线程的内存访问模式，将频繁访问远程内存的线程迁移到数据所在的 NUMA 节点。可以使用 <code>numactl</code> 工具手动控制线程和内存的 NUMA 亲和性。</p>
+            <p><strong>数据库优化：</strong>大型数据库（如 Oracle、PostgreSQL）的 buffer pool 设计需要考虑 NUMA 拓扑。将 buffer pool 分片到各 NUMA 节点的本地内存上，避免跨节点访问，可以显著提升 TPS（每秒事务数）。</p>
+            <p><strong>AMD chiplet 架构：</strong>AMD Zen 系列使用 chiplet 设计（多个 CCD 通过 Infinity Fabric 互连），形成了芯片内部的 NUMA 结构。理解这一点对于优化游戏和高性能计算的线程调度很重要。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个 4 节点 NUMA 系统，本地内存延迟 100ns，1 跳远程延迟 170ns，2 跳远程延迟 250ns。节点 0 运行一个线程，70% 访问本地，20% 访问 1 跳远程，10% 访问 2 跳远程。计算平均内存延迟。</p>
+            <p><em>解答：</em></p>
+            \[\text{AMAT} = 0.70 \times 100 + 0.20 \times 170 + 0.10 \times 250 = 70 + 34 + 25 = 129\text{ ns}\]
+            <p>❌ <strong>常见错误：</strong>把所有远程访问都按最远距离计算，得到 \(0.30 \times 250 = 75\) → AMAT = 145ns。实际上不同距离的远程节点延迟不同。</p>
+            <p>✅ <strong>正确做法：</strong>根据拓扑结构分别计算不同距离的远程访问延迟，加权求和。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch05-kp1">
+        <svg viewBox="0 0 400 220" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}</style>
+          <text class="fg" x="100" y="16" text-anchor="middle" font-size="11" font-weight="bold">SMP (UMA)</text>
+          <text class="fg" x="300" y="16" text-anchor="middle" font-size="11" font-weight="bold">NUMA</text>
+          <!-- SMP -->
+          <rect x="20" y="25" width="35" height="22" fill="#bfdbfe" stroke="#334155" rx="3"/><text class="fg2" x="37" y="40" text-anchor="middle" font-size="7">Core0</text>
+          <rect x="60" y="25" width="35" height="22" fill="#bfdbfe" stroke="#334155" rx="3"/><text class="fg2" x="77" y="40" text-anchor="middle" font-size="7">Core1</text>
+          <rect x="100" y="25" width="35" height="22" fill="#bfdbfe" stroke="#334155" rx="3"/><text class="fg2" x="117" y="40" text-anchor="middle" font-size="7">Core2</text>
+          <rect x="140" y="25" width="35" height="22" fill="#bfdbfe" stroke="#334155" rx="3"/><text class="fg2" x="157" y="40" text-anchor="middle" font-size="7">Core3</text>
+          <rect x="30" y="65" width="140" height="18" fill="#fecdd3" stroke="#f43f5e" rx="3"/>
+          <text class="accent" x="100" y="78" text-anchor="middle" font-size="8">共享总线</text>
+          <line x1="37" y1="47" x2="37" y2="65" class="line"/>
+          <line x1="77" y1="47" x2="77" y2="65" class="line"/>
+          <line x1="117" y1="47" x2="117" y2="65" class="line"/>
+          <line x1="157" y1="47" x2="157" y2="65" class="line"/>
+          <rect x="40" y="95" width="120" height="22" fill="#fef3c7" stroke="#334155" rx="3"/>
+          <text class="fg" x="100" y="110" text-anchor="middle" font-size="8">共享内存（延迟相同）</text>
+          <line x1="100" y1="83" x2="100" y2="95" class="line" marker-end="url(#ah5)"/>
+          <!-- NUMA -->
+          <rect x="220" y="25" width="35" height="22" fill="#bfdbfe" stroke="#334155" rx="3"/><text class="fg2" x="237" y="40" text-anchor="middle" font-size="7">Core0</text>
+          <rect x="265" y="25" width="35" height="22" fill="#bfdbfe" stroke="#334155" rx="3"/><text class="fg2" x="282" y="40" text-anchor="middle" font-size="7">Core1</text>
+          <rect x="325" y="25" width="35" height="22" fill="#bbf7d0" stroke="#334155" rx="3"/><text class="fg2" x="342" y="40" text-anchor="middle" font-size="7">Core2</text>
+          <rect x="365" y="25" width="35" height="22" fill="#bbf7d0" stroke="#334155" rx="3"/><text class="fg2" x="382" y="40" text-anchor="middle" font-size="7">Core3</text>
+          <rect x="220" y="55" width="80" height="18" fill="#fef3c7" stroke="#334155" rx="3"/>
+          <text class="fg2" x="260" y="68" text-anchor="middle" font-size="7">本地内存 0</text>
+          <rect x="325" y="55" width="75" height="18" fill="#fef3c7" stroke="#334155" rx="3"/>
+          <text class="fg2" x="362" y="68" text-anchor="middle" font-size="7">本地内存 1</text>
+          <line x1="237" y1="47" x2="237" y2="55" class="line"/>
+          <line x1="282" y1="47" x2="282" y2="55" class="line"/>
+          <line x1="342" y1="47" x2="342" y2="55" class="line"/>
+          <line x1="382" y1="47" x2="382" y2="55" class="line"/>
+          <!-- Interconnect -->
+          <line x1="300" y1="64" x2="325" y2="64" stroke="#f43f5e" stroke-width="2" stroke-dasharray="4,3"/>
+          <text class="accent" x="312" y="80" text-anchor="middle" font-size="7">互连</text>
+          <!-- Comparison table -->
+          <rect x="20" y="130" width="170" height="80" fill="#f1f5f9" stroke="#334155" rx="4"/>
+          <text class="fg" x="105" y="148" text-anchor="middle" font-size="9" font-weight="bold">SMP 特点</text>
+          <text class="fg2" x="105" y="163" text-anchor="middle" font-size="8">✓ 访问延迟统一</text>
+          <text class="fg2" x="105" y="178" text-anchor="middle" font-size="8">✓ 编程简单</text>
+          <text class="accent" x="105" y="193" text-anchor="middle" font-size="8">✗ 可扩展性差（总线瓶颈）</text>
+          <rect x="210" y="130" width="180" height="80" fill="#f1f5f9" stroke="#334155" rx="4"/>
+          <text class="fg" x="300" y="148" text-anchor="middle" font-size="9" font-weight="bold">NUMA 特点</text>
+          <text class="fg2" x="300" y="163" text-anchor="middle" font-size="8">✓ 可扩展到大量核心</text>
+          <text class="fg2" x="300" y="178" text-anchor="middle" font-size="8">✓ 本地带宽高</text>
+          <text class="accent" x="300" y="193" text-anchor="middle" font-size="8">✗ 需要考虑数据亲和性</text>
+          <defs><marker id="ah5" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 5-1 SMP 与 NUMA 架构对比</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">为什么 SMP 难以扩展到大量核心？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'SMP 的核心架构并不比 NUMA 复杂。')">A. 核心设计太复杂</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,true,'正确！SMP 的共享总线带宽固定，核心数越多每核可用带宽越少，总线成为性能瓶颈。')">B. 共享总线带宽有限，核心数增多后成为瓶颈</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'内存容量和核心数的可扩展性是不同的问题。')">C. 内存容量无法增加</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'缓存一致性协议在 SMP 和 NUMA 中都需要，不是 SMP 独有的限制。')">D. 缓存一致性协议无法工作</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 2 ════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · MESI 协议（MESI Protocol）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在多核系统中，每个核心有自己的私有缓存（L1/L2）。当多个核心缓存了同一个内存地址的数据副本时，一个核心的写操作会使其他核心的副本<strong>过时（Stale）</strong>。如果不加以管理，一个线程读到的可能是另一个线程已经修改前的旧值——这种数据不一致会导致程序产生不可预测的错误结果。</p>
+            <p><strong>缓存一致性协议（Cache Coherence Protocol）</strong>的任务就是保证：任何核心读到的某地址的值，必须是该地址的最新写入值。MESI 是最经典也是应用最广泛的写失效（Write-Invalidate）一致性协议，被 Intel x86、许多 ARM 实现等广泛采用。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>MESI 协议为每个缓存行维护四个状态：</p>
+            <p><strong>M（Modified）</strong>：本缓存行已被修改，与主存不一致。<strong>只有本核心拥有副本</strong>。如果其他核心要读该地址，本核心必须先将数据写回主存（或直接转发）再降为 Shared。</p>
+            <p><strong>E（Exclusive）</strong>：本缓存行未被修改，与主存一致，且<strong>只有本核心拥有副本</strong>。可以直接转为 Modified（无需通知其他核心），因为没有其他副本。</p>
+            <p><strong>S（Shared）</strong>：本缓存行与主存一致，但<strong>可能有其他核心也持有副本</strong>。写入前必须先发 Invalidate 消息使其他副本失效。</p>
+            <p><strong>I（Invalid）</strong>：本缓存行无效（空的或已被失效）。访问该地址需要从主存或其他核心获取。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>MESI 的关键状态转移（以核心 A 的视角）：</p>
+            <p><strong>读未命中（Read Miss）</strong>：</p>
+            <p>I → S（如果其他核心持有该行的 S 或 E 副本）或 I → E（如果没有其他核心持有该行）。</p>
+            <p><strong>写命中（Write Hit）</strong>：</p>
+            <p>E → M（本核心独占且干净 → 直接变脏，无需总线事务）。</p>
+            <p>S → M（先广播 Invalidate → 其他核心副本变 I → 本核心变 M）。</p>
+            <p><strong>写未命中（Write Miss）</strong>：</p>
+            <p>I → M（发起 BusRdX 事务：读取数据 + 使其他副本失效，一步完成）。</p>
+            <p>一致性的总线流量开销分析：设有 \(n\) 个核心，数据块的共享度为 \(s\)（即平均有 \(s\) 个核心持有同一缓存行的副本），则每次写操作产生的失效消息数为：</p>
+            \[
+            \text{Invalidations per write} = s - 1
+            \]
+            <p>总线流量 = 写操作频率 × 失效消息数。降低共享度（减少不必要的数据共享）是减少一致性流量的关键。</p>
+            <div class="warning-box">⚠️ E 状态是 MESI 相对于 MSI 协议的关键优化：在 MSI 中，独占访问的缓存行也处于 S 状态，写入时仍需发 Invalidate。而 MESI 中 E 状态表示"独占且干净"，写入时可以<strong>静默升级为 M</strong>，不需要任何总线事务——这在单线程访问的数据块上节省了大量总线带宽。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>MOESI 和 MESIF 变体：</strong>AMD 使用 MOESI 协议，增加了 O（Owned）状态，允许修改过的数据直接从一个核心转发到另一个核心，无需先写回主存。Intel 使用 MESIF 协议，增加了 F（Forward）状态来优化多播读请求。</p>
+            <p><strong>目录协议（Directory Protocol）</strong>：在大规模 NUMA 系统中（几十到几百个核心），基于总线的嗅探（Snooping）协议不可扩展——每个核心都要监听每个总线事务。目录协议使用一个集中的目录记录每个缓存行的状态和持有者，只向相关核心发送一致性消息，显著减少了网络流量。</p>
+            <p><strong>性能工具：</strong>Linux 的 <code>perf</code> 工具可以监测缓存一致性相关的硬件计数器，如远程缓存命中次数、失效消息数量等。Intel VTune 的 Memory Access 分析可以精确定位跨核心数据共享导致的性能瓶颈。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>双核系统中，初始时缓存行 X 不在任何缓存中。按以下顺序执行操作，列出每步后两个核心中该缓存行的 MESI 状态：① Core0 读 X ② Core1 读 X ③ Core0 写 X ④ Core1 读 X</p>
+            <p><em>解答：</em></p>
+            <p>① Core0 读 X：Core0 发 BusRd，无人持有 → Core0=<strong>E</strong>，Core1=I。</p>
+            <p>② Core1 读 X：Core1 发 BusRd，Core0 嗅探到 → Core0 从 E 降为 <strong>S</strong>，Core1=<strong>S</strong>。</p>
+            <p>③ Core0 写 X：Core0 发 Invalidate → Core1 变为 <strong>I</strong>，Core0 变为 <strong>M</strong>。</p>
+            <p>④ Core1 读 X：Core1 发 BusRd，Core0 嗅探到自己是 M → Core0 将数据写回（或直接转发）→ Core0=<strong>S</strong>，Core1=<strong>S</strong>。</p>
+            <p>❌ <strong>常见错误：</strong>步骤 ① 中将状态设为 S 而非 E——只有一个核心持有时应为 Exclusive，不是 Shared。</p>
+            <p>✅ <strong>关键区分：</strong>E 状态的条件是"本核心是唯一持有者且数据干净"。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch05-kp2">
+        <svg viewBox="0 0 400 260" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="11" font-weight="bold">MESI 状态转移图</text>
+          <!-- States -->
+          <circle cx="100" cy="70" r="30" fill="#fecdd3" stroke="#f43f5e" stroke-width="2"/>
+          <text class="fg" x="100" y="67" text-anchor="middle" font-size="14" font-weight="bold">M</text>
+          <text class="fg2" x="100" y="80" text-anchor="middle" font-size="7">Modified</text>
+          <circle cx="300" cy="70" r="30" fill="#bfdbfe" stroke="#3b82f6" stroke-width="2"/>
+          <text class="fg" x="300" y="67" text-anchor="middle" font-size="14" font-weight="bold">E</text>
+          <text class="fg2" x="300" y="80" text-anchor="middle" font-size="7">Exclusive</text>
+          <circle cx="100" cy="190" r="30" fill="#bbf7d0" stroke="#22c55e" stroke-width="2"/>
+          <text class="fg" x="100" y="187" text-anchor="middle" font-size="14" font-weight="bold">S</text>
+          <text class="fg2" x="100" y="200" text-anchor="middle" font-size="7">Shared</text>
+          <circle cx="300" cy="190" r="30" fill="#e2e8f0" stroke="#94a3b8" stroke-width="2"/>
+          <text class="fg" x="300" y="187" text-anchor="middle" font-size="14" font-weight="bold">I</text>
+          <text class="fg2" x="300" y="200" text-anchor="middle" font-size="7">Invalid</text>
+          <!-- Transitions -->
+          <!-- E -> M (local write) -->
+          <path d="M 270 60 L 135 60" class="line" marker-end="url(#ah52)"/>
+          <text class="fg2" x="200" y="55" text-anchor="middle" font-size="7">本地写(静默)</text>
+          <!-- I -> E (read miss, no sharers) -->
+          <path d="M 300 160 L 300 100" class="line" marker-end="url(#ah52)"/>
+          <text class="fg2" x="345" y="135" font-size="7">BusRd</text>
+          <text class="fg2" x="345" y="145" font-size="7">(无共享者)</text>
+          <!-- I -> S (read miss, has sharers) -->
+          <path d="M 270 195 L 135 195" class="line" marker-end="url(#ah52)"/>
+          <text class="fg2" x="200" y="210" text-anchor="middle" font-size="7">BusRd(有共享者)</text>
+          <!-- S -> M (local write + invalidate) -->
+          <path d="M 100 160 L 100 100" class="line" marker-end="url(#ah52)"/>
+          <text class="fg2" x="55" y="130" font-size="7">本地写</text>
+          <text class="fg2" x="40" y="140" font-size="7">+Invalidate</text>
+          <!-- E -> S (remote read) -->
+          <path d="M 280 96 L 130 170" class="line" marker-end="url(#ah52)"/>
+          <text class="fg2" x="220" y="140" font-size="7">远程BusRd</text>
+          <!-- S -> I (remote invalidate) -->
+          <path d="M 130 200 L 270 200" class="line" marker-end="url(#ah52)"/>
+          <text class="fg2" x="200" y="225" text-anchor="middle" font-size="7">收到 Invalidate</text>
+          <!-- I -> M (write miss) -->
+          <path d="M 270 180 L 130 80" stroke="#f43f5e" fill="none" stroke-width="1.5" marker-end="url(#ah52r)"/>
+          <text class="accent" x="175" y="120" font-size="7">BusRdX(写未命中)</text>
+          <!-- Legend -->
+          <text class="fg2" x="200" y="250" text-anchor="middle" font-size="9" font-style="italic">MESI 四状态：Modified / Exclusive / Shared / Invalid</text>
+          <defs>
+            <marker id="ah52" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker>
+            <marker id="ah52r" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#f43f5e"/></marker>
+          </defs>
+        </svg>
+        <figcaption>图 5-2 MESI 协议状态转移图（简化版）</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">MESI 中 Exclusive 状态相比 MSI 协议的 Shared 状态有什么优势？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'E 状态并不让缓存行更大，它描述的是缓存行的共享状态。')">A. 可以存储更大的缓存行</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,true,'正确！E 状态表示只有本核心持有，写入时可以直接静默升级为 M，无需发 Invalidate 消息，节省了总线带宽。')">B. 写入时无需发送 Invalidate 消息，减少总线流量</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'E 状态的数据与主存一致，不需要更快写回。')">C. 可以更快地写回主存</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'E 状态恰好表示该行没有被共享。')">D. 允许多个核心同时写入同一缓存行</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 3 ════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 伪共享（False Sharing）的性能陷阱</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>考虑以下场景：线程 A 频繁写入变量 <code>counter_a</code>，线程 B 频繁写入变量 <code>counter_b</code>。两个变量在逻辑上完全独立，没有任何数据依赖。程序员理所当然地认为两个线程可以并行运行而互不干扰。</p>
+            <p>但如果 <code>counter_a</code> 和 <code>counter_b</code> 在内存中相邻（例如在同一个结构体的连续字段中），它们极有可能位于<strong>同一缓存行</strong>（通常 64 字节）。由于缓存一致性协议以<strong>缓存行为粒度</strong>工作，线程 A 写 <code>counter_a</code> 会导致线程 B 的缓存行失效，线程 B 写 <code>counter_b</code> 又导致线程 A 的缓存行失效——两个线程不断互相使对方的缓存失效，性能可能下降 10 倍甚至更多！</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>伪共享（False Sharing）</strong>的定义：多个处理器核心分别访问不同的数据，但这些数据恰好位于同一缓存行中，导致不必要的缓存一致性通信。称为"伪"共享是因为数据在逻辑上不共享，冲突仅由物理布局引起。</p>
+            <p>伪共享的识别特征：① 多线程程序在增加核心数时性能不升反降；② <code>perf</code> 显示大量的缓存失效和一致性流量；③ 不同线程写入的变量在内存中距离小于缓存行大小（64 字节）。</p>
+            <p>伪共享的解决方案核心思想是<strong>对齐和填充（Alignment and Padding）</strong>：确保不同线程写入的数据位于不同的缓存行中。常见方法包括：① 在变量之间插入填充字节；② 使用编译器对齐属性（如 C++ 的 <code>alignas(64)</code>）；③ 使用语言提供的特殊注解（如 Java 的 <code>@Contended</code>）。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>伪共享的性能影响可以用以下模型估算。设缓存行大小为 \(L\) 字节，两个线程分别以频率 \(f_A\) 和 \(f_B\) 写入同一缓存行中的不同位置：</p>
+            \[
+            \text{失效频率} = f_A + f_B \quad \text{（每次写都可能使对方失效）}
+            \]
+            <p>每次失效的代价约为 \(t_{\text{coherence}}\)（一致性协议的延迟，通常 50–200 周期），则额外延迟为：</p>
+            \[
+            \text{额外开销} = (f_A + f_B) \times t_{\text{coherence}}
+            \]
+            <p>对比无伪共享的情况：每个变量在独立的缓存行中，写操作只命中本地缓存（~1-4 周期），额外开销几乎为零。</p>
+            <p>使用填充解决伪共享后，内存开销增加：每个独占变量需要占据一个完整缓存行（64 字节），即使变量本身只有 4 或 8 字节。对于少量热点变量，这个空间代价完全值得。</p>
+            <div class="warning-box">⚠️ 伪共享只在<strong>多核写</strong>场景下有严重影响。如果多个核心只是<strong>读</strong>同一缓存行（例如共享只读配置），则缓存行在所有核心中都处于 Shared 状态，不会产生失效——这是真正的共享读，完全没有问题。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>C/C++ 中的填充技术：</strong></p>
+            <p>使用 <code>alignas(64)</code>：<code>struct alignas(64) PaddedCounter { int64_t value; };</code>。或者手动填充：<code>struct PaddedCounter { int64_t value; char padding[56]; };</code>（假设 int64_t 为 8 字节，填充到 64 字节）。</p>
+            <p><strong>Java 的 @Contended 注解：</strong>Java 8 引入了 <code>@sun.misc.Contended</code>（Java 9+ 为 <code>@jdk.internal.vm.annotation.Contended</code>），JVM 会自动在标注字段周围添加 128 字节的填充。Java 的 <code>LongAdder</code> 内部就使用了此技术来避免多线程计数时的伪共享。</p>
+            <p><strong>Linux 内核：</strong>Linux 内核中大量使用 <code>____cacheline_aligned_in_smp</code> 宏来对齐关键的每 CPU 变量（per-CPU variables），避免不同 CPU 频繁写入的变量落在同一缓存行中。<code>struct rq</code>（运行队列）就是一个典型例子。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>以下结构体在 4 核系统中被 4 个线程分别写入 <code>count[0]</code> 到 <code>count[3]</code>，是否存在伪共享？如何解决？</p>
+            <p><code>struct Counters { int64_t count[4]; }; // 4×8 = 32 字节</code></p>
+            <p><em>解答：</em>是的，存在伪共享。4 个 <code>int64_t</code> 共 32 字节，全部位于同一个 64 字节缓存行中。4 个线程的写操作会互相使对方的缓存失效。</p>
+            <p>解决方案：<code>struct PaddedCounters { alignas(64) int64_t count[4][8]; };</code>（每个计数器占一个完整缓存行），或使用结构体数组 + 对齐。</p>
+            <p>❌ <strong>常见错误：</strong>认为不同数组元素自动在不同缓存行——实际上连续的小元素很可能在同一缓存行。</p>
+            <p>✅ <strong>正确做法：</strong>对于多线程写入的热点变量，必须显式填充到缓存行边界。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch05-kp3">
+        <svg viewBox="0 0 400 230" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="11" font-weight="bold">伪共享（False Sharing）示意</text>
+          <!-- Cache line with two variables -->
+          <text class="fg" x="200" y="38" text-anchor="middle" font-size="9">同一缓存行（64 字节）</text>
+          <rect x="60" y="44" width="130" height="28" fill="#fecdd3" stroke="#f43f5e" stroke-width="1.5" rx="3"/>
+          <text class="fg" x="125" y="62" text-anchor="middle" font-size="9">counter_a (线程A写)</text>
+          <rect x="210" y="44" width="130" height="28" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1.5" rx="3"/>
+          <text class="fg" x="275" y="62" text-anchor="middle" font-size="9">counter_b (线程B写)</text>
+          <rect x="55" y="42" width="290" height="33" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="5,3" rx="5"/>
+          <!-- Cores -->
+          <rect x="60" y="100" width="90" height="35" fill="#fef3c7" stroke="#334155" rx="4"/>
+          <text class="fg" x="105" y="115" text-anchor="middle" font-size="9" font-weight="bold">Core A Cache</text>
+          <text class="fg2" x="105" y="128" text-anchor="middle" font-size="7">[counter_a | counter_b]</text>
+          <rect x="250" y="100" width="90" height="35" fill="#fef3c7" stroke="#334155" rx="4"/>
+          <text class="fg" x="295" y="115" text-anchor="middle" font-size="9" font-weight="bold">Core B Cache</text>
+          <text class="fg2" x="295" y="128" text-anchor="middle" font-size="7">[counter_a | counter_b]</text>
+          <!-- Invalidation arrows -->
+          <path d="M 150 117 L 250 117" stroke="#f43f5e" stroke-width="2" marker-end="url(#ah53)" stroke-dasharray="6,3"/>
+          <text class="accent" x="200" y="112" text-anchor="middle" font-size="8">Invalidate!</text>
+          <path d="M 250 123 L 150 123" stroke="#3b82f6" stroke-width="2" marker-end="url(#ah53b)" stroke-dasharray="6,3"/>
+          <text x="200" y="140" text-anchor="middle" font-size="8" fill="#3b82f6">Invalidate!</text>
+          <!-- Solution -->
+          <text class="fg" x="200" y="168" text-anchor="middle" font-size="10" font-weight="bold">✅ 解决方案：填充对齐</text>
+          <rect x="40" y="175" width="140" height="28" fill="#bbf7d0" stroke="#22c55e" rx="3"/>
+          <text class="fg" x="110" y="193" text-anchor="middle" font-size="8">counter_a + padding</text>
+          <text class="fg2" x="110" y="215" text-anchor="middle" font-size="7">缓存行 1</text>
+          <rect x="220" y="175" width="140" height="28" fill="#bbf7d0" stroke="#22c55e" rx="3"/>
+          <text class="fg" x="290" y="193" text-anchor="middle" font-size="8">counter_b + padding</text>
+          <text class="fg2" x="290" y="215" text-anchor="middle" font-size="7">缓存行 2</text>
+          <text class="fg2" x="200" y="228" text-anchor="middle" font-size="8" font-style="italic">各自独占一个缓存行，互不干扰</text>
+          <defs>
+            <marker id="ah53" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#f43f5e"/></marker>
+            <marker id="ah53b" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6"/></marker>
+          </defs>
+        </svg>
+        <figcaption>图 5-3 伪共享问题与填充对齐解决方案</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">以下哪种场景不会产生伪共享？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'两个线程写同一缓存行中的不同变量正是伪共享的定义。')">A. 两个线程分别写入同一缓存行中的不同 int 变量</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'相邻数组元素很可能在同一缓存行中。')">B. 两个线程分别递增相邻数组元素 arr[0] 和 arr[1]</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,true,'正确！多个核心同时读取同一缓存行时，所有副本都处于 Shared 状态，不产生失效。只有写操作才触发一致性协议的失效机制。')">C. 多个线程只读取同一缓存行中的数据</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'结构体中相邻的小字段很可能在同一缓存行。')">D. 两个线程分别写入同一结构体的不同字段</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 4 ════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 内存模型（Memory Model）与内存屏障（Memory Barrier）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>缓存一致性（Coherence）保证了所有核心最终能看到对同一地址的最新写入。但它<strong>不保证</strong>不同地址之间的写入顺序！考虑以下经典例子：</p>
+            <p>线程 A：<code>data = 42; flag = 1;</code><br/>
+            线程 B：<code>while (flag == 0); print(data);</code></p>
+            <p>程序员期望：线程 B 看到 <code>flag == 1</code> 时，<code>data</code> 已经是 42。但现代处理器和编译器可能对指令进行<strong>重排序（Reordering）</strong>——线程 A 的 Store 操作可能以不同于程序顺序的方式对线程 B 可见。在某些处理器上，线程 B 可能看到 <code>flag == 1</code> 但 <code>data</code> 仍然是旧值！</p>
+            <p><strong>内存一致性模型（Memory Consistency Model）</strong>定义了多线程程序中内存操作的可见顺序规则。它告诉程序员："在什么条件下，一个核心的写操作一定对另一个核心的读操作可见？"</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>内存模型按强弱排列：</p>
+            <p><strong>顺序一致性（Sequential Consistency, SC）</strong>：最强最直觉的模型。所有核心的内存操作仿佛在一个全局序列中执行，每个核心的操作顺序与程序顺序一致。缺点：禁止了大部分硬件优化（如 Store Buffer），性能差。</p>
+            <p><strong>总存储有序（Total Store Order, TSO）</strong>：x86 架构采用。允许 Store-Load 重排序（一个 Store 后面紧跟的 Load 可以先执行），但保持 Store-Store、Load-Load、Load-Store 的顺序。TSO 下上面的 flag 例子是安全的（Store-Store 不重排）。</p>
+            <p><strong>松散模型（Relaxed / Weak Order）</strong>：ARM、RISC-V、PowerPC 采用。几乎所有类型的重排序都被允许——编译器和处理器可以自由重排 Load 和 Store，除非显式插入内存屏障。性能最好，但编程最复杂。</p>
+            <p><strong>内存屏障（Memory Barrier / Fence）</strong>：一种特殊指令，禁止屏障前后的内存操作被重排。不同类型的屏障约束不同类型的重排序：Store Fence（阻止 Store-Store 重排）、Load Fence（阻止 Load-Load 重排）、Full Fence（阻止所有重排）。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>重排序的类型矩阵（✓ = 允许重排，✗ = 禁止重排）：</p>
+            <p><strong>x86 (TSO)：</strong></p>
+            \[
+            \begin{array}{c|cc}
+            & \text{后续 Load} & \text{后续 Store} \\
+            \hline
+            \text{前序 Load} & \times & \times \\
+            \text{前序 Store} & \checkmark & \times
+            \end{array}
+            \]
+            <p><strong>ARM/RISC-V (Relaxed)：</strong></p>
+            \[
+            \begin{array}{c|cc}
+            & \text{后续 Load} & \text{后续 Store} \\
+            \hline
+            \text{前序 Load} & \checkmark & \checkmark \\
+            \text{前序 Store} & \checkmark & \checkmark
+            \end{array}
+            \]
+            <p>x86 的 TSO 模型只允许一种重排（Store→Load），因此大部分多线程程序不需要显式屏障。而 ARM 的松散模型允许所有四种重排，程序员必须在关键位置插入屏障指令（如 <code>DMB</code>、<code>DSB</code>）。</p>
+            <p>内存屏障的性能代价：一条 Full Fence 指令（如 x86 的 <code>MFENCE</code>）通常需要刷空 Store Buffer，代价约 <strong>20–100 个周期</strong>。因此应该尽量减少屏障的使用——只在确实需要顺序保证的地方使用。</p>
+            <div class="warning-box">⚠️ 编译器也会重排内存操作！即使硬件保证了顺序，如果编译器将 <code>data = 42</code> 和 <code>flag = 1</code> 重排了，结果同样不正确。C/C++ 的 <code>volatile</code> 阻止编译器重排但不阻止硬件重排。必须使用 <code>std::atomic</code> 或编译器屏障（如 <code>asm volatile("" ::: "memory")</code>）同时约束两者。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>C++11 内存序（Memory Order）</strong>：C++11 定义了六种内存序：<code>relaxed</code>、<code>consume</code>、<code>acquire</code>、<code>release</code>、<code>acq_rel</code>、<code>seq_cst</code>。其中 <code>acquire</code> 和 <code>release</code> 是最常用的一对：<code>release</code> 保证之前的所有写操作在 store 之前完成（Store Fence）；<code>acquire</code> 保证之后的所有读操作在 load 之后进行（Load Fence）。配对使用可以实现高效的发布-订阅模式。</p>
+            <p><strong>无锁数据结构（Lock-Free Data Structures）</strong>：无锁队列、无锁栈等高性能并发数据结构大量使用 <code>acquire</code>/<code>release</code> 语义来保证正确的发布顺序，避免使用重量级的互斥锁（mutex）。例如 Michael-Scott 无锁队列，每个 CAS（Compare-And-Swap）操作使用 <code>acq_rel</code> 语义。</p>
+            <p><strong>Linux 内核的屏障原语：</strong>Linux 内核定义了 <code>smp_rmb()</code>（读屏障）、<code>smp_wmb()</code>（写屏障）、<code>smp_mb()</code>（全屏障）等宏。在 x86 上，<code>smp_wmb()</code> 只是编译器屏障（因为 TSO 已保证 Store-Store 顺序），而在 ARM 上则会生成 <code>DMB ISHST</code> 指令。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>在 ARM（松散模型）上执行以下代码，不加屏障是否安全？</p>
+            <p>线程 A：<code>data = 42; flag = 1;</code><br/>
+            线程 B：<code>while (flag == 0); r = data;</code></p>
+            <p><em>解答：</em><strong>不安全！</strong>ARM 的松散模型允许 Store-Store 重排：线程 A 的 <code>flag = 1</code> 可能先于 <code>data = 42</code> 对线程 B 可见。也允许 Load-Load 重排：线程 B 的 <code>r = data</code> 可能先于 <code>flag</code> 的读取执行（乱序推测执行）。</p>
+            <p>修复方案：线程 A 在两个 Store 之间插入写屏障（<code>DMB ISHST</code> 或使用 <code>release</code> 语义写 flag）；线程 B 在读 flag 和读 data 之间插入读屏障（<code>DMB ISHLD</code> 或使用 <code>acquire</code> 语义读 flag）。</p>
+            <p>❌ <strong>常见错误：</strong>在 x86 上测试通过就认为代码正确——x86 的 TSO 模型隐藏了 Store-Store 重排问题，移植到 ARM 后可能出错。</p>
+            <p>✅ <strong>正确做法：</strong>使用 C++11 <code>std::atomic</code> 并指定合适的 memory order，让编译器为不同平台生成正确的屏障指令。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch05-kp4">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}</style>
+          <text class="fg" x="200" y="16" text-anchor="middle" font-size="11" font-weight="bold">内存模型强弱对比</text>
+          <!-- Spectrum bar -->
+          <defs>
+            <linearGradient id="grad5" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" style="stop-color:#22c55e;stop-opacity:0.3"/>
+              <stop offset="100%" style="stop-color:#f43f5e;stop-opacity:0.3"/>
+            </linearGradient>
+          </defs>
+          <rect x="40" y="28" width="320" height="30" fill="url(#grad5)" stroke="#334155" stroke-width="1" rx="6"/>
+          <text class="fg" x="60" y="47" font-size="8" font-weight="bold">强</text>
+          <text class="fg" x="345" y="47" font-size="8" font-weight="bold">弱</text>
+          <!-- Models on spectrum -->
+          <line x1="100" y1="28" x2="100" y2="58" stroke="#334155" stroke-width="1.5"/>
+          <text class="fg" x="100" y="72" text-anchor="middle" font-size="8" font-weight="bold">SC</text>
+          <text class="fg2" x="100" y="82" text-anchor="middle" font-size="7">顺序一致</text>
+          <line x1="200" y1="28" x2="200" y2="58" stroke="#334155" stroke-width="1.5"/>
+          <text class="fg" x="200" y="72" text-anchor="middle" font-size="8" font-weight="bold">TSO (x86)</text>
+          <text class="fg2" x="200" y="82" text-anchor="middle" font-size="7">总存储有序</text>
+          <line x1="310" y1="28" x2="310" y2="58" stroke="#334155" stroke-width="1.5"/>
+          <text class="fg" x="310" y="72" text-anchor="middle" font-size="8" font-weight="bold">Relaxed</text>
+          <text class="fg2" x="310" y="82" text-anchor="middle" font-size="7">ARM/RISC-V</text>
+          <!-- Fence illustration -->
+          <text class="fg" x="200" y="105" text-anchor="middle" font-size="10" font-weight="bold">内存屏障的作用</text>
+          <!-- Thread A -->
+          <rect x="40" y="115" width="140" height="110" fill="#f1f5f9" stroke="#334155" rx="4"/>
+          <text class="fg" x="110" y="132" text-anchor="middle" font-size="9" font-weight="bold">线程 A</text>
+          <text class="fg2" x="110" y="148" text-anchor="middle" font-size="8">STORE data = 42</text>
+          <rect x="50" y="155" width="120" height="14" fill="#fecdd3" stroke="#f43f5e" rx="2"/>
+          <text class="accent" x="110" y="165" text-anchor="middle" font-size="8" font-weight="bold">── RELEASE 屏障 ──</text>
+          <text class="fg2" x="110" y="183" text-anchor="middle" font-size="8">STORE flag = 1</text>
+          <text class="fg2" x="110" y="215" text-anchor="middle" font-size="7">↑ 屏障保证 data</text>
+          <text class="fg2" x="110" y="224" text-anchor="middle" font-size="7">先于 flag 可见</text>
+          <!-- Thread B -->
+          <rect x="220" y="115" width="140" height="110" fill="#f1f5f9" stroke="#334155" rx="4"/>
+          <text class="fg" x="290" y="132" text-anchor="middle" font-size="9" font-weight="bold">线程 B</text>
+          <text class="fg2" x="290" y="148" text-anchor="middle" font-size="8">LOAD flag (== 1)</text>
+          <rect x="230" y="155" width="120" height="14" fill="#bfdbfe" stroke="#3b82f6" rx="2"/>
+          <text x="290" y="165" text-anchor="middle" font-size="8" font-weight="bold" fill="#3b82f6">── ACQUIRE 屏障 ──</text>
+          <text class="fg2" x="290" y="183" text-anchor="middle" font-size="8">LOAD data (== 42 ✓)</text>
+          <text class="fg2" x="290" y="215" text-anchor="middle" font-size="7">↑ 屏障保证 flag</text>
+          <text class="fg2" x="290" y="224" text-anchor="middle" font-size="7">先于 data 读取</text>
+          <!-- Arrow between threads -->
+          <path d="M 180 165 L 220 165" stroke="#334155" stroke-width="1.5" marker-end="url(#ah54)" stroke-dasharray="4,3"/>
+          <defs><marker id="ah54" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 5-4 内存模型强弱谱和 acquire-release 屏障配对</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">为什么 x86 上正确运行的多线程代码在 ARM 上可能出错？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'ARM 和 x86 都可以运行多线程程序。')">A. ARM 不支持多线程</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'缓存一致性协议在两个平台都存在。')">B. ARM 没有缓存一致性</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,true,'正确！x86 的 TSO 模型只允许 Store-Load 重排，而 ARM 的松散模型允许所有重排。在 x86 上不需要屏障的代码，在 ARM 上可能因重排序而看到不一致的数据。')">C. ARM 采用更弱的内存模型，允许更多重排序</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'指令集不同不是内存序问题的原因。')">D. ARM 的指令集与 x86 不兼容</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="exercises" class="exercises-section"><h2>🧩 综合练习</h2><div id="quiz-zone"></div></section>
+    <nav class="chapter-nav">
+      <a href="ch04.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="#" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
