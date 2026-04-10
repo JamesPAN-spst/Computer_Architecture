@@ -3,90 +3,95 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>阶段1：电的语言 — Architectura</title>
+  <title>阶段5：软硬交界 — Architectura</title>
   <link rel="stylesheet" href="../shared/theme.css">
   <link rel="stylesheet" href="../shared/layout.css">
   <link rel="stylesheet" href="../shared/components.css">
-  <script>
-    window.MathJax = {
-      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
-      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
-    };
-  </script>
+  <script>window.MathJax={tex:{inlineMath:[['\\(','\\)']], displayMath:[['\\[','\\]']]}, options:{skipHtmlTags:['script','noscript','style','textarea','pre']}};</script>
   <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
 </head>
-<body class="overview-page" data-category="stage-1" data-module="electronics"
-      style="--domain-color: var(--c-electronics);">
+<body class="overview-page" data-category="stage-5" data-module="software-hardware"
+      style="--domain-color: var(--c-software);">
+
   <nav class="topbar">
     <a href="../index.html" class="topbar-brand">Architectura</a>
     <div class="topbar-module">
-      <span class="module-domain">STAGE 1</span>
-      <span class="module-name" style="cursor:default">电的语言</span>
+      <span class="module-domain">STAGE 5</span>
+      <span class="module-name" style="cursor:default">软硬交界</span>
     </div>
     <div class="topbar-right">
       <span class="chapter-indicator">4 chapitres</span>
       <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
     </div>
   </nav>
+
   <main class="main-content">
     <div class="overview-hero">
-      <div class="domain-tag">STAGE 1 · electronics</div>
-      <h1>电的语言 — 从电子到信号</h1>
-      <p>核心问题：一个电子，怎么变成一个"1"？</p>
+      <div class="domain-tag">STAGE 5 · software-hardware</div>
+      <h1>软硬交界 — 从机器码到高级语言</h1>
+      <p>核心问题：C语言一行代码，硬件看到了什么？</p>
     </div>
+
     <div class="chapter-grid">
       <a class="chapter-card" href="ch01.html">
         <div class="ch-number">CHAPITRE 01</div>
-        <div class="ch-title">电压、电流与电阻</div>
+        <div class="ch-title">指令集架构（ISA）</div>
         <div class="ch-kps">
-          <span class="kp-tag">电荷与电流</span>
-          <span class="kp-tag">电压</span>
-          <span class="kp-tag">电阻与欧姆定律</span>
-          <span class="kp-tag">电功率与能量</span>
+          <span class="kp-tag">ISA契约</span>
+          <span class="kp-tag">RISC vs CISC</span>
+          <span class="kp-tag">RISC-V编码</span>
+          <span class="kp-tag">寻址模式</span>
         </div>
         <div class="ch-meta"><span>4 知识点</span></div>
       </a>
+
       <a class="chapter-card" href="ch02.html">
         <div class="ch-number">CHAPITRE 02</div>
-        <div class="ch-title">电容与电感</div>
+        <div class="ch-title">汇编与编译</div>
         <div class="ch-kps">
-          <span class="kp-tag">电容</span>
-          <span class="kp-tag">RC电路</span>
-          <span class="kp-tag">电感</span>
-          <span class="kp-tag">LC振荡</span>
+          <span class="kp-tag">C到汇编</span>
+          <span class="kp-tag">调用约定与栈帧</span>
+          <span class="kp-tag">编译器优化</span>
+          <span class="kp-tag">链接与加载</span>
         </div>
         <div class="ch-meta"><span>4 知识点</span></div>
       </a>
+
       <a class="chapter-card" href="ch03.html">
         <div class="ch-number">CHAPITRE 03</div>
-        <div class="ch-title">二极管与晶体管</div>
+        <div class="ch-title">中断与I/O</div>
         <div class="ch-kps">
-          <span class="kp-tag">PN结</span>
-          <span class="kp-tag">二极管单向导通</span>
-          <span class="kp-tag">BJT</span>
-          <span class="kp-tag">MOSFET</span>
+          <span class="kp-tag">轮询vs中断vsDMA</span>
+          <span class="kp-tag">中断处理</span>
+          <span class="kp-tag">DMA原理</span>
+          <span class="kp-tag">内存映射I/O</span>
         </div>
         <div class="ch-meta"><span>4 知识点</span></div>
       </a>
+
       <a class="chapter-card" href="ch04.html">
         <div class="ch-number">CHAPITRE 04</div>
-        <div class="ch-title">从模拟到数字</div>
+        <div class="ch-title">虚拟内存</div>
         <div class="ch-kps">
-          <span class="kp-tag">二进制选择</span>
-          <span class="kp-tag">采样与量化</span>
-          <span class="kp-tag">ADC/DAC</span>
-          <span class="kp-tag">逻辑电平与扇出</span>
+          <span class="kp-tag">地址空间</span>
+          <span class="kp-tag">页表</span>
+          <span class="kp-tag">TLB</span>
+          <span class="kp-tag">多级页表</span>
         </div>
         <div class="ch-meta"><span>4 知识点</span></div>
       </a>
     </div>
+
     <nav class="chapter-nav" style="max-width:900px;margin:0 auto;padding:24px 40px;">
       <a href="../index.html" class="nav-prev">← 返回主页</a>
       <span></span>
       <span></span>
     </nav>
   </main>
-  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+
+  <footer class="site-footer">
+    <span>Architectura · 计算机结构全景</span>
+  </footer>
   <script src="../shared/search-data.js"></script>
   <script src="../shared/storage.js"></script>
   <script src="../shared/components.js"></script>

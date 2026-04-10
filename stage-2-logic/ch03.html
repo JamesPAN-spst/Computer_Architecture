@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.3 组合逻辑电路 — 逻辑的诞生 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s2-ch03-q1",
+        question: "半加器（Half Adder）的进位输出 \\(C\\) 等于什么？",
+        options: ["\\(A \\oplus B\\)", "\\(A \\cdot B\\)", "\\(A + B\\)", "\\(\\overline{A} \\cdot B\\)"],
+        answer: 1,
+        explanation: "半加器进位 \\(C = A \\cdot B\\)，只有两个输入都为 1 时才产生进位。求和输出 \\(S = A \\oplus B\\)。选 A 混淆了 S 和 C。"
+      },
+      {
+        id: "s2-ch03-q2",
+        question: "全加器（Full Adder）有三个输入 \\(A, B, C_{in}\\)，其求和输出 \\(S\\) 是什么？",
+        options: ["\\(A \\oplus B \\oplus C_{in}\\)", "\\(A \\cdot B \\cdot C_{in}\\)", "\\(A + B + C_{in}\\)", "\\((A \\oplus B) \\cdot C_{in}\\)"],
+        answer: 0,
+        explanation: "全加器求和 \\(S = A \\oplus B \\oplus C_{in}\\)——三个输入的异或。当奇数个输入为 1 时，S = 1。进位输出 \\(C_{out} = AB + (A \\oplus B)C_{in}\\)。"
+      },
+      {
+        id: "s2-ch03-q3",
+        question: "一个 4 位行波进位加法器（Ripple Carry Adder）的最坏情况延迟路径经过多少个全加器的进位链？",
+        options: ["1 个", "2 个", "4 个", "8 个"],
+        answer: 2,
+        explanation: "行波进位加法器中，最坏情况是进位从最低位一路传播到最高位，依次经过所有 4 个全加器。延迟 = 4 × 单个全加器进位延迟。这就是行波进位速度慢的根本原因。"
+      },
+      {
+        id: "s2-ch03-q4",
+        question: "超前进位加法器（CLA）中，生成信号（Generate）\\(G_i\\) 定义为什么？",
+        options: ["\\(G_i = A_i \\oplus B_i\\)", "\\(G_i = A_i \\cdot B_i\\)", "\\(G_i = A_i + B_i\\)", "\\(G_i = \\overline{A_i \\cdot B_i}\\)"],
+        answer: 1,
+        explanation: "生成信号 \\(G_i = A_i \\cdot B_i\\)：该位自身产生进位。传播信号 \\(P_i = A_i \\oplus B_i\\)：该位能传播低位进位。CLA 用 \\(C_{i+1} = G_i + P_i \\cdot C_i\\) 并行计算所有进位。"
+      },
+      {
+        id: "s2-ch03-q5",
+        question: "一个 4 选 1 多路复用器（4:1 MUX）需要几条选择线？",
+        options: ["1 条", "2 条", "3 条", "4 条"],
+        answer: 1,
+        explanation: "\\(n\\) 条选择线可选 \\(2^n\\) 个输入。4 选 1 需要 \\(\\log_2 4 = 2\\) 条选择线。MUX 的核心功能是根据选择信号从多个输入中选出一个输出。"
+      },
+      {
+        id: "s2-ch03-q6",
+        question: "一个 3-8 解码器（Decoder）有多少个输出？当输入为 \\(101_2\\) 时，哪个输出为 1？",
+        options: ["8 个输出，Y5 = 1", "3 个输出，Y5 = 1", "8 个输出，Y3 = 1", "6 个输出，Y5 = 1"],
+        answer: 0,
+        explanation: "3-8 解码器有 3 个输入、8 个输出（\\(2^3 = 8\\)）。输入 \\(101_2 = 5_{10}\\)，所以 \\(Y_5 = 1\\)，其余 \\(Y_i = 0\\)。解码器将二进制编码转为独热码（one-hot）。"
+      },
+      {
+        id: "s2-ch03-q7",
+        question: "奇偶校验（Parity Check）中，偶校验位使得数据位 + 校验位中 1 的总数为：",
+        options: ["奇数", "偶数", "与数据无关", "总是 0"],
+        answer: 1,
+        explanation: "偶校验位确保整体（数据 + 校验）中 1 的个数为偶数。收到数据后重新计算校验：若 1 的个数为奇数，说明发生了奇数个位翻转错误。注意：偶校验只能检测奇数个错误，不能纠错。"
+      },
+      {
+        id: "s2-ch03-q8",
+        question: "用 2 选 1 MUX 实现任意布尔函数 \\(F(A)\\) 时，选择线连什么？数据输入连什么？",
+        options: ["选择线连 A；数据端连 F(0) 和 F(1)", "选择线连 F；数据端连 0 和 1", "选择线连常数；数据端连 A", "无法实现"],
+        answer: 0,
+        explanation: "将变量 A 接到选择线：当 A=0 选 \\(I_0\\)，A=1 选 \\(I_1\\)。把 \\(I_0 = F(0)\\)，\\(I_1 = F(1)\\)。输出 \\(= \\bar{A} \\cdot F(0) + A \\cdot F(1) = F(A)\\)。这就是 MUX 实现任意函数的通用方法——Shannon 展开。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-2" data-module="ch03"
+      style="--domain-color: var(--c-logic);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 2</span>
+      <a href="index.html" class="module-name">逻辑的诞生</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.3 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 半加器与全加器</a></li>
+      <li><a href="#kp2">02 · 行波进位与超前进位</a></li>
+      <li><a href="#kp3">03 · 多路复用器与解码器</a></li>
+      <li><a href="#kp4">04 · 比较器与奇偶校验</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 3</p>
+      <h1>组合逻辑电路</h1>
+    </header>
+
+    <!-- ── KP1 ── -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">01</span>半加器（Half Adder）与全加器（Full Adder）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>布尔代数和逻辑门是"原材料"，但计算机的存在意义是<strong>计算</strong>。最基本的计算就是加法——事实上，减法、乘法、除法都可以归结为加法的变体。因此，用逻辑门实现二进制加法是从"纯逻辑"走向"真正计算"的第一步。</p>
+            <p>但二进制加法有一个关键难题：<strong>进位（Carry）</strong>。当两个 1 相加时，结果是 10（即 0 带进位 1）。如何用逻辑门处理进位，以及如何高效地处理多位加法中的进位传播，构成了数字电路设计中最经典的问题之一。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>将加法问题分为两个层次：</p>
+            <ul>
+              <li><strong>半加器（Half Adder）</strong>：处理两个 1 位输入的加法，不考虑来自低位的进位。输出：求和位 \(S\) + 进位位 \(C\)。</li>
+              <li><strong>全加器（Full Adder）</strong>：处理两个 1 位输入 + 一个低位进位输入 \(C_{in}\) 的加法。输出：求和位 \(S\) + 进位输出 \(C_{out}\)。</li>
+            </ul>
+            <p>从真值表出发：半加器有 2 个输入 → 4 行真值表；全加器有 3 个输入 → 8 行真值表。由真值表直接推导逻辑表达式，再用门电路实现。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 半加器真值表与逻辑</h4>
+            <table style="margin:12px 0;border-collapse:collapse;">
+              <tr><th style="padding:4px 12px;border:1px solid #ccc;">A</th><th style="padding:4px 12px;border:1px solid #ccc;">B</th><th style="padding:4px 12px;border:1px solid #ccc;">S</th><th style="padding:4px 12px;border:1px solid #ccc;">C</th></tr>
+              <tr><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td></tr>
+              <tr><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">1</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">1</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td></tr>
+              <tr><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">1</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">1</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td></tr>
+              <tr><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">1</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">1</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">0</td><td style="padding:4px 12px;border:1px solid #ccc;text-align:center;">1</td></tr>
+            </table>
+            <p>从真值表直接读出：</p>
+            <p>\[S = A \oplus B \quad(\text{异或})\]</p>
+            <p>\[C = A \cdot B \quad(\text{与})\]</p>
+            <p>半加器只需一个 XOR 门和一个 AND 门。</p>
+
+            <h4>2. 全加器真值表与逻辑</h4>
+            <p>全加器有三个输入 \(A, B, C_{in}\)：</p>
+            <p>\[S = A \oplus B \oplus C_{in}\]</p>
+            <p>\[C_{out} = A \cdot B + (A \oplus B) \cdot C_{in}\]</p>
+            <p>推导过程：\(C_{out}\) 可以理解为"要么 A 和 B 同时为 1 直接产生进位（\(A \cdot B\)），要么 A 和 B 恰好有一个为 1（\(A \oplus B\)），并且低位传来了进位（\(C_{in}\)）"。</p>
+
+            <h4>3. 全加器 = 两个半加器 + 一个 OR 门</h4>
+            <p>第一个半加器计算 \(A + B\)，得到部分和 \(S_1 = A \oplus B\) 和部分进位 \(C_1 = A \cdot B\)。第二个半加器将 \(S_1\) 与 \(C_{in}\) 相加，得到最终和 \(S = S_1 \oplus C_{in}\) 和进位 \(C_2 = S_1 \cdot C_{in}\)。最终进位 \(C_{out} = C_1 + C_2\)。</p>
+
+            <div class="warning-box">⚠️ <strong>易错点</strong>：全加器的进位输出不能简单写成 \(C_{out} = A \cdot B + A \cdot C_{in} + B \cdot C_{in}\)——虽然这个表达式逻辑上等价，但它需要 3 个 AND 门和 1 个 3 输入 OR 门，比"两个半加器"的实现多用门。在实际芯片中，门数和连线复杂度直接影响面积和速度。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>多位加法器</strong>：将 \(n\) 个全加器串联，每个全加器的进位输出连到下一个全加器的进位输入，就构成了 \(n\) 位行波进位加法器（Ripple Carry Adder）。这是最直观的多位加法实现。</p>
+            <p><strong>减法器</strong>：利用补码原理，\(A - B = A + \overline{B} + 1\)。只需将 B 取反并将最低位 \(C_{in}\) 置为 1，就用加法器实现了减法。</p>
+            <p><strong>增量器</strong>：只需一个半加器链（因为 +1 操作中 B 始终为 0 或 1），用于程序计数器（PC）的 PC + 1 操作。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题：用全加器计算 \(1011_2 + 0110_2\)</h4>
+            <p>从最低位开始：</p>
+            <ul>
+              <li>位 0：\(1 + 0 + 0 = 1\)，\(S_0 = 1\)，\(C_1 = 0\)</li>
+              <li>位 1：\(1 + 1 + 0 = 10\)，\(S_1 = 0\)，\(C_2 = 1\)</li>
+              <li>位 2：\(0 + 1 + 1 = 10\)，\(S_2 = 0\)，\(C_3 = 1\)</li>
+              <li>位 3：\(1 + 0 + 1 = 10\)，\(S_3 = 0\)，\(C_4 = 1\)</li>
+            </ul>
+            <p>结果：\(10001_2 = 17_{10}\)（验证：\(11 + 6 = 17\) ✓）</p>
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 忘记将上一位的进位传入当前位。二进制加法与十进制一样有进位传播！</li>
+              <li>❌ 混淆半加器与全加器的使用场景：最低位可用半加器（无低位进位），但其余位必须用全加器。</li>
+              <li>✅ 正确做法：始终从最低位（LSB）开始，逐位向高位计算，每位都带入上一位的进位。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch03-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#6366f1}</style>
+          <text x="200" y="20" text-anchor="middle" font-size="13" font-weight="600" class="fg">全加器（Full Adder）结构</text>
+          <rect x="140" y="60" width="120" height="120" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+          <text x="200" y="125" text-anchor="middle" font-size="14" font-weight="600" class="fg">FA</text>
+          <line x1="100" y1="85" x2="140" y2="85" class="line" marker-end="url(#ah)"/>
+          <text x="90" y="89" text-anchor="end" font-size="12" class="fg">A</text>
+          <line x1="100" y1="125" x2="140" y2="125" class="line"/>
+          <text x="90" y="129" text-anchor="end" font-size="12" class="fg">B</text>
+          <line x1="100" y1="160" x2="140" y2="160" class="line"/>
+          <text x="90" y="164" text-anchor="end" font-size="12" class="fg2">C_in</text>
+          <line x1="260" y1="100" x2="310" y2="100" class="line"/>
+          <text x="320" y="104" font-size="12" class="fg">S</text>
+          <line x1="260" y1="150" x2="310" y2="150" class="line"/>
+          <text x="320" y="154" font-size="12" class="fg2">C_out</text>
+          <text x="200" y="210" text-anchor="middle" font-size="11" class="fg2">S = A ⊕ B ⊕ Cᵢₙ</text>
+          <text x="200" y="228" text-anchor="middle" font-size="11" class="fg2">Cₒᵤₜ = AB + (A⊕B)Cᵢₙ</text>
+        </svg>
+        <figcaption>全加器的输入输出与逻辑表达式</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">全加器可以由几个半加器和什么门组合而成？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '再想想。一个半加器不够处理三个输入。')">A. 1 个半加器 + 1 个 AND 门</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！第一个 HA 计算 A+B，第二个 HA 将部分和与 Cin 相加，OR 门合并两个进位。')">B. 2 个半加器 + 1 个 OR 门</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '再想想。需要 OR 门而不是 XOR 门来合并进位。')">C. 2 个半加器 + 1 个 XOR 门</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '再想想。不需要 3 个半加器。')">D. 3 个半加器</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ── KP2 ── -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">02</span>行波进位（Ripple Carry）与超前进位（Carry Lookahead）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>全加器解决了 1 位加法问题，但现实中我们需要 32 位甚至 64 位加法器。最直观的方案是将 \(n\) 个全加器串联——这就是行波进位加法器（Ripple Carry Adder, RCA）。</p>
+            <p>问题在于：行波进位的延迟与位数成正比，\(O(n)\)。对于 64 位加法器，进位必须从第 0 位一路"涟漪"到第 63 位。在 GHz 级别的 CPU 中，这个延迟完全不可接受。</p>
+            <p>超前进位加法器（Carry Lookahead Adder, CLA）通过<strong>预测进位</strong>将延迟降至 \(O(\log n)\)，这是数字电路中"空间换时间"思想的经典体现。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>核心观察：每一位的进位 \(C_{i+1}\) 只依赖于两件事——</p>
+            <ul>
+              <li><strong>生成（Generate）</strong>：第 \(i\) 位自身直接产生进位。当 \(A_i = B_i = 1\) 时，无论低位有没有进位，该位一定产生进位。定义 \(G_i = A_i \cdot B_i\)。</li>
+              <li><strong>传播（Propagate）</strong>：第 \(i\) 位能将低位进位"透传"上去。当 \(A_i\) 和 \(B_i\) 恰好有一个为 1 时，低位来了进位就会继续传上去。定义 \(P_i = A_i \oplus B_i\)。</li>
+            </ul>
+            <p>关键递推：\(C_{i+1} = G_i + P_i \cdot C_i\)。将这个递推展开，就可以用纯组合逻辑（不需要等待进位传播）直接计算每一位的进位。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 行波进位加法器（RCA）</h4>
+            <p>结构：\(n\) 个全加器串联，\(C_{out,i}\) 连到 \(C_{in,i+1}\)。</p>
+            <p>延迟分析：最坏情况下，进位从位 0 传播到位 \(n-1\)：</p>
+            <p>\[T_{RCA} = n \cdot t_{carry} \quad (\text{其中 } t_{carry} \text{ 是单个 FA 的进位延迟})\]</p>
+
+            <h4>2. CLA 的递推展开</h4>
+            <p>从递推公式 \(C_{i+1} = G_i + P_i \cdot C_i\) 出发：</p>
+            <p>\[C_1 = G_0 + P_0 C_0\]</p>
+            <p>\[C_2 = G_1 + P_1 C_1 = G_1 + P_1 G_0 + P_1 P_0 C_0\]</p>
+            <p>\[C_3 = G_2 + P_2 G_1 + P_2 P_1 G_0 + P_2 P_1 P_0 C_0\]</p>
+            <p>\[C_4 = G_3 + P_3 G_2 + P_3 P_2 G_1 + P_3 P_2 P_1 G_0 + P_3 P_2 P_1 P_0 C_0\]</p>
+            <p>每个 \(C_i\) 都直接用 \(G_j, P_j, C_0\) 表示——只需 2 级逻辑门（AND-OR），延迟为常数！</p>
+
+            <h4>3. 延迟分析</h4>
+            <p>CLA 4 位块的延迟：\(T_{CLA-4} = t_{pg} + t_{AND-OR}\)（计算 G/P 一级 + 展开一级）。对于 16 位加法器，用 4 个 4 位 CLA 块组成两级 CLA，延迟为 \(O(\log_4 n)\)。</p>
+
+            <div class="warning-box">⚠️ <strong>易错点</strong>：CLA 并非"零延迟"——展开公式中每一级的 AND/OR 门的扇入（fan-in）随位数增大。实际中 CLA 通常以 4 位为一块，多块再用 CLA 的思想进行层级连接（两级 CLA），而不是直接展开全部 64 位。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>现代 CPU 中的 ALU</strong>：实际处理器中的加法器通常采用混合设计——4 位 CLA 块内部用超前进位，块与块之间根据需求使用行波或再一级 CLA。</p>
+            <p><strong>前缀加法器</strong>：更现代的方法如 Kogge-Stone、Brent-Kung 加法器，将 CLA 思想与并行前缀计算结合，在 \(O(\log n)\) 级延迟和可接受的面积之间取得更好平衡。</p>
+            <p><strong>加法器选择器（Carry Select Adder）</strong>：预先用两套加法器分别假设 \(C_{in} = 0\) 和 \(C_{in} = 1\) 计算，当实际进位到来时用 MUX 选择正确结果，又是一种"空间换时间"策略。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题：计算 4 位 CLA 的 \(C_4\)</h4>
+            <p>设 \(A = 1011, B = 0110, C_0 = 0\)。</p>
+            <p>计算 G 和 P（从 LSB 开始）：</p>
+            <ul>
+              <li>\(G_0 = 1 \cdot 0 = 0, P_0 = 1 \oplus 0 = 1\)</li>
+              <li>\(G_1 = 1 \cdot 1 = 1, P_1 = 1 \oplus 1 = 0\)</li>
+              <li>\(G_2 = 0 \cdot 1 = 0, P_2 = 0 \oplus 1 = 1\)</li>
+              <li>\(G_3 = 1 \cdot 0 = 0, P_3 = 1 \oplus 0 = 1\)</li>
+            </ul>
+            <p>\(C_4 = G_3 + P_3 G_2 + P_3 P_2 G_1 + P_3 P_2 P_1 G_0 + P_3 P_2 P_1 P_0 C_0\)</p>
+            <p>\(= 0 + 1 \cdot 0 + 1 \cdot 1 \cdot 1 + 1 \cdot 1 \cdot 0 \cdot 0 + 1 \cdot 1 \cdot 0 \cdot 1 \cdot 0 = 1\)</p>
+            <p>所以 \(C_4 = 1\)，与行波计算结果一致。</p>
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 混淆 \(P_i = A_i + B_i\) 和 \(P_i = A_i \oplus B_i\)。对于 CLA 进位计算两者等价，但对于求和输出必须用 XOR。</li>
+              <li>❌ 忘记 CLA 展开式中各项是"或"关系（任一项为 1 即产生进位）。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch03-kp2">
+        <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}</style>
+          <text x="200" y="18" text-anchor="middle" font-size="13" font-weight="600" class="fg">行波进位 vs 超前进位 延迟对比</text>
+          <rect x="30" y="40" width="60" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="60" y="64" text-anchor="middle" font-size="11" class="fg">FA₀</text>
+          <rect x="110" y="40" width="60" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="140" y="64" text-anchor="middle" font-size="11" class="fg">FA₁</text>
+          <rect x="190" y="40" width="60" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="220" y="64" text-anchor="middle" font-size="11" class="fg">FA₂</text>
+          <rect x="270" y="40" width="60" height="40" rx="4" fill="#fef3c7" stroke="#f59e0b"/>
+          <text x="300" y="64" text-anchor="middle" font-size="11" class="fg">FA₃</text>
+          <line x1="90" y1="60" x2="110" y2="60" class="line"/>
+          <line x1="170" y1="60" x2="190" y2="60" class="line"/>
+          <line x1="250" y1="60" x2="270" y2="60" class="line"/>
+          <text x="200" y="100" text-anchor="middle" font-size="11" class="fg2">RCA: 延迟 = 4 × t_carry (串行)</text>
+          <rect x="60" y="120" width="280" height="40" rx="8" fill="#ede9fe" stroke="#8b5cf6"/>
+          <text x="200" y="144" text-anchor="middle" font-size="12" class="fg">CLA: C₁,C₂,C₃,C₄ 并行计算</text>
+          <text x="200" y="180" text-anchor="middle" font-size="11" class="fg2">CLA: 延迟 = t_pg + t_AND-OR (常数)</text>
+          <text x="200" y="196" text-anchor="middle" font-size="10" font-style="italic" class="fg2">空间换时间的经典权衡</text>
+        </svg>
+        <figcaption>行波进位与超前进位加法器的延迟对比</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">CLA 中生成信号 \(G_i = A_i \cdot B_i\) 的含义是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！G_i 表示该位无论低位进位如何，自身一定产生进位。')">A. 第 i 位自身一定产生进位</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '这是传播信号 P_i 的含义，不是 G_i。')">B. 第 i 位能传播低位进位</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '再想想。G_i 与低位进位无关。')">C. 第 i 位的求和结果</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '再想想。G_i = A_i · B_i，只有都为 1 时为 1。')">D. 第 i 位无进位</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ── KP3 ── -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">03</span>多路复用器（Multiplexer）与解码器（Decoder）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>加法器解决了"计算"问题，但一个完整的数字系统还需要"选择"和"分发"数据。想象一个十字路口：多路复用器（MUX）像一个旋转的道闸，根据控制信号选择哪条路的车流通过；解码器（Decoder）则像一个邮局分拣员，根据地址将一封信送到正确的邮箱。</p>
+            <p>MUX 和 Decoder 是组合逻辑中最基本的"数据路由"组件，它们在 CPU 中无处不在：寄存器文件的读端口是 MUX，内存地址译码是 Decoder，指令译码器的核心也是 Decoder。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>多路复用器（MUX）</strong>：\(2^n\) 个数据输入、\(n\) 条选择线、1 个输出。功能：\(Y = I_{S}\)，其中 \(S\) 是选择线的值。</p>
+            <p><strong>解码器（Decoder）</strong>：\(n\) 个输入、\(2^n\) 个输出。功能：恰好第 \(S\) 个输出为 1，其余为 0（独热码 / one-hot）。</p>
+            <p>两者的关系：解码器可以看作 MUX 的"逆操作"。解码器 + OR 门可以实现任意布尔函数（因为它直接对应最小项之和）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 2:1 MUX</h4>
+            <p>\[Y = \bar{S} \cdot I_0 + S \cdot I_1\]</p>
+            <p>这就是 Shannon 展开定理的电路实现。</p>
+
+            <h4>2. 4:1 MUX</h4>
+            <p>\[Y = \overline{S_1}\,\overline{S_0} \cdot I_0 + \overline{S_1}\,S_0 \cdot I_1 + S_1\,\overline{S_0} \cdot I_2 + S_1\,S_0 \cdot I_3\]</p>
+
+            <h4>3. n-2ⁿ 解码器</h4>
+            <p>3 输入 8 输出解码器的输出：</p>
+            <p>\[Y_i = \prod_{j=0}^{n-1} S_j^{(b_j)} \quad \text{其中 } b_j \text{ 是 } i \text{ 的第 } j \text{ 位}\]</p>
+            <p>即 \(Y_i\) 对应输入 \(S\) 的第 \(i\) 个最小项。</p>
+
+            <h4>4. 用 MUX 实现任意函数</h4>
+            <p>对于 \(n\) 变量函数 \(F\)，用 \(2^n : 1\) MUX：将所有变量接选择线，数据输入接 \(F\) 的真值表值（0 或 1）。更高效的方法：用 \(2^{n-1} : 1\) MUX，最后一个变量通过 Shannon 展开出现在数据端。</p>
+
+            <div class="warning-box">⚠️ <strong>易错点</strong>：解码器的使能端（Enable）。带使能端的解码器，当 EN = 0 时所有输出为 0。忽略使能端会导致"总有一个输出为高"的错误假设，在内存地址译码中可能导致多个芯片同时被选中。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>CPU 寄存器文件</strong>：读操作就是一个 MUX——用寄存器编号作为选择线，从 32 个寄存器中选出目标寄存器的值。</p>
+            <p><strong>内存地址译码</strong>：高位地址通过解码器选择具体的内存芯片（片选信号 CS）。</p>
+            <p><strong>指令译码</strong>：操作码（opcode）通过解码器生成控制信号，驱动 ALU、寄存器文件、数据通路中的各个 MUX。</p>
+            <p><strong>七段显示</strong>：BCD 到七段解码器就是一个特殊的解码器，将 4 位 BCD 码转换为 7 段 LED 的驱动信号。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题：用 8:1 MUX 实现 \(F(A,B,C) = \sum m(1,2,4,7)\)</h4>
+            <p>将 A, B, C 接到选择线 \(S_2, S_1, S_0\)。将数据输入按最小项设置：</p>
+            <ul>
+              <li>\(I_0 = 0\)（m0 不在集合中）</li>
+              <li>\(I_1 = 1\)（m1 在集合中）</li>
+              <li>\(I_2 = 1, I_3 = 0, I_4 = 1, I_5 = 0, I_6 = 0, I_7 = 1\)</li>
+            </ul>
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 选择线顺序搞反（\(S_0\) 接了最高位变量）。约定：\(S_0\) 对应最低位变量。</li>
+              <li>❌ 解码器输出编号与最小项编号不对应。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch03-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}</style>
+          <text x="200" y="20" text-anchor="middle" font-size="13" font-weight="600" class="fg">4:1 多路复用器</text>
+          <rect x="160" y="40" width="80" height="140" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+          <text x="200" y="115" text-anchor="middle" font-size="13" font-weight="600" class="fg">MUX</text>
+          <line x1="120" y1="60" x2="160" y2="60" class="line"/><text x="110" y="64" text-anchor="end" font-size="11" class="fg">I₀</text>
+          <line x1="120" y1="85" x2="160" y2="85" class="line"/><text x="110" y="89" text-anchor="end" font-size="11" class="fg">I₁</text>
+          <line x1="120" y1="110" x2="160" y2="110" class="line"/><text x="110" y="114" text-anchor="end" font-size="11" class="fg">I₂</text>
+          <line x1="120" y1="135" x2="160" y2="135" class="line"/><text x="110" y="139" text-anchor="end" font-size="11" class="fg">I₃</text>
+          <line x1="240" y1="100" x2="290" y2="100" class="line"/><text x="300" y="104" font-size="12" class="fg">Y</text>
+          <line x1="190" y1="190" x2="190" y2="180" class="line"/><text x="190" y="204" text-anchor="middle" font-size="11" class="fg2">S₁ S₀</text>
+          <line x1="210" y1="190" x2="210" y2="180" class="line"/>
+          <text x="200" y="228" text-anchor="middle" font-size="11" class="fg2">Y = S̄₁S̄₀·I₀ + S̄₁S₀·I₁ + S₁S̄₀·I₂ + S₁S₀·I₃</text>
+        </svg>
+        <figcaption>4 选 1 多路复用器的结构与逻辑表达式</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">一个 5-32 解码器有多少个输出？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '5 是输入线数，不是输出线数。')">A. 5</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '再想想。n 条输入线对应 2^n 个输出。')">B. 10</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！2^5 = 32 个输出，每个输出对应一个最小项。')">C. 32</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '再想想。解码器输出数 = 2^输入数。')">D. 64</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ── KP4 ── -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title"><span class="kp-number">04</span>比较器与奇偶校验</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>加法器让我们能"计算"，MUX/Decoder 让我们能"路由"。但计算机还需要"判断"——两个数是否相等？谁大谁小？数据在传输中是否出错？</p>
+            <p><strong>比较器</strong>回答前两个问题：它是分支指令（if/else）的硬件基础。<strong>奇偶校验</strong>回答第三个问题：它是最简单的错误检测机制，为后续学习 ECC（纠错码）等更高级方法奠定基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>1 位比较器</strong>：输入两个 1 位数 \(A, B\)，输出三个信号：\(A > B\)，\(A = B\)，\(A < B\)。</p>
+            <p><strong>多位比较器</strong>：从最高位开始逐位比较，高位结果优先（类似字典序）。可以级联 1 位比较器实现。</p>
+            <p><strong>奇偶校验</strong>：对所有数据位做 XOR，结果就是奇偶校验位。XOR 的本质是"计算 1 的个数的奇偶性"。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <h4>1. 1 位相等比较</h4>
+            <p>\[EQ = \overline{A \oplus B} = A \odot B \quad (\text{同或 / XNOR})\]</p>
+            <p>当 \(A = B\) 时 XOR 为 0，取反得 1。</p>
+
+            <h4>2. N 位相等比较</h4>
+            <p>\[EQ = \prod_{i=0}^{n-1}(A_i \odot B_i) = (A_0 \odot B_0) \cdot (A_1 \odot B_1) \cdots (A_{n-1} \odot B_{n-1})\]</p>
+            <p>所有位都相等时，总输出才为 1。</p>
+
+            <h4>3. 大小比较（从高位到低位）</h4>
+            <p>从最高位 \(n-1\) 开始：若 \(A_{n-1} > B_{n-1}\) 则 \(A > B\)；若 \(A_{n-1} < B_{n-1}\) 则 \(A < B\)；若相等，比较下一位。</p>
+            <p>级联公式：\(GT_{out} = (A_i > B_i) + (A_i = B_i) \cdot GT_{in}\)</p>
+
+            <h4>4. 奇偶校验</h4>
+            <p>\[P = D_0 \oplus D_1 \oplus D_2 \oplus \cdots \oplus D_{n-1}\]</p>
+            <p>偶校验：使总 1 个数为偶数（\(P_{even} = D_0 \oplus D_1 \oplus \cdots\)）。</p>
+            <p>奇校验：使总 1 个数为奇数（\(P_{odd} = \overline{P_{even}}\)）。</p>
+
+            <div class="warning-box">⚠️ <strong>易错点</strong>：奇偶校验只能检测<strong>奇数个</strong>位翻转错误。如果同时翻转 2 位，校验位不变，错误无法被检测到。这就是为什么实际系统中使用 CRC、Hamming 码等更强的校验方法。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>CPU 分支判断</strong>：比较器的输出直接驱动 ALU 的零标志（Zero Flag）和负标志（Negative Flag），用于条件分支指令（BEQ, BNE, BLT 等）。</p>
+            <p><strong>地址比较</strong>：缓存（Cache）中的标签比较器（Tag Comparator）用来判断请求地址是否命中。</p>
+            <p><strong>数据完整性</strong>：DRAM 使用 ECC（纠错码），其核心思想建立在奇偶校验之上。PCIe、以太网帧使用 CRC 校验。</p>
+            <p><strong>74 系列芯片</strong>：74HC85（4 位比较器）、74HC280（9 位奇偶校验器）是经典 TTL/CMOS 芯片。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <h4>例题 1：比较 \(A = 1010\) 和 \(B = 1001\)</h4>
+            <p>从最高位开始：位 3 都是 1（相等）→ 位 2 都是 0（相等）→ 位 1：A₁=1, B₁=0 → A > B。</p>
+            <p>结果：\(1010_2 = 10 > 9 = 1001_2\) ✓</p>
+
+            <h4>例题 2：求 \(10110\) 的偶校验位</h4>
+            <p>\(P = 1 \oplus 0 \oplus 1 \oplus 1 \oplus 0 = 1\)。数据中有 3 个 1（奇数），所以偶校验位 = 1，使总数变为 4（偶数）。</p>
+
+            <h4>常见错误</h4>
+            <ul>
+              <li>❌ 比较时从最低位开始。大小比较必须从最高位（MSB）开始——正如你比较 352 和 349，先看百位。</li>
+              <li>❌ 混淆奇校验和偶校验。记住：偶校验使 1 的总数为偶数。</li>
+              <li>✅ 用 XOR 树实现奇偶校验：XOR 天然计算"1 的个数的奇偶性"。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch03-kp4">
+        <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}</style>
+          <text x="200" y="18" text-anchor="middle" font-size="13" font-weight="600" class="fg">4 位比较器</text>
+          <rect x="130" y="35" width="140" height="120" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+          <text x="200" y="100" text-anchor="middle" font-size="13" font-weight="600" class="fg">COMP</text>
+          <text x="80" y="60" text-anchor="end" font-size="11" class="fg">A₃..A₀</text><line x1="85" y1="56" x2="130" y2="56" class="line"/>
+          <text x="80" y="85" text-anchor="end" font-size="11" class="fg">B₃..B₀</text><line x1="85" y1="81" x2="130" y2="81" class="line"/>
+          <line x1="270" y1="60" x2="320" y2="60" class="line"/><text x="330" y="64" font-size="11" class="fg">A&gt;B</text>
+          <line x1="270" y1="95" x2="320" y2="95" class="line"/><text x="330" y="99" font-size="11" class="fg">A=B</text>
+          <line x1="270" y1="130" x2="320" y2="130" class="line"/><text x="330" y="134" font-size="11" class="fg">A&lt;B</text>
+          <text x="200" y="180" text-anchor="middle" font-size="11" class="fg2">EQ = (A₃⊙B₃)·(A₂⊙B₂)·(A₁⊙B₁)·(A₀⊙B₀)</text>
+        </svg>
+        <figcaption>4 位比较器的结构与相等判断公式</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">\(1011\) 的偶校验位是多少？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '数据中有 3 个 1（奇数），偶校验位应使总数为偶数。')">A. 0</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！1⊕0⊕1⊕1 = 1。3 个 1 是奇数，校验位 = 1 使总数变为 4（偶数）。')">B. 1</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '偶校验位只能是 0 或 1。')">C. 2</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '偶校验位只能是 0 或 1。')">D. 3</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch02.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch04.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer">
+    <span>Architectura · 计算机结构全景</span>
+  </footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

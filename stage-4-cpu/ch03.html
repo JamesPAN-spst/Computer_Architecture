@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.3 缓存 — 计算的引擎 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s4-ch03-q1", question: "时间局部性（Temporal Locality）指的是？", options: ["最近被访问的数据可能很快再次被访问","地址相邻的数据可能被连续访问","缓存容量越大命中率越高","程序总是顺序执行指令"], answer: 0, explanation: "时间局部性指如果一个数据项刚被访问，它在不久的将来很可能再次被访问。典型例子是循环中反复使用的变量。" },
+      { id: "s4-ch03-q2", question: "空间局部性（Spatial Locality）指的是？", options: ["同一数据反复被访问","地址相邻的数据倾向于在相近的时间内被访问","缓存行越大越好","访问模式完全随机"], answer: 1, explanation: "空间局部性指如果一个地址被访问，其附近地址的数据在不久后也可能被访问。这就是缓存行（Cache Line）一次读取多个连续字节的理论依据。" },
+      { id: "s4-ch03-q3", question: "在直接映射缓存中，一个内存地址的缓存行位置由什么决定？", options: ["地址的高位（Tag）","地址的中间位（Index）","地址的最低位（Offset）","由操作系统分配"], answer: 1, explanation: "直接映射缓存中，地址的 Index 字段决定该地址映射到哪个缓存行。每个地址只能存放在唯一确定的缓存行中，这简化了查找但增加了冲突的可能。" },
+      { id: "s4-ch03-q4", question: "4 路组相联缓存（4-way Set-Associative）中，每组包含几个缓存行？", options: ["1 个","2 个","4 个","由缓存总大小决定"], answer: 2, explanation: "N 路组相联意味着每个组（set）包含 N 个缓存行。4 路组相联表示每组 4 行，一个地址可以映射到同一组中的任意一行，比直接映射有更大的灵活性。" },
+      { id: "s4-ch03-q5", question: "以下哪种不是缓存未命中的类型？", options: ["冷启动未命中（Compulsory Miss）","容量未命中（Capacity Miss）","冲突未命中（Conflict Miss）","时间未命中（Temporal Miss）"], answer: 3, explanation: "经典的缓存未命中分为三类（3C）：冷启动未命中（首次访问）、容量未命中（缓存太小放不下工作集）、冲突未命中（多个地址映射到同一位置互相驱逐）。不存在"时间未命中"这个术语。" },
+      { id: "s4-ch03-q6", question: "Write-Through 策略的特点是？", options: ["写入时只更新缓存","写入时同时更新缓存和主存","替换时才写回主存","不使用写缓冲区"], answer: 1, explanation: "Write-Through（写直达）在每次写操作时同时更新缓存和下一级存储器（或写缓冲区）。这保证了缓存和主存的一致性，但写操作的延迟较高。" },
+      { id: "s4-ch03-q7", question: "Write-Back 策略中，脏位（Dirty Bit）的作用是？", options: ["标记缓存行是否有效","标记缓存行是否被修改过","记录缓存行的访问次数","指示缓存行的替换优先级"], answer: 1, explanation: "Write-Back 策略中，写操作只更新缓存。脏位标记该缓存行是否被修改过（与主存不一致）。当该行被替换（evict）时，如果脏位为 1，必须先将数据写回主存。" },
+      { id: "s4-ch03-q8", question: "增大缓存行（Block Size）对冷启动未命中和冲突未命中分别有什么影响？", options: ["两者都减少","冷启动减少但冲突可能增加","两者都增加","冷启动增加但冲突减少"], answer: 1, explanation: "较大的缓存行利用空间局部性，减少冷启动未命中。但更大的行也意味着同样容量下行数更少，可能加剧不同地址之间的冲突。" }
+    ];
+  </script>
+  <script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre']}};</script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-4" data-module="ch03" style="--domain-color: var(--c-cpu);">
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 4</span><a href="index.html" class="module-name">计算的引擎</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.3 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 局部性原理</a></li>
+      <li><a href="#kp2">02 · 直接映射 vs 组相联</a></li>
+      <li><a href="#kp3">03 · 未命中的三类</a></li>
+      <li><a href="#kp4">04 · 写策略</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+  <main class="main-content">
+    <header class="chapter-hero"><p class="chapter-label">Chapitre 3</p><h1>缓存（Cache）</h1></header>
+
+    <!-- ════════ KP 1 ════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 局部性原理（Principle of Locality）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>处理器速度和主存速度的差距在过去几十年中持续扩大。现代 CPU 一个时钟周期不到 1ns，而 DRAM 的访问延迟约 50-100ns，差距超过 100 倍。如果每次 CPU 需要数据都要等待主存响应，绝大部分时间都浪费在等待上。</p>
+            <p>缓存（Cache）之所以有效，不是因为技术上的奇迹，而是因为程序行为的一个基本特征——<strong>局部性（Locality）</strong>。只要程序对数据的访问具有局部性，一块小而快的缓存就能拦截大部分访问请求，避免频繁访问慢速主存。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>局部性分为两种：</p>
+            <p><strong>时间局部性（Temporal Locality）</strong>：如果一个数据项刚被访问过，它很可能在近期再次被访问。例如：循环变量 <code>i</code>、频繁调用的函数代码、全局配置数据等。</p>
+            <p><strong>空间局部性（Spatial Locality）</strong>：如果一个地址被访问，附近地址的数据很可能也会被访问。例如：数组的顺序遍历、结构体中连续字段的访问、代码段的顺序执行等。</p>
+            <p>缓存设计就是针对这两种局部性进行优化：时间局部性决定了哪些数据应该被保留（替换策略）；空间局部性决定了每次从主存取多大块数据（缓存行大小）。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>缓存的有效性可以用<strong>平均访存时间（AMAT）</strong>来量化：</p>
+            \[
+            \text{AMAT} = t_{\text{hit}} + r_{\text{miss}} \times t_{\text{penalty}}
+            \]
+            <p>其中 \(t_{\text{hit}}\) 是缓存命中时间，\(r_{\text{miss}}\) 是未命中率，\(t_{\text{penalty}}\) 是未命中惩罚（从下一级存储取数据的时间）。</p>
+            <p>对于多级缓存（L1 + L2）：</p>
+            \[
+            \text{AMAT} = t_{L1} + r_{L1} \times \bigl(t_{L2} + r_{L2} \times t_{\text{mem}}\bigr)
+            \]
+            <p>例如 \(t_{L1} = 1\text{ns}\)、\(r_{L1} = 5\%\)、\(t_{L2} = 5\text{ns}\)、\(r_{L2} = 20\%\)、\(t_{\text{mem}} = 100\text{ns}\)：</p>
+            \[
+            \text{AMAT} = 1 + 0.05 \times (5 + 0.2 \times 100) = 1 + 0.05 \times 25 = 2.25\text{ ns}
+            \]
+            <div class="warning-box">⚠️ AMAT 公式中的 \(r_{L2}\) 是<strong>局部未命中率</strong>（local miss rate），即 L2 未命中次数 / L2 访问次数。而不是全局未命中率。很多考题在此设陷阱，务必区分这两个概念。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>多级缓存层次：</strong>现代处理器通常有 3 级缓存：L1（~32-64KB, ~1ns）、L2（~256KB-1MB, ~5ns）、L3（~8-64MB, ~15ns），逐级增大但变慢。这种分层设计是对不同粒度局部性的多层次利用。</p>
+            <p><strong>数据结构对局部性的影响：</strong>数组具有优秀的空间局部性（元素在内存中连续存放），而链表的空间局部性很差（节点可能散布在内存各处）。这解释了为什么在缓存系统中数组遍历通常比链表遍历快数倍。</p>
+            <p><strong>矩阵分块（Tiling）</strong>：大矩阵乘法通过将矩阵分成小块，使得每块能完全放入缓存中，从而利用时间局部性避免反复从主存读取，可以将性能提升一个数量级。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>L1 命中时间 2 周期，L1 未命中率 8%，未命中惩罚 50 周期。计算 AMAT。</p>
+            <p><em>解答：</em>\(\text{AMAT} = 2 + 0.08 \times 50 = 2 + 4 = 6\) 周期。</p>
+            <p>❌ <strong>常见错误：</strong>将命中时间和未命中惩罚搞混——命中时间是访问缓存本身的延迟，未命中惩罚是去下一级取数据的额外延迟。</p>
+            <p>✅ <strong>正确理解：</strong>AMAT = 命中时间 + 未命中率 × 未命中惩罚。每次访问都会产生命中时间，只有未命中时才额外付出惩罚。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch03-kp1">
+        <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}</style>
+          <rect x="160" y="10" width="80" height="30" fill="#fecdd3" stroke="#334155" stroke-width="1.5" rx="4"/>
+          <text class="fg" x="200" y="30" text-anchor="middle" font-size="10" font-weight="bold">CPU</text>
+          <rect x="140" y="55" width="120" height="25" fill="#bfdbfe" stroke="#334155" stroke-width="1.5" rx="4"/>
+          <text class="fg" x="200" y="72" text-anchor="middle" font-size="9">L1 Cache (~1ns)</text>
+          <rect x="120" y="95" width="160" height="25" fill="#ddd6fe" stroke="#334155" stroke-width="1.5" rx="4"/>
+          <text class="fg" x="200" y="112" text-anchor="middle" font-size="9">L2 Cache (~5ns)</text>
+          <rect x="90" y="135" width="220" height="25" fill="#dcfce7" stroke="#334155" stroke-width="1.5" rx="4"/>
+          <text class="fg" x="200" y="152" text-anchor="middle" font-size="9">L3 Cache (~15ns)</text>
+          <rect x="50" y="175" width="300" height="22" fill="#fef3c7" stroke="#334155" stroke-width="1.5" rx="4"/>
+          <text class="fg" x="200" y="190" text-anchor="middle" font-size="9">主存 DRAM (~100ns)</text>
+          <text class="fg2" x="360" y="45" font-size="8">小 &amp; 快</text>
+          <text class="fg2" x="360" y="190" font-size="8">大 &amp; 慢</text>
+          <line class="line" x1="370" y1="50" x2="370" y2="180" marker-end="url(#ahc)"/>
+          <defs><marker id="ahc" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 3-1 存储器层次结构：越靠近 CPU 越快越小</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">数组的顺序遍历主要体现了哪种局部性？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'时间局部性强调同一数据被反复访问。')">A. 时间局部性</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,true,'正确！数组元素在内存中连续存放，顺序遍历访问相邻地址，是空间局部性的经典体现。')">B. 空间局部性</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'不存在"结构局部性"这个术语。')">C. 结构局部性</button>
+          <button onclick="checkInlineQuiz('iq-kp1',this,false,'没有局部性的访问模式是完全随机的。')">D. 没有局部性</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 2 ════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 直接映射（Direct Mapped）vs 组相联（Set-Associative）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>缓存的核心问题之一是：主存有数百万个地址，缓存只有几千到几万行，如何决定<strong>每个地址应该放在缓存的哪个位置</strong>？这个映射策略直接影响命中率、查找速度和硬件复杂度。</p>
+            <p>不同的映射策略在灵活性和实现复杂度之间做出不同的权衡，理解这些权衡是理解缓存设计的关键。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>直接映射（Direct Mapped）</strong>：每个主存地址只能映射到缓存中的唯一一行。用地址的 Index 字段确定行号：\(\text{行号} = \text{地址} \bmod \text{缓存行数}\)。优点是查找快（只看一个位置），缺点是冲突率高。</p>
+            <p><strong>全相联（Fully Associative）</strong>：任何地址可以放在缓存的任意一行。灵活性最高、冲突最少，但需要同时比较所有行的 Tag，硬件复杂度极高。通常只用于小型缓存（如 TLB）。</p>
+            <p><strong>N 路组相联（N-way Set-Associative）</strong>：折中方案。将缓存分成若干组（set），每组有 N 行。地址先通过 Index 确定组号，再在组内 N 行中查找。直接映射是 1 路组相联；全相联是行数路组相联。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>设缓存总大小为 \(C\) 字节，缓存行大小为 \(B\) 字节，相联度为 \(N\) 路，则：</p>
+            \[
+            \text{组数} = S = \frac{C}{N \times B}
+            \]
+            <p>地址划分为三个字段：</p>
+            \[
+            \underbrace{\text{Tag}}_{t \text{ bits}} \mid \underbrace{\text{Index}}_{s \text{ bits}} \mid \underbrace{\text{Offset}}_{b \text{ bits}}
+            \]
+            <p>其中 \(b = \log_2 B\)，\(s = \log_2 S\)，\(t = \text{地址位数} - s - b\)。</p>
+            <p>例如 32 位地址、16KB 缓存、64B 行、4 路组相联：</p>
+            \[
+            S = \frac{16384}{4 \times 64} = 64, \quad b = 6, \quad s = 6, \quad t = 32 - 6 - 6 = 20
+            \]
+            <div class="warning-box">⚠️ 增加相联度可以减少冲突未命中，但硬件代价是每次查找需要比较 N 个 Tag。对于 L1 缓存，由于时序要求极其严格，通常选择 4-8 路而非全相联。L3 缓存由于延迟容忍度更高，可以使用 16 路甚至更高的相联度。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>Intel Core i7 缓存配置：</strong>L1 I-Cache 和 D-Cache 各 32KB、8 路组相联；L2 为 256KB、4 路或 8 路；L3 为 8-30MB、16 路组相联。</p>
+            <p><strong>TLB（Translation Lookaside Buffer）</strong>：页表缓存通常采用全相联设计（因为条目数少，只有 32-64 项），以最大化命中率。</p>
+            <p><strong>ARM 的 VIVT vs PIPT：</strong>ARM 早期处理器使用虚拟地址索引的缓存（VIVT）以缩短访问延迟，但会遇到别名（aliasing）问题。现代 ARM 处理器使用物理地址索引和标签（PIPT）或混合方案（VIPT）。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个 2 路组相联缓存，共 8 个缓存行，行大小 16 字节。地址 0x0000、0x0040、0x0080 映射到哪些组？是否会冲突？</p>
+            <p><em>解答：</em>组数 = 8 / 2 = 4 组。Offset = 4 位（16 字节），Index = 2 位（4 组）。0x0000 → Index=00（组 0）；0x0040=64 → Index=00（组 0）；0x0080=128 → Index=00（组 0）。三者都映射到组 0，但组 0 有 2 行，所以 0x0000 和 0x0040 可以共存，0x0080 进入时如果组满则需要替换。</p>
+            <p>❌ <strong>常见错误：</strong>忘记先除去 Offset 位再取 Index，直接用整个地址对组数取模。</p>
+            <p>✅ <strong>正确做法：</strong>先右移 \(b\) 位去掉 Offset，再取低 \(s\) 位作为 Index。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch03-kp2">
+        <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}</style>
+          <text class="fg" x="10" y="20" font-size="11" font-weight="bold">直接映射</text>
+          <rect x="10" y="30" width="100" height="16" fill="#fecdd3" stroke="#334155" rx="2"/><text class="fg2" x="60" y="42" text-anchor="middle" font-size="8">行 0</text>
+          <rect x="10" y="48" width="100" height="16" fill="#e2e8f0" stroke="#334155" rx="2"/><text class="fg2" x="60" y="60" text-anchor="middle" font-size="8">行 1</text>
+          <rect x="10" y="66" width="100" height="16" fill="#e2e8f0" stroke="#334155" rx="2"/><text class="fg2" x="60" y="78" text-anchor="middle" font-size="8">行 2</text>
+          <rect x="10" y="84" width="100" height="16" fill="#e2e8f0" stroke="#334155" rx="2"/><text class="fg2" x="60" y="96" text-anchor="middle" font-size="8">行 3</text>
+          <text class="fg2" x="60" y="115" text-anchor="middle" font-size="8">每地址→唯一一行</text>
+          <text class="fg" x="150" y="20" font-size="11" font-weight="bold">2 路组相联</text>
+          <rect x="150" y="30" width="50" height="16" fill="#fecdd3" stroke="#334155" rx="2"/><rect x="202" y="30" width="50" height="16" fill="#fecdd3" stroke="#334155" rx="2"/>
+          <text class="fg2" x="200" y="42" text-anchor="middle" font-size="8">组 0</text>
+          <rect x="150" y="48" width="50" height="16" fill="#e2e8f0" stroke="#334155" rx="2"/><rect x="202" y="48" width="50" height="16" fill="#e2e8f0" stroke="#334155" rx="2"/>
+          <text class="fg2" x="200" y="60" text-anchor="middle" font-size="8">组 1</text>
+          <text class="fg2" x="200" y="85" text-anchor="middle" font-size="8">每地址→组内 2 选 1</text>
+          <text class="fg" x="290" y="20" font-size="11" font-weight="bold">全相联</text>
+          <rect x="290" y="30" width="100" height="16" fill="#bbf7d0" stroke="#334155" rx="2"/>
+          <rect x="290" y="48" width="100" height="16" fill="#bbf7d0" stroke="#334155" rx="2"/>
+          <rect x="290" y="66" width="100" height="16" fill="#bbf7d0" stroke="#334155" rx="2"/>
+          <rect x="290" y="84" width="100" height="16" fill="#bbf7d0" stroke="#334155" rx="2"/>
+          <text class="fg2" x="340" y="115" text-anchor="middle" font-size="8">任意地址→任意行</text>
+          <text class="fg2" x="200" y="160" text-anchor="middle" font-size="10">灵活性增加 →</text>
+          <text class="fg2" x="200" y="175" text-anchor="middle" font-size="10">硬件复杂度增加 →</text>
+        </svg>
+        <figcaption>图 3-2 三种缓存映射策略对比：直接映射、组相联、全相联</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">8 路组相联缓存，共 256 行，请问有多少组？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'8 组是 256/(8×4) 的结果，但这里没有除以行大小。')">A. 8</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'16 组只在 256/16 的情况下出现。')">B. 16</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,true,'正确！组数 = 总行数 / 相联度 = 256 / 8 = 32 组。')">C. 32</button>
+          <button onclick="checkInlineQuiz('iq-kp2',this,false,'256 组只出现在直接映射（1 路）中。')">D. 256</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 3 ════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 未命中的三类（冷启动 / 容量 / 冲突）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>缓存未命中是影响程序性能的关键因素。但"未命中"并非铁板一块——不同原因导致的未命中需要不同的解决方案。盲目增大缓存可能只能减少容量未命中，对冲突未命中无济于事；增大缓存行只能减少冷启动未命中，反而可能加剧冲突。</p>
+            <p><strong>3C 分类模型</strong>将未命中按原因分为三类，为缓存优化提供了清晰的分析框架。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>冷启动未命中（Compulsory Miss / Cold Start Miss）</strong>：首次访问一个从未出现在缓存中的数据块。无论缓存多大、相联度多高，首次访问都必然未命中。也称"首次引用未命中"。</p>
+            <p><strong>容量未命中（Capacity Miss）</strong>：缓存容量不足以容纳程序的整个工作集（Working Set），导致之前加载过的数据被替换后又被需要。即使使用全相联缓存，如果容量不够仍会发生。</p>
+            <p><strong>冲突未命中（Conflict Miss）</strong>：在非全相联缓存中，多个地址映射到同一组（或同一行），互相竞争有限的位置。如果使用全相联缓存则不会发生冲突未命中。也称"碰撞未命中（Collision Miss）"。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>3C 分析方法的实验步骤：</p>
+            <p>① 用<strong>无限大全相联</strong>缓存模拟，此时只有冷启动未命中 → 得到 \(M_{\text{compulsory}}\)。</p>
+            <p>② 用<strong>实际大小的全相联</strong>缓存模拟 → 总未命中 = \(M_{\text{compulsory}} + M_{\text{capacity}}\)。</p>
+            <p>③ 用<strong>实际大小和实际相联度</strong>的缓存模拟 → 总未命中 = \(M_{\text{compulsory}} + M_{\text{capacity}} + M_{\text{conflict}}\)。</p>
+            \[
+            M_{\text{total}} = M_{\text{compulsory}} + M_{\text{capacity}} + M_{\text{conflict}}
+            \]
+            <p>各类未命中的优化方向：</p>
+            \[
+            \begin{aligned}
+            M_{\text{compulsory}} &\downarrow \quad \text{增大行大小、预取（Prefetching）} \\
+            M_{\text{capacity}} &\downarrow \quad \text{增大缓存容量} \\
+            M_{\text{conflict}} &\downarrow \quad \text{增大相联度、改善地址映射}
+            \end{aligned}
+            \]
+            <div class="warning-box">⚠️ 增大缓存行虽然减少冷启动未命中，但在缓存总大小不变的情况下会减少行数，反而可能增加冲突未命中。这是一个经典的权衡（trade-off），最优行大小通常通过实验或模拟确定（典型值 32-128 字节）。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>硬件预取（Prefetching）</strong>：现代处理器通过检测访问模式（如步长固定的数组遍历），提前从主存取数据到缓存中，有效减少冷启动和部分容量未命中。Intel 的 L2 预取器可检测多达 32 种不同的步长模式。</p>
+            <p><strong>Victim Cache</strong>：一种小型全相联缓存，专门存放从 L1 被替换出来的缓存行。当发生冲突未命中时，先查 Victim Cache，如果命中就直接取回，有效减少冲突未命中。</p>
+            <p><strong>编译器优化：</strong>循环分块（Loop Tiling）、数组填充（Array Padding）等编译器技术通过改变数据访问模式来减少容量和冲突未命中。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>直接映射缓存有 4 行（行大小 1 字），反复访问地址 0、4、8、0、4、8……未命中类型是什么？</p>
+            <p><em>解答：</em>地址 0→行 0，地址 4→行 0，地址 8→行 0（假设行大小 1 字，4 行）。三个地址都映射到行 0，互相驱逐，每次访问都未命中。首次 3 个是冷启动未命中，后续全是<strong>冲突未命中</strong>。</p>
+            <p>❌ <strong>常见错误：</strong>将所有重复未命中归为容量未命中——但这里只有 3 个不同的数据块，缓存有 4 行足够容纳，问题出在映射冲突。</p>
+            <p>✅ <strong>判断方法：</strong>如果改为全相联缓存后未命中消失，就是冲突未命中；如果仍然未命中，才是容量未命中。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch03-kp3">
+        <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.accent{fill:#f43f5e}</style>
+          <circle cx="130" cy="90" r="60" fill="#fecdd3" stroke="#f43f5e" stroke-width="1.5"/>
+          <circle cx="200" cy="90" r="60" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1.5" fill-opacity="0.5"/>
+          <circle cx="270" cy="90" r="60" fill="#bbf7d0" stroke="#10b981" stroke-width="1.5" fill-opacity="0.5"/>
+          <text class="accent" x="100" y="80" font-size="9" font-weight="bold">冷启动</text>
+          <text class="accent" x="100" y="93" font-size="8">Compulsory</text>
+          <text x="200" y="80" font-size="9" font-weight="bold" fill="#3b82f6">容量</text>
+          <text x="200" y="93" font-size="8" fill="#3b82f6">Capacity</text>
+          <text x="280" y="80" font-size="9" font-weight="bold" fill="#10b981">冲突</text>
+          <text x="280" y="93" font-size="8" fill="#10b981">Conflict</text>
+          <text class="fg2" x="200" y="170" text-anchor="middle" font-size="10" font-style="italic">缓存未命中的 3C 分类模型</text>
+        </svg>
+        <figcaption>图 3-3 缓存未命中的三类（3C 模型）</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">增大缓存的相联度主要减少哪类未命中？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'冷启动未命中与相联度无关，它是首次访问必然发生的。')">A. 冷启动未命中</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'容量未命中需要通过增大缓存总容量来解决。')">B. 容量未命中</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,true,'正确！增大相联度使每组有更多行，减少了不同地址映射到同一位置后互相驱逐的概率。')">C. 冲突未命中</button>
+          <button onclick="checkInlineQuiz('iq-kp3',this,false,'所有类型同时减少过于理想化，实际上相联度主要影响冲突未命中。')">D. 三种全部减少</button>
+        </div>
+      </div>
+    </section>
+    <hr class="kp-separator">
+
+    <!-- ════════ KP 4 ════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 写策略（Write-Through / Write-Back）</h2>
+      <div class="mental-chain">
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>读操作很简单——缓存命中就直接返回数据。但<strong>写操作</strong>要复杂得多：当 CPU 修改了缓存中的数据，什么时候将这个修改反映到下一级存储（L2 或主存）？是立刻同步还是延后批量写回？</p>
+            <p>写策略直接影响：① 主存和缓存之间的<strong>一致性</strong>；② 写操作的<strong>延迟</strong>；③ 总线上的<strong>写流量</strong>。不同的应用场景需要不同的权衡。</p>
+          </div>
+        </div>
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>写直达（Write-Through）</strong>：每次写操作同时更新缓存和下一级存储。优点：缓存和主存始终一致，简化了多核一致性协议。缺点：每次写都产生总线流量，延迟高。通常搭配<strong>写缓冲区（Write Buffer）</strong>来隐藏写延迟。</p>
+            <p><strong>写回（Write-Back）</strong>：写操作只更新缓存，标记该行为"脏"（Dirty）。当脏行被替换时才写回下一级存储。优点：大幅减少写流量，尤其是对同一数据的多次写只产生一次回写。缺点：实现复杂，替换脏行时有额外延迟。</p>
+            <p>还需考虑<strong>写未命中策略</strong>：① <strong>写分配（Write-Allocate）</strong>：先将目标块从主存加载到缓存再写。② <strong>写不分配（No-Write-Allocate）</strong>：直接写入下一级存储，不影响缓存。通常 Write-Back 搭配 Write-Allocate，Write-Through 搭配 No-Write-Allocate。</p>
+          </div>
+        </div>
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>设写操作比例为 \(f_w\)，缓存命中率为 \(h\)。对于 Write-Through：</p>
+            \[
+            \text{写流量} = f_w \times N_{\text{total}} \quad \text{（每次写都产生总线事务）}
+            \]
+            <p>对于 Write-Back，写流量取决于脏行被替换的频率 \(r_{\text{dirty}}\)：</p>
+            \[
+            \text{写流量} = r_{\text{dirty}} \times (1 - h) \times N_{\text{total}} \quad \text{（仅在脏行被替换时产生）}
+            \]
+            <p>通常 \(r_{\text{dirty}} \times (1-h) \ll f_w\)，所以 Write-Back 产生的总线写流量远小于 Write-Through。</p>
+            <div class="warning-box">⚠️ Write-Through 并不意味着每次写都要等主存完成——写缓冲区（Write Buffer）可以将写操作排队异步执行，CPU 无需等待。但如果写缓冲区满了（写速度超过主存吸收能力），CPU 仍然需要 stall。</div>
+          </div>
+        </div>
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>L1 Cache 的选择：</strong>大多数现代处理器的 L1 D-Cache 使用 Write-Back + Write-Allocate 策略，以最小化写流量和延迟。</p>
+            <p><strong>GPU 缓存：</strong>GPU 的 L1 缓存通常使用 Write-Through 或 Write-Evict 策略，因为 GPU 的大量线程使得 Write-Back 的一致性管理过于复杂。</p>
+            <p><strong>多核一致性：</strong>Write-Back 策略下，修改只在 L1 中可见，其他核心不知道数据已被修改。这需要缓存一致性协议（如 MESI）来协调。Write-Through 天然保证下一级存储的一致性，简化了协议。</p>
+          </div>
+        </div>
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>程序执行 1000 条指令，其中 200 次写操作。缓存命中率 95%，Write-Through 和 Write-Back 分别产生多少次主存写操作？（假设 Write-Back 中 50% 的替换行是脏的）</p>
+            <p><em>解答：</em></p>
+            <p>Write-Through：200 次（每次写都写主存）。</p>
+            <p>Write-Back：未命中 = 1000 × 5% = 50 次，其中需要替换脏行 = 50 × 50% = 25 次主存写操作。</p>
+            <p>❌ <strong>常见错误：</strong>Write-Back 下把所有写操作都算成主存写——实际上 Write-Back 只在脏行被替换时才写主存。</p>
+            <p>✅ <strong>关键理解：</strong>Write-Back 的写流量与写操作次数无关，而与替换频率和脏行比例有关。</p>
+          </div>
+        </div>
+      </div>
+      <figure class="kp-figure" data-figure="s4-ch03-kp4">
+        <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#f43f5e}</style>
+          <text class="fg" x="100" y="15" text-anchor="middle" font-size="11" font-weight="bold">Write-Through</text>
+          <rect x="60" y="25" width="80" height="25" fill="#bfdbfe" stroke="#334155" rx="4"/><text class="fg" x="100" y="42" text-anchor="middle" font-size="9">Cache</text>
+          <rect x="60" y="65" width="80" height="25" fill="#fef3c7" stroke="#334155" rx="4"/><text class="fg" x="100" y="82" text-anchor="middle" font-size="9">主存</text>
+          <line class="line" x1="85" y1="50" x2="85" y2="65" marker-end="url(#ahw)"/>
+          <line class="line" x1="115" y1="50" x2="115" y2="65" marker-end="url(#ahw)"/>
+          <text class="accent" x="100" y="110" text-anchor="middle" font-size="8">每次写都同步</text>
+          <text class="fg" x="300" y="15" text-anchor="middle" font-size="11" font-weight="bold">Write-Back</text>
+          <rect x="260" y="25" width="80" height="25" fill="#bfdbfe" stroke="#334155" rx="4"/><text class="fg" x="300" y="42" text-anchor="middle" font-size="9">Cache</text>
+          <rect x="260" y="65" width="80" height="25" fill="#fef3c7" stroke="#334155" rx="4"/><text class="fg" x="300" y="82" text-anchor="middle" font-size="9">主存</text>
+          <line x1="300" y1="50" x2="300" y2="65" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#ahw)"/>
+          <text class="fg2" x="350" y="42" font-size="7">D=1</text>
+          <text class="accent" x="300" y="110" text-anchor="middle" font-size="8">替换脏行时才写回</text>
+          <text class="fg2" x="200" y="150" text-anchor="middle" font-size="10" font-style="italic">两种写策略对比</text>
+          <defs><marker id="ahw" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#334155"/></marker></defs>
+        </svg>
+        <figcaption>图 3-4 Write-Through vs Write-Back 写策略对比</figcaption>
+      </figure>
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">Write-Back 策略中，"脏位"为 1 表示什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'有效位标记缓存行是否包含有效数据，与脏位不同。')">A. 缓存行无效</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,true,'正确！脏位为 1 表示缓存行被修改过，与主存中的版本不一致。替换该行时必须先写回主存。')">B. 缓存行已被修改，与主存不一致</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'最近访问的标记通常由 LRU 位实现。')">C. 缓存行最近被访问过</button>
+          <button onclick="checkInlineQuiz('iq-kp4',this,false,'缓存行已满不是脏位的含义。')">D. 缓存行已满</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="exercises" class="exercises-section"><h2>🧩 综合练习</h2><div id="quiz-zone"></div></section>
+    <nav class="chapter-nav">
+      <a href="ch02.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch04.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

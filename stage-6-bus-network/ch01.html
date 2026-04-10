@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.1 总线协议（Bus Protocol） — 互联的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s6-ch01-q1", question: "总线中，地址线的作用是什么？", options: ["传输数据内容","指定要访问的内存或设备地址","控制数据传输方向","提供时钟信号"], answer: 1, explanation: "地址线用于指定CPU要访问的内存地址或I/O设备地址。数据线传输实际数据，控制线管理传输行为。" },
+      { id: "s6-ch01-q2", question: "在多主设备总线系统中，仲裁机制的核心目的是？", options: ["加速数据传输","防止多个主设备同时驱动总线导致冲突","加密总线上的数据","减少功耗"], answer: 1, explanation: "当多个主设备（如CPU和DMA控制器）同时请求使用总线时，仲裁机制决定哪个设备获得总线控制权，防止信号冲突。" },
+      { id: "s6-ch01-q3", question: "同步总线的主要特征是什么？", options: ["不需要时钟信号","所有操作由统一时钟驱动","传输速度由最快设备决定","使用握手协议"], answer: 1, explanation: "同步总线使用统一的时钟信号来协调所有设备的数据传输，所有操作在时钟边沿发生。" },
+      { id: "s6-ch01-q4", question: "异步总线相比同步总线的主要优势是？", options: ["更高的峰值带宽","可以适配不同速度的设备","更简单的硬件设计","更低的延迟"], answer: 1, explanation: "异步总线使用握手（Handshaking）协议而非统一时钟，因此可以连接不同速度的设备，灵活性更强。" },
+      { id: "s6-ch01-q5", question: "I²C协议使用几根线进行通信？", options: ["1根","2根（SDA和SCL）","3根","4根"], answer: 1, explanation: "I²C（Inter-Integrated Circuit）使用两根线：SDA（数据线）和SCL（时钟线），加上地线。这种简洁的两线设计使其非常适合低速外设通信。" },
+      { id: "s6-ch01-q6", question: "SPI协议相比I²C的主要优势是？", options: ["使用更少的引脚","支持更高的传输速率","支持更多从设备","不需要时钟信号"], answer: 1, explanation: "SPI使用全双工通信和独立的数据线（MOSI/MISO），支持比I²C更高的时钟频率和传输速率，适合需要高速传输的场景。" },
+      { id: "s6-ch01-q7", question: "UART协议中，波特率（Baud Rate）定义了什么？", options: ["数据线的电压电平","每秒传输的比特数","数据帧的长度","校验位的类型"], answer: 1, explanation: "波特率定义了UART每秒传输的符号数。在二进制通信中，波特率等于比特率。例如9600 baud表示每秒传输9600位。" },
+      { id: "s6-ch01-q8", question: "菊花链（Daisy Chain）仲裁方式的缺点是？", options: ["硬件成本高","离仲裁器远的设备优先级低、延迟大","无法支持多主设备","不支持DMA"], answer: 1, explanation: "菊花链仲裁中，总线授权信号依次通过每个设备。距离仲裁器较远的设备必须等待信号传递，导致优先级低且仲裁延迟大。" }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-6" data-module="ch01" style="--domain-color: var(--c-bus-network);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 6</span><a href="index.html" class="module-name">互联的世界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.1 / 4</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 总线基本结构</a></li>
+      <li><a href="#kp2">02 · 仲裁机制</a></li>
+      <li><a href="#kp3">03 · 同步vs异步总线</a></li>
+      <li><a href="#kp4">04 · I²C/SPI/UART</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 1</p>
+      <h1>总线协议（Bus Protocol）</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 总线的基本结构：地址/数据/控制</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>计算机内部有多种组件——CPU、内存、I/O 设备——它们需要一种共享的通信通道来交换数据。如果每两个组件之间都拉一组专用线路，连接数会随组件数量呈 \(O(n^2)\) 增长，布线成本和复杂度会失控。</p>
+            <p><strong>总线（Bus）</strong>是一种共享的通信链路，通过一组公共导线将多个组件连接在一起。总线的设计思想是<strong>用时间换空间</strong>——虽然同一时刻只能有一对组件在通信，但大幅减少了所需线缆数。理解总线结构是理解计算机互联的第一步。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>一条完整的总线由三组信号线组成：</p>
+            <p><strong>① 地址线（Address Bus）</strong>：由主设备（通常是 CPU）驱动，用于指定要访问的内存地址或 I/O 端口号。地址线的宽度决定了可寻址空间的大小：\(n\) 根地址线可寻址 \(2^n\) 个位置。例如 32 根地址线可寻址 \(2^{32} = 4\text{GB}\) 空间。</p>
+            <p><strong>② 数据线（Data Bus）</strong>：双向传输实际的数据。数据线宽度决定了每次传输的数据量（总线位宽）。现代系统的数据总线通常是 32 位或 64 位。</p>
+            <p><strong>③ 控制线（Control Bus）</strong>：传输控制信号，包括读/写方向（R/W）、中断请求（IRQ）、总线请求/授权（Bus Request/Grant）、时钟（CLK）等。控制线协调总线上的数据传输过程。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>总线带宽（Bus Bandwidth）是衡量总线性能的核心指标，计算公式为：</p>
+            \[
+            BW = W \times f \times \frac{1}{\text{overhead}}
+            \]
+            <p>其中 \(W\) 是数据线宽度（字节），\(f\) 是总线时钟频率，overhead 是协议开销因子。例如，一条 64 位（8 字节）、频率 100 MHz 的总线，理论峰值带宽为 \(8 \times 100 \times 10^6 = 800\text{ MB/s}\)。</p>
+            <p>实际有效带宽还需考虑<strong>总线事务（Bus Transaction）</strong>的开销。一次总线事务包括：① 仲裁阶段——获取总线控制权；② 寻址阶段——发送地址；③ 数据传输阶段——传输数据；④ 释放阶段——释放总线。仲裁和寻址的开销会降低有效带宽。</p>
+            <div class="warning-box">⚠️ 总线带宽的理论峰值几乎不可能达到。实际应用中，仲裁开销、地址传输、等待时间等因素使有效带宽通常只有峰值的 50%–70%。在评估系统性能时，必须使用有效带宽而非理论峰值。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>CPU 前端总线（FSB）</strong>：早期 Intel 处理器使用 FSB 连接 CPU 和北桥芯片组。例如 Pentium 4 的 FSB 频率 800 MHz（实际 200 MHz × 4 倍数据率），64 位宽，理论带宽 6.4 GB/s。FSB 后来被更高效的点对点互联（如 QPI、UPI）取代。</p>
+            <p><strong>嵌入式系统中的 AMBA 总线</strong>：ARM 定义的 AMBA（Advanced Microcontroller Bus Architecture）总线标准广泛用于 SoC（片上系统）设计。AHB（Advanced High-performance Bus）用于高速组件互联，APB（Advanced Peripheral Bus）用于低速外设，两者通过桥接器连接。</p>
+            <p><strong>多层总线架构</strong>：现代计算机使用分层总线结构。高速组件（CPU、内存、GPU）通过高速总线互联，低速外设（USB、音频、串口）通过低速总线连接，两层之间通过桥接芯片转换。这种分层设计避免了低速设备拖慢整个系统。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一条总线宽度为 32 位，时钟频率 50 MHz。每次传输需要 1 个时钟周期传地址、4 个周期传数据。求有效带宽。</p>
+            <p><em>解答：</em>每次传输 \(4 \times 4 = 16\) 字节数据（32位 = 4字节），耗时 \(1 + 4 = 5\) 个周期。</p>
+            \[
+            BW_{\text{eff}} = \frac{16\text{ B}}{5 \times (1/50 \times 10^6)\text{ s}} = \frac{16}{100\text{ ns}} = 160\text{ MB/s}
+            \]
+            <p>而理论峰值 \(= 4 \times 50 \times 10^6 = 200\text{ MB/s}\)，有效利用率 80%。</p>
+            <p>❌ <strong>常见错误：</strong>忽略地址传输阶段的开销，直接用 \(4 \times 50 = 200\text{ MB/s}\) 作为有效带宽。</p>
+            <p>✅ <strong>正确做法：</strong>必须考虑每次总线事务中所有阶段的时钟周期开销。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch01-kp1">
+        <svg viewBox="0 0 420 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <rect class="box" x="10" y="20" width="80" height="50"/>
+          <text class="fg" x="50" y="50" text-anchor="middle" font-size="14" font-weight="bold">CPU</text>
+          <rect class="box" x="170" y="20" width="80" height="50"/>
+          <text class="fg" x="210" y="50" text-anchor="middle" font-size="14" font-weight="bold">内存</text>
+          <rect class="box" x="330" y="20" width="80" height="50"/>
+          <text class="fg" x="370" y="50" text-anchor="middle" font-size="14" font-weight="bold">I/O</text>
+          <!-- Bus lines -->
+          <line x1="50" y1="70" x2="50" y2="100" class="line"/>
+          <line x1="210" y1="70" x2="210" y2="100" class="line"/>
+          <line x1="370" y1="70" x2="370" y2="100" class="line"/>
+          <rect x="20" y="100" width="380" height="16" fill="#3b82f6" opacity="0.2" rx="3"/>
+          <text class="accent" x="210" y="112" text-anchor="middle" font-size="10" font-weight="bold">地址线 Address Bus</text>
+          <rect x="20" y="122" width="380" height="16" fill="#3b82f6" opacity="0.3" rx="3"/>
+          <text class="accent" x="210" y="134" text-anchor="middle" font-size="10" font-weight="bold">数据线 Data Bus</text>
+          <rect x="20" y="144" width="380" height="16" fill="#3b82f6" opacity="0.15" rx="3"/>
+          <text class="accent" x="210" y="156" text-anchor="middle" font-size="10" font-weight="bold">控制线 Control Bus</text>
+          <text class="fg2" x="210" y="185" text-anchor="middle" font-size="10" font-style="italic">三组信号线构成完整的系统总线</text>
+        </svg>
+        <figcaption>图 1-1 系统总线的三组信号线：地址线、数据线、控制线</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">32 根地址线可以寻址多大的地址空间？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '2 GB = 2^31，需要 31 根地址线。')">A. 2 GB</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！2^32 = 4,294,967,296 字节 = 4 GB。')">B. 4 GB</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '8 GB = 2^33，需要 33 根地址线。')">C. 8 GB</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '16 GB = 2^34，需要 34 根地址线。')">D. 16 GB</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 仲裁（Arbitration）机制</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>当总线上有多个<strong>主设备（Bus Master）</strong>——例如 CPU、DMA 控制器、GPU——都想同时使用总线时，如果没有协调机制，多个设备同时驱动数据线会导致<strong>电气冲突</strong>（两个设备分别驱动高电平和低电平，产生短路电流，可能损坏硬件）。</p>
+            <p><strong>总线仲裁（Bus Arbitration）</strong>机制用于解决这个冲突，确保任何时刻只有一个主设备控制总线。仲裁机制的设计需要平衡<strong>公平性</strong>（每个设备都有机会使用总线）和<strong>效率</strong>（减少仲裁延迟）。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>常见的总线仲裁方案有三种：</p>
+            <p><strong>① 菊花链（Daisy Chain）仲裁</strong>：一个中央仲裁器通过一条 Grant 线依次串联所有设备。当仲裁器收到请求时，Grant 信号从链首设备开始依次传递，第一个需要总线的设备截获 Grant 信号并获得控制权。优点是硬件简单，缺点是链尾设备优先级最低。</p>
+            <p><strong>② 集中式并行仲裁</strong>：每个主设备有独立的请求线（BR）和授权线（BG）连接到中央仲裁器。仲裁器根据优先级算法（固定优先级、循环优先级等）选择一个设备授权。优点是仲裁速度快、优先级灵活，缺点是线缆数量随设备增加而增长。</p>
+            <p><strong>③ 分布式仲裁（Self-selection）</strong>：没有中央仲裁器，每个设备在总线上广播自己的优先级编号，所有设备通过比较来决定谁获胜。类似于以太网的 CSMA/CD 机制。优点是无单点故障，缺点是协议复杂。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>仲裁延迟可以形式化分析。设系统有 \(N\) 个主设备，菊花链中第 \(k\) 个设备的最坏情况仲裁延迟为：</p>
+            \[
+            T_{\text{arb}}(k) = k \times t_{\text{prop}}
+            \]
+            <p>其中 \(t_{\text{prop}}\) 是 Grant 信号通过一个设备的传播延迟。因此链尾设备的仲裁延迟为 \(N \times t_{\text{prop}}\)，这使得菊花链不适合大规模系统。</p>
+            <p>对于集中式并行仲裁，仲裁延迟与设备数量无关（仲裁器并行检查所有请求），为常数 \(T_{\text{arb}} = t_{\text{arb\_logic}}\)。但硬件开销为 \(O(N)\) 根信号线。</p>
+            <p>循环优先级（Round-Robin）仲裁保证公平性：每次仲裁后，刚获得授权的设备优先级降到最低，防止<strong>饥饿（Starvation）</strong>现象。</p>
+            <div class="warning-box">⚠️ 固定优先级仲裁中，低优先级设备可能永远得不到总线——这就是饥饿问题。在实时系统中，必须使用循环优先级或加入超时机制来保证所有设备的服务质量（QoS）。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>PCI 总线仲裁</strong>：传统 PCI 总线使用集中式仲裁。每个 PCI 设备有一对 REQ#/GNT# 信号连接到中央仲裁器。仲裁器支持可编程的优先级策略，通常采用循环优先级以保证公平性。</p>
+            <p><strong>ARM AMBA AHB 仲裁</strong>：AMBA AHB 总线使用集中式仲裁器，支持固定优先级和循环优先级两种模式。在典型 SoC 中，CPU 通常拥有最高优先级，DMA 控制器次之。</p>
+            <p><strong>以太网 CSMA/CD</strong>：虽然不是传统意义的总线仲裁，但以太网早期使用的 CSMA/CD（载波侦听多路访问/冲突检测）本质上是一种分布式仲裁：所有设备侦听总线是否空闲，冲突时随机退避重试。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个系统有 8 个主设备使用菊花链仲裁，每个设备的 Grant 传播延迟为 5 ns。最坏情况下设备 7（链尾）的仲裁延迟是多少？如果改用集中式并行仲裁（逻辑延迟 10 ns），哪种更快？</p>
+            <p><em>解答：</em>菊花链：\(T_{\text{arb}} = 8 \times 5 = 40\text{ ns}\)。集中式：\(T_{\text{arb}} = 10\text{ ns}\)。集中式更快。</p>
+            <p>但对于设备 0（链首），菊花链只需 \(1 \times 5 = 5\text{ ns}\)，反而比集中式更快。所以菊花链适合有明确优先级的小规模系统。</p>
+            <p>❌ <strong>常见错误：</strong>认为菊花链"对所有设备都慢"——实际上链首设备的仲裁延迟最小。</p>
+            <p>✅ <strong>正确理解：</strong>菊花链的问题是<strong>不公平</strong>而非绝对慢，链尾设备可能发生饥饿。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch01-kp2">
+        <svg viewBox="0 0 420 180" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <rect class="box" x="170" y="10" width="80" height="36"/>
+          <text class="fg" x="210" y="33" text-anchor="middle" font-size="11" font-weight="bold">仲裁器</text>
+          <line x1="210" y1="46" x2="210" y2="70" class="line"/>
+          <text class="accent" x="220" y="62" font-size="9">Grant</text>
+          <rect class="box" x="30" y="70" width="60" height="36"/>
+          <text class="fg2" x="60" y="93" text-anchor="middle" font-size="10">设备 0</text>
+          <rect class="box" x="120" y="70" width="60" height="36"/>
+          <text class="fg2" x="150" y="93" text-anchor="middle" font-size="10">设备 1</text>
+          <rect class="box" x="240" y="70" width="60" height="36"/>
+          <text class="fg2" x="270" y="93" text-anchor="middle" font-size="10">设备 N-1</text>
+          <line x1="90" y1="88" x2="120" y2="88" class="line" stroke-dasharray="4"/>
+          <line x1="180" y1="88" x2="200" y2="88" class="line" stroke-dasharray="4"/>
+          <text class="fg2" x="210" y="90" font-size="14">…</text>
+          <line x1="220" y1="88" x2="240" y2="88" class="line" stroke-dasharray="4"/>
+          <text class="fg2" x="210" y="150" text-anchor="middle" font-size="10" font-style="italic">菊花链仲裁：Grant 信号依次传递</text>
+        </svg>
+        <figcaption>图 1-2 菊花链仲裁机制示意图</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">哪种仲裁方式可以完全避免饥饿问题？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '固定优先级可能导致低优先级设备永远无法获得总线。')">A. 固定优先级</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '菊花链本质是固定优先级，链尾设备可能饥饿。')">B. 菊花链</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！循环优先级确保每个设备轮流获得最高优先级，不会饥饿。')">C. 循环优先级（Round-Robin）</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '随机仲裁在概率上是公平的，但不能保证有限时间内所有设备都获得服务。')">D. 随机仲裁</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 同步总线 vs 异步总线</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>总线上的设备如何知道"何时可以读取数据"？答案取决于总线的同步方式。<strong>同步总线</strong>使用全局时钟信号统一协调，就像一位指挥家；<strong>异步总线</strong>使用握手信号逐步确认，就像两个人之间的对话。这两种方式各有优劣，直接影响总线的速度、灵活性和复杂度。</p>
+            <p>理解同步与异步的区别是理解所有通信协议的基础——从片内总线到跨洲际的互联网，本质上都在解决"时序协调"这个基本问题。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>同步总线（Synchronous Bus）</strong>：所有信号变化都发生在统一时钟的特定边沿（上升沿或下降沿）。发送方在时钟边沿放出数据，接收方在下一个时钟边沿采样。优点：设计简单、速度快（一个周期完成一次操作）。缺点：所有设备必须在时钟周期内完成操作，总线速度受最慢设备限制；长距离传输时时钟偏移（Clock Skew）成为瓶颈。</p>
+            <p><strong>异步总线（Asynchronous Bus）</strong>：不使用公共时钟。通过一对握手信号——<strong>请求（Request/Ready）</strong>和<strong>确认（Acknowledge）</strong>——逐步协调传输。发送方先发出 Ready 信号和数据，接收方收到后发出 Ack，发送方收到 Ack 后撤销 Ready，接收方再撤销 Ack，完成一个完整的<strong>四相握手（Four-phase Handshake）</strong>。优点：可连接不同速度的设备，无时钟偏移问题。缺点：每次传输多次握手开销大，实际吞吐量低于同步总线。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>同步总线一次传输耗时恰好一个时钟周期 \(T_{clk}\)，有效数据率为：</p>
+            \[
+            R_{sync} = \frac{W}{T_{clk}} = W \times f_{clk}
+            \]
+            <p>异步总线一次传输需要完成四相握手，总耗时约为 \(4 \times t_{prop}\)（4 次信号传播），有效数据率为：</p>
+            \[
+            R_{async} = \frac{W}{4 \times t_{prop}}
+            \]
+            <p>其中 \(t_{prop}\) 是信号在总线上的单向传播延迟。当 \(f_{clk} > \frac{1}{4 \times t_{prop}}\) 时，同步总线更快；反之异步总线更有优势（但这种情况很少见）。</p>
+            <div class="warning-box">⚠️ 现代高速总线（如 PCIe）虽然看似同步（有参考时钟），但实际使用了<strong>嵌入式时钟（Embedded Clock）</strong>技术——将时钟信息编码在数据流中（如 8b/10b 编码）。这种设计兼具同步的高速和异步的灵活性，是一种混合方案。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>SDRAM 接口</strong>是典型的同步总线。DDR SDRAM 在时钟的上升沿和下降沿都传输数据（Double Data Rate），DDR5-4800 的等效数据率达 4800 MT/s（每秒百万次传输）。</p>
+            <p><strong>早期 ISA 总线</strong>是异步总线的代表。IBM PC 的 ISA 总线运行在 8 MHz，使用简单的握手协议，可以连接从快速内存到慢速打印机在内的各种设备。</p>
+            <p><strong>USB 协议</strong>采用了混合方案：帧级别是同步的（每 1 ms 一帧），帧内的数据传输使用类似异步的令牌-数据-握手三阶段协议，兼顾了实时性和灵活性。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>同步总线频率 200 MHz，数据宽度 32 位。异步总线单向传播延迟 20 ns，数据宽度也是 32 位。比较两者的数据率。</p>
+            <p><em>解答：</em></p>
+            <p>同步：\(R_{sync} = 4 \times 200 \times 10^6 = 800\text{ MB/s}\)</p>
+            <p>异步：\(R_{async} = \frac{4}{4 \times 20 \times 10^{-9}} = \frac{4}{80 \times 10^{-9}} = 50\text{ MB/s}\)</p>
+            <p>同步总线的数据率是异步的 16 倍。这解释了为什么高性能系统总是倾向于使用同步或混合方案。</p>
+            <p>❌ <strong>常见错误：</strong>将异步总线的握手次数算为 2 次（只计算 Req 和 Ack 各一次）。</p>
+            <p>✅ <strong>正确做法：</strong>四相握手是 Req↑ → Ack↑ → Req↓ → Ack↓，共 4 次信号传播。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch01-kp3">
+        <svg viewBox="0 0 420 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}</style>
+          <text class="fg" x="210" y="18" text-anchor="middle" font-size="12" font-weight="bold">四相握手协议</text>
+          <text class="fg2" x="30" y="55" font-size="10">Request</text>
+          <line x1="80" y1="50" x2="120" y2="50" class="line"/>
+          <line x1="120" y1="50" x2="120" y2="30" class="line"/>
+          <line x1="120" y1="30" x2="260" y2="30" class="line"/>
+          <line x1="260" y1="30" x2="260" y2="50" class="line"/>
+          <line x1="260" y1="50" x2="380" y2="50" class="line"/>
+          <text class="fg2" x="30" y="105" font-size="10">Acknowledge</text>
+          <line x1="80" y1="100" x2="170" y2="100" class="line"/>
+          <line x1="170" y1="100" x2="170" y2="80" class="line"/>
+          <line x1="170" y1="80" x2="310" y2="80" class="line"/>
+          <line x1="310" y1="80" x2="310" y2="100" class="line"/>
+          <line x1="310" y1="100" x2="380" y2="100" class="line"/>
+          <text class="accent" x="130" y="140" font-size="9">① Req↑</text>
+          <text class="accent" x="180" y="140" font-size="9">② Ack↑</text>
+          <text class="accent" x="250" y="140" font-size="9">③ Req↓</text>
+          <text class="accent" x="310" y="140" font-size="9">④ Ack↓</text>
+          <text class="fg2" x="210" y="180" text-anchor="middle" font-size="10" font-style="italic">每次传输需要四次信号切换完成握手</text>
+        </svg>
+        <figcaption>图 1-3 异步总线的四相握手（Four-phase Handshake）时序</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">同步总线的主要缺点是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '同步总线通常比异步总线更快。')">A. 速度慢</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！同步总线要求所有设备在时钟周期内完成操作，速度受最慢设备限制。')">B. 所有设备必须匹配时钟速度，不灵活</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '同步总线当然可以传输数据。')">C. 不能传输数据</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '同步总线只需一根时钟线即可协调，控制信号反而比异步少。')">D. 需要太多控制线</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · I²C / SPI / UART 协议概览</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在嵌入式系统和物联网设备中，CPU 需要与各种传感器、显示屏、存储芯片等低速外设通信。为每种外设设计专用接口既不经济也不实际，因此业界发展了几种标准化的串行通信协议：<strong>I²C</strong>、<strong>SPI</strong> 和 <strong>UART</strong>。</p>
+            <p>这三种协议各有定位：I²C 用最少的引脚连接大量外设，SPI 追求更高的传输速率，UART 实现最简单的点对点通信。了解它们的差异和适用场景，是嵌入式开发和硬件接口设计的基本功。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>I²C（Inter-Integrated Circuit）</strong>：飞利浦（Philips）发明的两线制协议。只需 SDA（数据）和 SCL（时钟）两根线，支持多主多从模式，每个从设备有唯一的 7 位或 10 位地址。标准模式 100 kHz，快速模式 400 kHz，高速模式 3.4 MHz。适合低速、多设备场景。</p>
+            <p><strong>SPI（Serial Peripheral Interface）</strong>：摩托罗拉发明的四线制协议。使用 SCLK（时钟）、MOSI（主出从入）、MISO（主入从出）、SS/CS（片选）。全双工通信，时钟频率可达数十 MHz。每个从设备需要独立的 SS 线，不适合大量设备。适合高速外设如 Flash、ADC。</p>
+            <p><strong>UART（Universal Asynchronous Receiver/Transmitter）</strong>：异步串行协议，只需 TX 和 RX 两根线（加地线）。无时钟线，双方约定波特率（如 9600、115200 bps）。一帧包含起始位、数据位（5-9位）、可选校验位和停止位。最简单的点对点通信方式，广泛用于调试和简单数据传输。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>三种协议的性能对比可以量化：</p>
+            <p><strong>I²C 有效数据率</strong>：标准模式下，传输 1 字节数据需要 9 个 SCL 时钟周期（8 位数据 + 1 位 ACK），加上 7 位地址和起始/停止条件等开销。实际数据率约为：</p>
+            \[
+            R_{I2C} \approx \frac{8}{9 + \text{addr overhead}} \times f_{SCL} \approx 0.8 \times f_{SCL}
+            \]
+            <p><strong>SPI 有效数据率</strong>：全双工无地址开销，每个时钟周期传输 1 位（标准）或多位（Quad SPI），有效率接近 100%。\(R_{SPI} \approx f_{SCLK}\)（位/秒）。</p>
+            <p><strong>UART 有效数据率</strong>：每帧 10 位（1 起始 + 8 数据 + 1 停止），有效率 80%。\(R_{UART} = 0.8 \times \text{BaudRate}\)。</p>
+            <div class="warning-box">⚠️ SPI 的高速优势伴随引脚成本：每增加一个从设备就多一根 SS 线。当外设数量超过 4-5 个时，SPI 的布线复杂度可能超过 I²C。在实际项目中，常常根据速度需求选择：高速用 SPI，多设备用 I²C，调试用 UART。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>Arduino/树莓派</strong>上的传感器通常使用 I²C 连接：温度传感器（如 BMP280 地址 0x76）、OLED 显示屏（地址 0x3C）、加速度计等可以共享同一条 I²C 总线，只需 2 根线。</p>
+            <p><strong>SD 卡</strong>支持 SPI 模式：嵌入式系统常用 SPI 接口读写 SD 卡，利用 SPI 的高速特性实现较快的数据存取。SPI Flash（如 W25Q128）也是 SPI 的经典应用。</p>
+            <p><strong>串口调试</strong>：几乎所有嵌入式开发板都保留 UART 接口用于调试输出。Linux 内核的 console 输出、U-Boot 引导加载器的交互都通过 UART 完成。USB-to-UART 转换芯片（如 CH340、CP2102）使 PC 可以通过 USB 与嵌入式设备的 UART 通信。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>比较在 I²C（400 kHz 快速模式）和 SPI（10 MHz）下传输 1 KB 数据的时间。</p>
+            <p><em>解答：</em></p>
+            <p>I²C：有效数据率 \(\approx 0.8 \times 400\text{k} = 320\text{ kbps} = 40\text{ KB/s}\)。传输 1 KB 约 \(1/40 = 25\text{ ms}\)。</p>
+            <p>SPI：有效数据率 \(\approx 10\text{ Mbps} = 1.25\text{ MB/s}\)。传输 1 KB 约 \(1/1250 = 0.8\text{ ms}\)。</p>
+            <p>SPI 快了约 31 倍，但需要 4 根线（vs I²C 的 2 根线）。</p>
+            <p>❌ <strong>常见错误：</strong>比较时忘记 I²C 的地址和 ACK 开销，直接用 400 kbps 计算。</p>
+            <p>✅ <strong>正确做法：</strong>考虑协议开销后计算有效数据率。I²C 的实际吞吐约为标称频率的 80%。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch01-kp4">
+        <svg viewBox="0 0 420 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <text class="fg" x="210" y="18" text-anchor="middle" font-size="12" font-weight="bold">三种串行协议对比</text>
+          <!-- I2C -->
+          <rect class="box" x="20" y="35" width="110" height="65"/>
+          <text class="accent" x="75" y="53" text-anchor="middle" font-size="11" font-weight="bold">I²C</text>
+          <text class="fg2" x="75" y="68" text-anchor="middle" font-size="9">2线：SDA + SCL</text>
+          <text class="fg2" x="75" y="80" text-anchor="middle" font-size="9">多主多从</text>
+          <text class="fg2" x="75" y="92" text-anchor="middle" font-size="9">≤3.4 MHz</text>
+          <!-- SPI -->
+          <rect class="box" x="155" y="35" width="110" height="65"/>
+          <text class="accent" x="210" y="53" text-anchor="middle" font-size="11" font-weight="bold">SPI</text>
+          <text class="fg2" x="210" y="68" text-anchor="middle" font-size="9">4线：SCLK/MOSI/MISO/SS</text>
+          <text class="fg2" x="210" y="80" text-anchor="middle" font-size="9">单主多从（全双工）</text>
+          <text class="fg2" x="210" y="92" text-anchor="middle" font-size="9">≤100 MHz</text>
+          <!-- UART -->
+          <rect class="box" x="290" y="35" width="110" height="65"/>
+          <text class="accent" x="345" y="53" text-anchor="middle" font-size="11" font-weight="bold">UART</text>
+          <text class="fg2" x="345" y="68" text-anchor="middle" font-size="9">2线：TX + RX</text>
+          <text class="fg2" x="345" y="80" text-anchor="middle" font-size="9">点对点（异步）</text>
+          <text class="fg2" x="345" y="92" text-anchor="middle" font-size="9">≤115.2 kbps 常用</text>
+          <text class="fg2" x="210" y="170" text-anchor="middle" font-size="10" font-style="italic">不同场景选择不同协议：多设备I²C、高速SPI、调试UART</text>
+        </svg>
+        <figcaption>图 1-4 I²C、SPI、UART 三种串行协议特性对比</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">哪种协议最适合在一条总线上连接 10 个低速传感器？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'SPI 需要每个设备一根 SS 线，10 个设备需要 10 根 SS 线，布线复杂。')">A. SPI</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！I²C 只需 2 根线即可连接多达 127 个从设备（7位地址），非常适合多设备低速场景。')">B. I²C</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'UART 是点对点协议，原生不支持总线上挂载多个设备。')">C. UART</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'PCIe 是高速点对点互联，不适合简单的低速传感器。')">D. PCIe</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="#" class="nav-prev disabled">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch02.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

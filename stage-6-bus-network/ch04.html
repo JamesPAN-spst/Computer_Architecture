@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.4 DMA 与 I/O 架构 — 互联的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s6-ch04-q1",
+        question: "在传统芯片组架构中，北桥（Northbridge）主要负责连接哪些高速组件？",
+        options: [
+          "USB、串口和并口",
+          "CPU、内存和显卡（AGP/PCIe）",
+          "硬盘、光驱和声卡",
+          "键盘、鼠标和打印机"
+        ],
+        answer: 1,
+        explanation: "北桥（MCH, Memory Controller Hub）连接 CPU、内存（DRAM）和高速图形接口（AGP 或早期 PCIe）。这些组件要求极高的带宽和极低的延迟，因此北桥直接通过前端总线（FSB）与 CPU 相连。南桥则负责低速 I/O 设备（USB、SATA、音频等）。"
+      },
+      {
+        id: "s6-ch04-q2",
+        question: "现代 Intel 处理器将内存控制器集成到 CPU 内部的主要目的是什么？",
+        options: [
+          "降低 CPU 的制造成本",
+          "减少内存访问延迟，消除北桥瓶颈",
+          "支持更多种类的内存标准",
+          "简化主板的电源设计"
+        ],
+        answer: 1,
+        explanation: "将内存控制器从北桥移入 CPU（Intel 从 Nehalem 架构开始）消除了 FSB 瓶颈，内存访问不再需要经过北桥中转。CPU 直接通过集成的 IMC（Integrated Memory Controller）与 DRAM 通信，访问延迟从约 100ns 降低到约 50-60ns，带宽也大幅提升。这也使得北桥芯片不再需要存在。"
+      },
+      {
+        id: "s6-ch04-q3",
+        question: "PCH（Platform Controller Hub）通过什么接口与现代 Intel CPU 连接？",
+        options: [
+          "前端总线（FSB）",
+          "PCI 总线",
+          "DMI（Direct Media Interface）",
+          "HyperTransport"
+        ],
+        answer: 2,
+        explanation: "PCH 通过 DMI（Direct Media Interface）与 CPU 连接。DMI 是 Intel 专有的点对点互联，基于 PCIe 协议。当前 DMI 4.0 提供约 16 GB/s（x8 链路）的带宽。DMI 取代了传统的南桥-北桥之间的低速总线，但其带宽仍远低于 CPU 直连的 PCIe 通道，因此高性能设备（如 GPU、NVMe SSD）通常直连 CPU 的 PCIe 控制器。"
+      },
+      {
+        id: "s6-ch04-q4",
+        question: "IOMMU 的核心功能是什么？",
+        options: [
+          "加速 CPU 的浮点运算",
+          "为 I/O 设备的 DMA 访问提供地址翻译和内存保护",
+          "管理 CPU 各核心之间的缓存一致性",
+          "控制 PCIe 链路的物理层信号编码"
+        ],
+        answer: 1,
+        explanation: "IOMMU（I/O Memory Management Unit）为设备的 DMA（Direct Memory Access）请求提供地址翻译（设备虚拟地址 → 物理地址）和访问权限检查。没有 IOMMU 时，设备可以用 DMA 访问任意物理内存，存在严重安全风险。IOMMU 确保每个设备只能访问操作系统授权的内存区域，是设备虚拟化（如 SR-IOV、VFIO）的硬件基础。"
+      },
+      {
+        id: "s6-ch04-q5",
+        question: "在虚拟化环境中，IOMMU 的设备直通（Passthrough）技术解决了什么问题？",
+        options: [
+          "让虚拟机共享同一块网卡的带宽",
+          "让虚拟机以接近原生的性能直接访问物理设备",
+          "减少宿主机的内存使用量",
+          "加速虚拟机之间的网络通信"
+        ],
+        answer: 1,
+        explanation: "设备直通（Device Passthrough）通过 IOMMU 将物理设备（如网卡、GPU）直接分配给虚拟机，绕过 Hypervisor 的软件模拟层。IOMMU 负责将虚拟机的 GPA（Guest Physical Address）翻译为 HPA（Host Physical Address），并确保设备的 DMA 不会越界访问其他虚拟机的内存。这使得虚拟机可以以接近裸机的性能使用硬件设备，延迟开销仅增加约 5-10%。"
+      },
+      {
+        id: "s6-ch04-q6",
+        question: "中断重映射（Interrupt Remapping）主要防止什么安全威胁？",
+        options: [
+          "CPU 缓存侧信道攻击",
+          "恶意设备伪造中断注入，攻击其他虚拟机或宿主机",
+          "网络数据包被中间人篡改",
+          "硬盘数据被未授权读取"
+        ],
+        answer: 1,
+        explanation: "没有中断重映射时，设备可以构造任意的 MSI/MSI-X 中断消息，指定任意目标 CPU 和中断向量——恶意设备或被攻陷的设备可以利用这一点向其他虚拟机注入伪造中断，导致拒绝服务（DoS）甚至权限提升。中断重映射通过 IOMMU 的中断重映射表（IRT）验证和翻译设备发出的中断请求，确保中断只能投递到授权的目标。"
+      },
+      {
+        id: "s6-ch04-q7",
+        question: "MSI（Message Signaled Interrupts）相比传统的引脚中断（INTx）有什么优势？",
+        options: [
+          "MSI 不需要 CPU 参与处理",
+          "MSI 通过内存写事务传递中断，无需共享物理引脚，支持更多中断向量",
+          "MSI 只能用于 PCIe 设备，不兼容 PCI 设备",
+          "MSI 的中断延迟比引脚中断高一个数量级"
+        ],
+        answer: 1,
+        explanation: "MSI 通过向特定内存地址写入数据来触发中断（本质上是一次 PCIe 内存写事务），不需要物理中断引脚。优势包括：① 消除了引脚共享带来的中断风暴和轮询开销；② 每个设备可以分配多达 32 个（MSI）或 2048 个（MSI-X）独立中断向量；③ 中断可以精确投递到指定 CPU 核心，实现中断亲和性（IRQ Affinity）；④ 天然支持中断重映射。"
+      },
+      {
+        id: "s6-ch04-q8",
+        question: "Intel VT-d 技术中，DMA 重映射使用的页表结构与什么类似？",
+        options: [
+          "文件系统的 inode 结构",
+          "CPU 的多级虚拟内存页表",
+          "网络路由表的最长前缀匹配结构",
+          "磁盘的 RAID 条带映射表"
+        ],
+        answer: 1,
+        explanation: "Intel VT-d 的 DMA 重映射使用多级页表结构（与 CPU 的虚拟内存页表非常相似），将设备的 DMA 地址翻译为物理地址。页表由 Root Table → Context Table → 多级 Page Table 组成。每个 PCIe 设备（由 BDF——Bus:Device:Function 标识）在 Context Table 中有独立的条目，指向该设备专属的页表，实现设备间的内存隔离。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-6" data-module="ch04" style="--domain-color: var(--c-bus-network);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 6</span><a href="index.html" class="module-name">互联的世界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.4 / 4</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 北桥/南桥历史</a></li>
+      <li><a href="#kp2">02 · 现代芯片组（PCH）</a></li>
+      <li><a href="#kp3">03 · IOMMU 与设备虚拟化</a></li>
+      <li><a href="#kp4">04 · 中断重映射</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 4</p>
+      <h1>DMA 与 I/O 架构</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 北桥/南桥（Northbridge/Southbridge）历史</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在 x86 计算机的发展历程中，<strong>芯片组（Chipset）</strong>扮演着"交通枢纽"的角色——它连接 CPU、内存、显卡和所有 I/O 设备。理解芯片组的演化，就是理解计算机内部总线架构如何从共享瓶颈走向点对点高速互联的历史。</p>
+            <p>传统的芯片组采用经典的<strong>北桥/南桥（Northbridge/Southbridge）</strong>双芯片架构。北桥（MCH, Memory Controller Hub）处理 CPU、内存和显卡之间的高带宽通信；南桥（ICH, I/O Controller Hub）处理低速 I/O 设备（USB、SATA、音频、网络等）。这种架构从 1990 年代一直延续到 2008 年前后。</p>
+            <p>理解北桥/南桥架构的设计动机和局限性，是理解现代 PCH（Platform Controller Hub）架构诞生原因的必要前提，也是理解 DMA 路径、中断路由和 I/O 性能瓶颈的基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>北桥（Northbridge / MCH）</strong>的核心职责：</p>
+            <p><strong>① 前端总线（FSB）接口：</strong>CPU 通过 FSB（Front-Side Bus）与北桥通信。FSB 是共享的并行总线，所有 CPU 核心共享同一总线带宽。典型的 FSB 频率为 400-1600 MHz（有效频率，利用 4 倍数据率），带宽约 6.4-12.8 GB/s。</p>
+            <p><strong>② 内存控制器：</strong>北桥内置 DRAM 控制器，管理内存读写时序、刷新和多通道配置。CPU 的每次内存访问都必须经过 FSB → 北桥 → 内存总线的路径。</p>
+            <p><strong>③ 图形接口：</strong>AGP（Accelerated Graphics Port）或早期 PCIe x16 插槽直接连接北桥，提供显卡所需的高带宽（AGP 8x = 2.1 GB/s，PCIe 1.0 x16 = 4 GB/s）。</p>
+            <p><strong>南桥（Southbridge / ICH）</strong>的核心职责：</p>
+            <p><strong>① 低速 I/O 管理：</strong>USB 控制器、SATA 控制器、音频编解码器（AC'97/HDA）、传统 PCI 总线。</p>
+            <p><strong>② 系统管理：</strong>BIOS/UEFI 固件接口（SPI Flash）、实时时钟（RTC）、电源管理（ACPI）、中断控制器（APIC）。</p>
+            <p><strong>③ 北桥-南桥互联：</strong>两者通过专有总线连接（如 Intel Hub Interface，带宽约 266 MB/s → 后来升级为 DMI 1.0，约 2 GB/s）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>FSB 带宽计算：</strong></p>
+            \[
+            BW_{\text{FSB}} = f_{\text{base}} \times \text{数据率倍数} \times \text{总线宽度（字节）}
+            \]
+            <p>例：FSB 800 MHz（基础频率 200 MHz，四倍数据率 QDR），64 位（8 字节）宽：</p>
+            \[
+            BW_{\text{FSB}} = 200 \times 10^6 \times 4 \times 8 = 6.4 \text{ GB/s}
+            \]
+            <p><strong>北桥成为瓶颈的分析：</strong></p>
+            <p>所有 CPU 的内存访问和 GPU 的显存/系统内存访问都经过北桥。总需求带宽：</p>
+            \[
+            BW_{\text{demand}} = BW_{\text{CPU→MEM}} + BW_{\text{GPU→MEM}} + BW_{\text{DMA}}
+            \]
+            <p>当 \(BW_{\text{demand}} > BW_{\text{FSB}}\) 时，北桥成为系统性能瓶颈。例如：双核 CPU 各需 4 GB/s 内存带宽 + GPU 需 3 GB/s = 11 GB/s，已超过 FSB 的 6.4 GB/s。</p>
+            <p><strong>DMA 路径延迟模型：</strong></p>
+            \[
+            T_{\text{DMA}} = T_{\text{device→SB}} + T_{\text{SB→NB}} + T_{\text{NB→MEM}}
+            \]
+            <p>设备的 DMA 请求需要从南桥出发，经过南桥-北桥互联，再经过北桥的内存控制器到达 DRAM——每个环节都增加延迟。</p>
+            <div class="warning-box">⚠️ <strong>FSB 是共享总线！</strong>多核 CPU 出现后，所有核心通过同一条 FSB 竞争访问北桥，严重限制了多核扩展性。这也是 Intel 在 Nehalem（2008）中用 QPI 点对点总线取代 FSB 的根本原因。AMD 则更早（2003 年 Opteron）采用了 HyperTransport 点对点互联和集成内存控制器。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>Intel 440BX 芯片组（1998）：</strong>经典的北桥/南桥架构代表。北桥 82443BX 支持 FSB 100 MHz、AGP 2x 和 SDRAM；南桥 82371EB（PIIX4E）提供 PCI 总线、IDE、USB 1.1。这款芯片组搭配 Pentium II/III 成为了一代经典平台。</p>
+            <p><strong>Intel 865/875 芯片组（2003）：</strong>支持双通道 DDR400 内存（峰值 6.4 GB/s），FSB 800 MHz，AGP 8x。双通道内存技术是为了匹配 FSB 带宽——单通道 DDR400 只有 3.2 GB/s，不足以填满 FSB。</p>
+            <p><strong>NVIDIA nForce 芯片组：</strong>NVIDIA 曾推出集成 GPU 的北桥芯片（nForce），GPU 直接位于北桥内部，可以零延迟访问内存控制器。这是"核显"概念的早期实践。</p>
+            <p><strong>南桥的 DMA 瓶颈：</strong>高速设备（如千兆网卡、RAID 控制器）通过南桥进行 DMA 时，受限于南桥-北桥互联的带宽（早期仅 266 MB/s）。这促使后续架构将高速 I/O 控制器上移到北桥，甚至直连 CPU。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某系统使用 FSB 1066 MHz（基础频率 266 MHz，QDR），64 位总线宽度。北桥连接双通道 DDR2-667 内存。计算：① FSB 带宽；② 内存带宽；③ 是否存在瓶颈？</p>
+            <p><em>解答：</em></p>
+            <p>① FSB 带宽：</p>
+            \[
+            BW_{\text{FSB}} = 266 \times 10^6 \times 4 \times 8 = 8.53 \text{ GB/s}
+            \]
+            <p>② 双通道 DDR2-667 内存带宽：</p>
+            \[
+            BW_{\text{MEM}} = 667 \times 10^6 \times 2 \times 8 = 10.67 \text{ GB/s}
+            \]
+            <p>（DDR 双倍数据率 × 2 通道 × 8 字节/次）</p>
+            <p>③ 内存带宽（10.67 GB/s）> FSB 带宽（8.53 GB/s），所以 <strong>FSB 是瓶颈</strong>——内存无法以最大速率向 CPU 供数据。</p>
+            <p>❌ <strong>常见错误：</strong>混淆 FSB 的"标称频率"和"有效频率"。FSB 1066 MHz 的基础时钟实际上是 266 MHz，通过 QDR（每周期传 4 次数据）达到等效 1066 MHz。</p>
+            <p>✅ <strong>正确做法：</strong>带宽计算时使用基础频率 × 数据率倍数 × 数据宽度，或者直接用有效频率 × 数据宽度。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch04-kp1">
+        <svg viewBox="0 0 700 340" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp1" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">传统北桥/南桥芯片组架构</text>
+          <!-- CPU -->
+          <rect x="270" y="35" width="160" height="45" rx="6" fill="#dbeafe" stroke="#06b6d4" stroke-width="2"/>
+          <text x="350" y="55" text-anchor="middle" class="accent" font-size="12" font-weight="bold">CPU</text>
+          <text x="350" y="70" text-anchor="middle" class="fg2" font-size="9">Pentium 4 / Core 2</text>
+          <!-- FSB -->
+          <line x1="350" y1="80" x2="350" y2="120" stroke="#06b6d4" stroke-width="2.5" marker-end="url(#ah-kp1)"/>
+          <text x="395" y="105" class="accent" font-size="9" font-weight="bold">FSB</text>
+          <text x="395" y="117" class="fg2" font-size="8">6.4–12.8 GB/s</text>
+          <!-- Northbridge -->
+          <rect x="250" y="120" width="200" height="60" rx="8" fill="#ecfdf5" stroke="#06b6d4" stroke-width="2"/>
+          <text x="350" y="145" text-anchor="middle" class="accent" font-size="12" font-weight="bold">北桥（MCH）</text>
+          <text x="350" y="165" text-anchor="middle" class="fg2" font-size="9">内存控制器 + 图形接口</text>
+          <!-- Memory (left of NB) -->
+          <rect x="40" y="125" width="130" height="50" class="box" fill="#fef3c7"/>
+          <text x="105" y="148" text-anchor="middle" class="fg" font-size="10" font-weight="bold">DRAM 内存</text>
+          <text x="105" y="163" text-anchor="middle" class="fg2" font-size="8">DDR / DDR2 双通道</text>
+          <line x1="170" y1="150" x2="248" y2="150" class="line" marker-end="url(#ah-kp1)"/>
+          <text x="209" y="143" text-anchor="middle" class="fg2" font-size="8">内存总线</text>
+          <!-- GPU (right of NB) -->
+          <rect x="530" y="125" width="130" height="50" class="box" fill="#fdf2f8"/>
+          <text x="595" y="148" text-anchor="middle" class="fg" font-size="10" font-weight="bold">显卡（GPU）</text>
+          <text x="595" y="163" text-anchor="middle" class="fg2" font-size="8">AGP / PCIe x16</text>
+          <line x1="452" y1="150" x2="528" y2="150" class="line" marker-end="url(#ah-kp1)"/>
+          <text x="490" y="143" text-anchor="middle" class="fg2" font-size="8">图形总线</text>
+          <!-- NB to SB link -->
+          <line x1="350" y1="180" x2="350" y2="220" stroke="#f59e0b" stroke-width="2" marker-end="url(#ah-kp1)"/>
+          <text x="405" y="200" fill="#f59e0b" font-size="8" font-weight="bold">Hub Interface</text>
+          <text x="405" y="212" class="fg2" font-size="8">~266 MB/s → DMI</text>
+          <!-- Southbridge -->
+          <rect x="250" y="220" width="200" height="60" rx="8" fill="#fff7ed" stroke="#f59e0b" stroke-width="2"/>
+          <text x="350" y="245" text-anchor="middle" fill="#f59e0b" font-size="12" font-weight="bold">南桥（ICH）</text>
+          <text x="350" y="265" text-anchor="middle" class="fg2" font-size="9">I/O 控制器 + 系统管理</text>
+          <!-- IO devices below SB -->
+          <rect x="40" y="290" width="80" height="30" class="box"/>
+          <text x="80" y="310" text-anchor="middle" class="fg2" font-size="9">USB</text>
+          <rect x="140" y="290" width="80" height="30" class="box"/>
+          <text x="180" y="310" text-anchor="middle" class="fg2" font-size="9">SATA</text>
+          <rect x="240" y="290" width="80" height="30" class="box"/>
+          <text x="280" y="310" text-anchor="middle" class="fg2" font-size="9">音频 HDA</text>
+          <rect x="340" y="290" width="80" height="30" class="box"/>
+          <text x="380" y="310" text-anchor="middle" class="fg2" font-size="9">PCI 总线</text>
+          <rect x="440" y="290" width="80" height="30" class="box"/>
+          <text x="480" y="310" text-anchor="middle" class="fg2" font-size="9">LPC / SPI</text>
+          <rect x="540" y="290" width="80" height="30" class="box"/>
+          <text x="580" y="310" text-anchor="middle" class="fg2" font-size="9">网络 LAN</text>
+          <line x1="350" y1="280" x2="80" y2="290" class="line"/>
+          <line x1="350" y1="280" x2="180" y2="290" class="line"/>
+          <line x1="350" y1="280" x2="280" y2="290" class="line"/>
+          <line x1="350" y1="280" x2="380" y2="290" class="line"/>
+          <line x1="350" y1="280" x2="480" y2="290" class="line"/>
+          <line x1="350" y1="280" x2="580" y2="290" class="line"/>
+        </svg>
+        <figcaption>图 4-1 传统北桥/南桥架构 — CPU 通过 FSB 连接北桥，北桥管理内存和显卡，南桥管理低速 I/O</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在传统芯片组中，设备通过 DMA 访问内存的数据路径是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'DMA 不经过 CPU！DMA 的核心优势正是绕过 CPU 直接传输数据，但仍需经过芯片组。')">A. 设备 → CPU → 内存</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！设备的 DMA 请求从南桥出发，经过南桥-北桥互联到达北桥的内存控制器，最终访问 DRAM。这条路径的每个环节都可能成为带宽瓶颈。')">B. 设备 → 南桥 → 北桥 → 内存</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '设备通常连接在南桥上（如 USB、SATA），必须经过南桥→北桥路径才能到达内存控制器。')">C. 设备 → 北桥 → 内存（跳过南桥）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'DMA 传输不通过 FSB 路径——FSB 是 CPU 与北桥的专用互联。设备的 DMA 通过南桥-北桥内部链路传输。')">D. 设备 → FSB → 内存</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 现代芯片组（PCH）架构</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>北桥/南桥架构有两个致命瓶颈：<strong>FSB 共享带宽不足</strong>（多核 CPU 争抢同一总线）和<strong>北桥成为内存访问的中间人</strong>（增加延迟，限制带宽）。随着 CPU 核心数增多和内存/GPU 带宽需求爆发式增长，这种架构无法满足性能需求。</p>
+            <p>从 2008 年开始（Intel Nehalem / AMD Opteron），处理器厂商将<strong>内存控制器和 PCIe 控制器集成到 CPU 内部</strong>，北桥的核心功能被 CPU 吸收，北桥芯片不再需要。剩余的 I/O 控制功能被整合到单一的<strong>PCH（Platform Controller Hub）</strong>中，取代了原来的南桥。</p>
+            <p>理解现代 PCH 架构，是理解当今计算机系统中 I/O 拓扑、设备带宽分配、DMA 路径和中断路由的基础。这也决定了你在搭建高性能系统时如何选择 PCIe 设备的安装位置。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>现代架构的核心变化：</strong></p>
+            <p><strong>① 集成内存控制器（IMC）：</strong>CPU 内部直接集成 DDR 控制器，内存不再经过外部北桥。DRAM 直连 CPU 引脚，访问延迟降低约 40%。多核 CPU 使用环形总线（Ring Bus）或 Mesh 互联在核心间共享内存带宽。</p>
+            <p><strong>② 集成 PCIe 控制器：</strong>CPU 内部集成 PCIe Root Complex，提供直连 CPU 的 PCIe 通道（如 16-20 条直连 lanes）。GPU 和高性能 NVMe SSD 通过 CPU 直连的 PCIe 通道获得最低延迟和最高带宽。</p>
+            <p><strong>③ PCH 取代南桥：</strong>PCH 通过 DMI（Direct Media Interface）与 CPU 连接。PCH 提供额外的 PCIe 通道（通常 PCIe 3.0/4.0 x1-x4）、USB 3.x 控制器、SATA 控制器、千兆/2.5G 网卡、Wi-Fi CNVi 接口等。</p>
+            <p><strong>④ DMI 互联：</strong>DMI 本质上是一条专用的 PCIe 链路。DMI 3.0 = PCIe 3.0 x4 ≈ 3.93 GB/s，DMI 4.0 = PCIe 4.0 x8 ≈ 15.76 GB/s。所有挂载在 PCH 上的设备共享这条 DMI 带宽——这是现代系统中 I/O 瓶颈的关键所在。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>DMI 带宽计算：</strong></p>
+            \[
+            BW_{\text{DMI}} = n_{\text{lanes}} \times BW_{\text{per\_lane}}
+            \]
+            <p>DMI 3.0（PCIe 3.0 x4）：</p>
+            \[
+            BW_{\text{DMI3}} = 4 \times 985 \text{ MB/s} = 3.94 \text{ GB/s}
+            \]
+            <p>DMI 4.0（PCIe 4.0 x8）：</p>
+            \[
+            BW_{\text{DMI4}} = 8 \times 1969 \text{ MB/s} = 15.75 \text{ GB/s}
+            \]
+            <p><strong>PCH 侧带宽竞争模型：</strong></p>
+            <p>假设 PCH 上挂载了 \(k\) 个设备，各自的带宽需求为 \(BW_i\)：</p>
+            \[
+            \sum_{i=1}^{k} BW_i \leq BW_{\text{DMI}}
+            \]
+            <p>如果总需求超过 DMI 带宽，设备间将发生带宽竞争。例：PCH 上有 2 个 NVMe SSD（各 3.5 GB/s）+ USB 3.2（1.2 GB/s）= 8.2 GB/s > DMI 3.0 的 3.94 GB/s。</p>
+            <p><strong>CPU 直连 vs PCH 挂载的延迟差异：</strong></p>
+            \[
+            T_{\text{CPU直连}} = T_{\text{PCIe}}
+            \]
+            \[
+            T_{\text{PCH挂载}} = T_{\text{PCIe}} + T_{\text{DMI}} + T_{\text{PCH内部}}
+            \]
+            <p>PCH 挂载设备的额外延迟约 100-300ns，对于延迟敏感的 NVMe SSD 这是不可忽视的。</p>
+            <div class="warning-box">⚠️ <strong>M.2 插槽位置很重要！</strong>主板上的多个 M.2 NVMe 插槽可能分别连接到 CPU 直连 PCIe 通道和 PCH 的 PCIe 通道。直连 CPU 的 M.2 享有独占带宽和更低延迟，而 PCH 侧的 M.2 需要与其他设备共享 DMI 带宽。高性能应用应优先使用 CPU 直连插槽。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>Intel Alder Lake 平台（Z690 PCH）：</strong>CPU 提供 16 条 PCIe 5.0 + 4 条 PCIe 4.0 直连通道。PCH 通过 DMI 4.0 x8 连接，提供额外 12 条 PCIe 4.0 + 16 条 PCIe 3.0 通道。GPU 使用 CPU 直连的 PCIe 5.0 x16，首个 NVMe SSD 使用 CPU 直连的 PCIe 4.0 x4，其余 SSD 通过 PCH 连接。</p>
+            <p><strong>AMD 的对应方案：</strong>AMD 使用 Infinity Fabric 连接 CPU 和芯片组（如 X670E）。AMD 平台同样提供 CPU 直连的 PCIe 通道和芯片组提供的额外通道，但互联带宽和拓扑与 Intel 有所不同。</p>
+            <p><strong>服务器平台的差异：</strong>服务器 CPU（如 Intel Xeon）通常提供更多的 CPU 直连 PCIe 通道（48-64 条），减少对 PCH 的依赖。数据中心的高速网卡（100/200/400GbE）和 GPU 集群全部直连 CPU，PCH 仅处理管理网口和 BMC（Baseboard Management Controller）等低速设备。</p>
+            <p><strong>雷电（Thunderbolt）控制器：</strong>Thunderbolt 3/4 控制器可以集成在 CPU（如 Intel 11 代+）或 PCH 中。集成在 CPU 中可以提供更低延迟和更高带宽（直接访问 CPU 的 PCIe 通道），外接显卡坞（eGPU）性能更佳。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某主板使用 DMI 3.0（PCIe 3.0 x4）连接 PCH。PCH 上挂载了：2 个 NVMe SSD（每个峰值 3.5 GB/s）、1 个千兆网卡（125 MB/s）、4 个 USB 3.2 Gen2 端口（各 1.25 GB/s）。所有设备同时满载时，实际可用带宽如何？</p>
+            <p><em>解答：</em></p>
+            <p>总需求带宽：</p>
+            \[
+            BW_{\text{total}} = 2 \times 3.5 + 0.125 + 4 \times 1.25 = 7 + 0.125 + 5 = 12.125 \text{ GB/s}
+            \]
+            <p>DMI 3.0 带宽上限 = 3.94 GB/s。</p>
+            <p>实际总带宽被限制在 3.94 GB/s，每个设备只能获得按比例分配的带宽：</p>
+            \[
+            BW_{\text{实际}} = BW_{\text{需求}} \times \frac{3.94}{12.125} \approx 32.5\%
+            \]
+            <p>每个 NVMe SSD 实际只能获得约 1.14 GB/s——远低于其 3.5 GB/s 的标称速率。</p>
+            <p>❌ <strong>常见错误：</strong>认为每个 PCH 侧 PCIe 设备都能达到其标称带宽。实际上所有 PCH 侧设备共享 DMI 带宽，满载时必然存在竞争。</p>
+            <p>✅ <strong>正确做法：</strong>高性能 NVMe SSD 应使用 CPU 直连的 PCIe 通道，将低带宽设备放在 PCH 侧。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch04-kp2">
+        <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">现代 PCH 架构 — 内存控制器与 PCIe 集成到 CPU</text>
+          <!-- CPU (larger, includes IMC + PCIe RC) -->
+          <rect x="175" y="35" width="350" height="80" rx="8" fill="#dbeafe" stroke="#06b6d4" stroke-width="2"/>
+          <text x="350" y="55" text-anchor="middle" class="accent" font-size="13" font-weight="bold">CPU（集成 IMC + PCIe Root Complex）</text>
+          <text x="245" y="75" text-anchor="middle" class="fg2" font-size="9">核心 × N</text>
+          <text x="350" y="75" text-anchor="middle" class="fg2" font-size="9">内存控制器</text>
+          <text x="460" y="75" text-anchor="middle" class="fg2" font-size="9">PCIe 5.0/4.0</text>
+          <text x="245" y="100" text-anchor="middle" class="fg2" font-size="8">Ring / Mesh</text>
+          <text x="350" y="100" text-anchor="middle" class="fg2" font-size="8">DDR5 直连</text>
+          <text x="460" y="100" text-anchor="middle" class="fg2" font-size="8">x16 + x4 直连</text>
+          <!-- DRAM left -->
+          <rect x="15" y="50" width="120" height="50" class="box" fill="#fef3c7"/>
+          <text x="75" y="73" text-anchor="middle" class="fg" font-size="10" font-weight="bold">DDR5 内存</text>
+          <text x="75" y="88" text-anchor="middle" class="fg2" font-size="8">直连 CPU IMC</text>
+          <line x1="135" y1="75" x2="173" y2="75" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- GPU right -->
+          <rect x="570" y="35" width="110" height="50" class="box" fill="#fdf2f8"/>
+          <text x="625" y="56" text-anchor="middle" class="fg" font-size="10" font-weight="bold">GPU</text>
+          <text x="625" y="73" text-anchor="middle" class="fg2" font-size="8">PCIe 5.0 x16</text>
+          <line x1="527" y1="60" x2="568" y2="60" class="line" marker-end="url(#ah-kp2)"/>
+          <!-- NVMe direct -->
+          <rect x="570" y="90" width="110" height="35" class="box" fill="#ecfdf5"/>
+          <text x="625" y="112" text-anchor="middle" class="fg" font-size="9" font-weight="bold">NVMe SSD #1</text>
+          <line x1="527" y1="100" x2="568" y2="107" class="line" marker-end="url(#ah-kp2)"/>
+          <text x="555" y="95" class="accent" font-size="7">直连</text>
+          <!-- DMI link -->
+          <line x1="350" y1="115" x2="350" y2="165" stroke="#06b6d4" stroke-width="2.5" marker-end="url(#ah-kp2)"/>
+          <text x="400" y="138" class="accent" font-size="9" font-weight="bold">DMI 4.0 x8</text>
+          <text x="400" y="152" class="fg2" font-size="8">~15.75 GB/s</text>
+          <!-- PCH -->
+          <rect x="200" y="165" width="300" height="55" rx="8" fill="#fff7ed" stroke="#f59e0b" stroke-width="2"/>
+          <text x="350" y="188" text-anchor="middle" fill="#f59e0b" font-size="12" font-weight="bold">PCH（Platform Controller Hub）</text>
+          <text x="350" y="207" text-anchor="middle" class="fg2" font-size="9">PCIe 4.0/3.0 + USB 3.x + SATA + GbE + Wi-Fi</text>
+          <!-- PCH devices -->
+          <rect x="45" y="250" width="95" height="35" class="box"/>
+          <text x="92" y="271" text-anchor="middle" class="fg2" font-size="9">NVMe #2–#3</text>
+          <rect x="160" y="250" width="80" height="35" class="box"/>
+          <text x="200" y="271" text-anchor="middle" class="fg2" font-size="9">SATA SSD</text>
+          <rect x="260" y="250" width="80" height="35" class="box"/>
+          <text x="300" y="271" text-anchor="middle" class="fg2" font-size="9">USB 3.2</text>
+          <rect x="360" y="250" width="80" height="35" class="box"/>
+          <text x="400" y="271" text-anchor="middle" class="fg2" font-size="9">2.5G LAN</text>
+          <rect x="460" y="250" width="80" height="35" class="box"/>
+          <text x="500" y="271" text-anchor="middle" class="fg2" font-size="9">Wi-Fi 6E</text>
+          <rect x="560" y="250" width="80" height="35" class="box"/>
+          <text x="600" y="271" text-anchor="middle" class="fg2" font-size="9">音频 HDA</text>
+          <line x1="350" y1="220" x2="92" y2="248" class="line"/>
+          <line x1="350" y1="220" x2="200" y2="248" class="line"/>
+          <line x1="350" y1="220" x2="300" y2="248" class="line"/>
+          <line x1="350" y1="220" x2="400" y2="248" class="line"/>
+          <line x1="350" y1="220" x2="500" y2="248" class="line"/>
+          <line x1="350" y1="220" x2="600" y2="248" class="line"/>
+          <!-- Annotation -->
+          <text x="350" y="308" text-anchor="middle" class="fg2" font-size="10" font-style="italic">GPU 和 NVMe #1 直连 CPU，其余设备通过 PCH（共享 DMI 带宽）</text>
+        </svg>
+        <figcaption>图 4-2 现代 PCH 架构 — 内存和 PCIe 集成到 CPU，PCH 通过 DMI 连接管理其余 I/O</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">为什么现代系统中 GPU 通常直连 CPU 的 PCIe 通道，而不是挂载在 PCH 上？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '功耗管理不是决定 GPU 连接方式的主要因素。PCH 和 CPU 的 PCIe 通道在功耗管理上差异不大。')">A. PCH 的功耗限制无法驱动 GPU</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！GPU 需要极高的带宽（PCIe 5.0 x16 = ~64 GB/s）。如果挂在 PCH 上，所有数据都要经过 DMI 瓶颈（仅 ~16 GB/s），GPU 性能将大幅下降。直连 CPU 可获得独占的全速 PCIe 带宽。')">B. GPU 需要极高带宽，DMI 会成为严重瓶颈</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'PCH 的 PCIe 通道物理上也能插入 GPU，问题不在信号兼容性，而在带宽限制。')">C. PCH 不支持 PCIe x16 信号</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'CPU 和 PCH 的 PCIe 通道使用相同的协议，驱动程序不需要修改。')">D. PCH 上的 PCIe 不兼容 GPU 驱动</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · IOMMU 与设备虚拟化</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>DMA（Direct Memory Access）是现代 I/O 系统的核心机制——设备无需 CPU 参与就能直接读写系统内存，大幅提高数据传输效率。但 DMA 也带来了严重的安全和隔离问题：如果设备可以向<strong>任意物理地址</strong>发起 DMA 读写，一个恶意或故障的设备就能读取内核数据、修改页表、甚至接管整个系统。</p>
+            <p>在虚拟化环境中，问题更加尖锐：多个虚拟机共享同一硬件平台，如果将物理设备直接分配给虚拟机使用（设备直通），必须确保该设备的 DMA 只能访问分配给它的虚拟机的内存，不能越界访问宿主机或其他虚拟机的内存。</p>
+            <p><strong>IOMMU（I/O Memory Management Unit）</strong>正是解决这一问题的硬件机制。它为 I/O 设备提供了类似 CPU MMU 的地址翻译和访问控制功能，是设备虚拟化、DMA 安全隔离和 I/O 虚拟化（SR-IOV）的硬件基础。Intel 称之为 <strong>VT-d</strong>，AMD 称之为 <strong>AMD-Vi</strong>。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>IOMMU 的核心功能：</strong></p>
+            <p><strong>① DMA 地址重映射（DMA Remapping）：</strong>设备发出的 DMA 请求携带的是<strong>I/O 虚拟地址（IOVA）</strong>，IOMMU 将其翻译为<strong>主机物理地址（HPA）</strong>。翻译过程使用多级页表，结构与 CPU 的虚拟内存页表非常相似。</p>
+            <p><strong>② 设备隔离：</strong>每个 PCIe 设备由 BDF（Bus:Device:Function）唯一标识。IOMMU 维护一个 <strong>Root Table → Context Table</strong> 的两级索引结构，为每个 BDF 分配独立的页表。设备 A 的 DMA 无法访问设备 B 的内存区域。</p>
+            <p><strong>③ 权限检查：</strong>页表项中包含读/写权限位。IOMMU 在翻译地址的同时检查设备是否具有对目标内存的访问权限。违规访问触发 IOMMU fault，由操作系统处理。</p>
+            <p><strong>④ IOTLB：</strong>与 CPU 的 TLB 类似，IOMMU 内部有 IOTLB 缓存最近的地址翻译结果，避免每次 DMA 都遍历多级页表。</p>
+            <p><strong>虚拟化中的角色：</strong>Hypervisor 为每个虚拟机配置独立的 IOMMU 页表，将设备的 DMA 地址（= 虚拟机的 GPA）翻译为真实的 HPA。这使得设备直通（VFIO passthrough）成为可能，虚拟机可以直接操作硬件而不经过 Hypervisor 中转。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>IOMMU 地址翻译过程（Intel VT-d）：</strong></p>
+            <p>设备发出 DMA 请求，携带 BDF 和目标地址 IOVA：</p>
+            \[
+            \text{Root Entry} = \text{RootTable}[\text{Bus}]
+            \]
+            \[
+            \text{Context Entry} = \text{CtxTable}[\text{Dev:Func}]
+            \]
+            \[
+            \text{HPA} = \text{PageTableWalk}(\text{Context.PT\_Root}, \text{IOVA})
+            \]
+            <p>页表遍历与 CPU 的多级页表类似（4KB 页面、4 级页表支持 48 位地址空间）：</p>
+            \[
+            \text{IOVA} = \underbrace{L4}_9 | \underbrace{L3}_9 | \underbrace{L2}_9 | \underbrace{L1}_9 | \underbrace{\text{Offset}}_{12}
+            \]
+            <p><strong>DMA 延迟开销分析：</strong></p>
+            \[
+            T_{\text{DMA\_with\_IOMMU}} = T_{\text{IOTLB}} + T_{\text{DMA\_transfer}}  \quad \text{(IOTLB 命中)}
+            \]
+            \[
+            T_{\text{DMA\_with\_IOMMU}} = T_{\text{IOTLB}} + T_{\text{PageWalk}} + T_{\text{DMA\_transfer}}  \quad \text{(IOTLB 未命中)}
+            \]
+            <p>IOTLB 命中率通常 > 95%（DMA 访问具有空间局部性），因此 IOMMU 引入的额外延迟约为 0.1-1μs。</p>
+            <p><strong>设备直通 vs 软件模拟的性能对比：</strong></p>
+            \[
+            \text{吞吐量}_{\text{直通}} \approx 0.95 \times \text{吞吐量}_{\text{裸机}} \quad (\text{IOMMU 开销} \approx 5\%)
+            \]
+            \[
+            \text{吞吐量}_{\text{软件模拟}} \approx 0.3 \text{–} 0.5 \times \text{吞吐量}_{\text{裸机}} \quad (\text{Trap & Emulate 开销})
+            \]
+            <div class="warning-box">⚠️ <strong>IOMMU 不是万能的！</strong>IOMMU 保护的是 DMA 路径——设备通过总线发起的内存访问。但如果设备可以被编程为发出 P2P（Peer-to-Peer）PCIe 事务绕过 IOMMU（在某些老旧或配置不当的系统中），安全隔离就会被打破。此外，ACS（Access Control Services）需要在 PCIe 拓扑的每个交换机上正确启用，才能确保设备间的隔离。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>VFIO（Virtual Function I/O）：</strong>Linux 的 VFIO 框架利用 IOMMU 将物理设备安全地直通给用户空间程序或虚拟机。QEMU/KVM 使用 VFIO 将 GPU、NVMe SSD、网卡等直接分配给虚拟机，实现接近裸机的 I/O 性能。命令示例：<code>vfio-pci</code> 驱动绑定设备后，QEMU 通过 <code>-device vfio-pci,host=01:00.0</code> 将设备传递给 VM。</p>
+            <p><strong>SR-IOV（Single Root I/O Virtualization）：</strong>支持 SR-IOV 的网卡可以在硬件层面创建多个<strong>虚拟功能（VF, Virtual Function）</strong>，每个 VF 表现为独立的 PCIe 设备，可以通过 IOMMU 分配给不同的虚拟机。一块物理网卡可以同时服务 64-256 个虚拟机，每个 VM 都有独立的硬件队列，无需 Hypervisor 中转。</p>
+            <p><strong>DMA 攻击防御：</strong>没有 IOMMU 时，通过 Thunderbolt/FireWire 等外部接口连接的设备可以发起 DMA 攻击，直接读写系统内存（如著名的 PCILeech 工具）。启用 IOMMU 后，外部设备的 DMA 被限制在操作系统授权的内存区域，有效防御此类攻击。这也是 macOS 默认启用 IOMMU 的原因。</p>
+            <p><strong>DPDK（Data Plane Development Kit）：</strong>高性能网络应用使用 DPDK 在用户空间直接操作网卡（绕过内核协议栈）。IOMMU 确保用户空间应用只能通过 DMA 访问预分配的内存缓冲区，不能越界访问内核或其他进程的内存。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个 KVM 虚拟机通过 VFIO 直通使用一块 NVMe SSD（BDF = 03:00.0）。虚拟机内核向 NVMe 控制器提交 DMA 读命令，目标地址（GPA）= 0x1_0000_0000。解释 IOMMU 如何处理这个 DMA 请求。</p>
+            <p><em>解答：</em></p>
+            <p><strong>Step 1</strong>：NVMe 控制器根据 DMA 描述符向 PCIe 总线发出内存读请求，目标地址 = 0x1_0000_0000（这是虚拟机的 GPA，即 IOVA）。</p>
+            <p><strong>Step 2</strong>：IOMMU 截获此请求，提取设备的 BDF = 03:00.0。</p>
+            <p><strong>Step 3</strong>：用 Bus=03 索引 Root Table，获得指向该 Bus 的 Context Table 的指针。</p>
+            <p><strong>Step 4</strong>：用 Dev:Func=00.0 索引 Context Table，获得该设备的页表根指针和 IOMMU 域信息。</p>
+            <p><strong>Step 5</strong>：用 IOVA = 0x1_0000_0000 遍历多级页表，翻译为 HPA（如 0x8_4000_0000）。IOMMU 同时检查读权限。</p>
+            <p><strong>Step 6</strong>：IOMMU 将翻译后的 HPA 放到内存总线上，DRAM 控制器完成实际读操作，数据通过 PCIe 返回给 NVMe 控制器。</p>
+            <p>❌ <strong>常见错误：</strong>认为设备直通后虚拟机可以用物理地址直接 DMA。实际上设备使用的地址是 IOVA（= GPA），必须经过 IOMMU 翻译。</p>
+            <p>✅ <strong>正确理解：</strong>IOMMU 页表由 Hypervisor 配置，将 VM 的 GPA 空间映射到对应的 HPA。VM 自身不知道 IOMMU 的存在。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch04-kp3">
+        <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp3" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">IOMMU DMA 地址重映射（VT-d）</text>
+          <!-- Device -->
+          <rect x="20" y="60" width="120" height="55" rx="6" fill="#fdf2f8" stroke="#334155" stroke-width="1.5"/>
+          <text x="80" y="80" text-anchor="middle" class="fg" font-size="10" font-weight="bold">PCIe 设备</text>
+          <text x="80" y="95" text-anchor="middle" class="fg2" font-size="8">BDF = 03:00.0</text>
+          <text x="80" y="108" text-anchor="middle" class="fg2" font-size="8">DMA → IOVA</text>
+          <!-- Arrow to IOMMU -->
+          <line x1="142" y1="87" x2="200" y2="87" stroke="#06b6d4" stroke-width="2" marker-end="url(#ah-kp3)"/>
+          <text x="170" y="80" text-anchor="middle" class="accent" font-size="8">IOVA</text>
+          <!-- IOMMU -->
+          <rect x="200" y="45" width="200" height="90" rx="8" fill="none" stroke="#06b6d4" stroke-width="2.5"/>
+          <text x="300" y="68" text-anchor="middle" class="accent" font-size="12" font-weight="bold">IOMMU</text>
+          <!-- Sub-blocks inside IOMMU -->
+          <rect x="215" y="75" width="75" height="22" rx="3" fill="#e0f2fe" stroke="#06b6d4" stroke-width="1"/>
+          <text x="252" y="90" text-anchor="middle" class="fg" font-size="8">Root/Ctx 表</text>
+          <rect x="300" y="75" width="85" height="22" rx="3" fill="#e0f2fe" stroke="#06b6d4" stroke-width="1"/>
+          <text x="342" y="90" text-anchor="middle" class="fg" font-size="8">多级页表</text>
+          <rect x="215" y="105" width="75" height="22" rx="3" fill="#ecfdf5" stroke="#22c55e" stroke-width="1"/>
+          <text x="252" y="120" text-anchor="middle" class="fg" font-size="8">IOTLB</text>
+          <rect x="300" y="105" width="85" height="22" rx="3" fill="#ecfdf5" stroke="#22c55e" stroke-width="1"/>
+          <text x="342" y="120" text-anchor="middle" class="fg" font-size="8">权限检查</text>
+          <!-- Arrow to memory -->
+          <line x1="402" y1="87" x2="470" y2="87" stroke="#06b6d4" stroke-width="2" marker-end="url(#ah-kp3)"/>
+          <text x="436" y="80" text-anchor="middle" class="accent" font-size="8">HPA</text>
+          <!-- Physical Memory -->
+          <rect x="470" y="45" width="200" height="90" rx="6" fill="#fef3c7" stroke="#334155" stroke-width="1.5"/>
+          <text x="570" y="68" text-anchor="middle" class="fg" font-size="11" font-weight="bold">物理内存</text>
+          <!-- VM1 region -->
+          <rect x="485" y="78" width="80" height="20" rx="3" fill="#dbeafe" stroke="#06b6d4" stroke-width="1"/>
+          <text x="525" y="92" text-anchor="middle" class="accent" font-size="8">VM1 内存区</text>
+          <!-- VM2 region -->
+          <rect x="575" y="78" width="80" height="20" rx="3" fill="#fdf2f8" stroke="#ef4444" stroke-width="1"/>
+          <text x="615" y="92" text-anchor="middle" fill="#ef4444" font-size="8">VM2 内存区</text>
+          <!-- Host region -->
+          <rect x="485" y="105" width="170" height="20" rx="3" fill="#f0fdf4" stroke="#22c55e" stroke-width="1"/>
+          <text x="570" y="119" text-anchor="middle" fill="#22c55e" font-size="8">宿主机内核内存</text>
+          <!-- Isolation arrows -->
+          <line x1="80" y1="117" x2="80" y2="175" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,3"/>
+          <text x="80" y="190" text-anchor="middle" fill="#22c55e" font-size="9" font-weight="bold">✓ 仅能访问 VM1 区域</text>
+          <text x="80" y="205" text-anchor="middle" fill="#ef4444" font-size="9" font-weight="bold">✗ 不能访问 VM2 / 宿主机</text>
+          <!-- Page table walk detail -->
+          <rect x="170" y="165" width="440" height="110" rx="6" fill="#f0f9ff" stroke="#334155" stroke-width="1"/>
+          <text x="390" y="185" text-anchor="middle" class="fg" font-size="10" font-weight="bold">页表查找过程</text>
+          <rect x="185" y="195" width="70" height="30" rx="4" fill="#dbeafe" stroke="#06b6d4" stroke-width="1"/>
+          <text x="220" y="215" text-anchor="middle" class="fg" font-size="8">Root Table</text>
+          <text x="220" y="240" text-anchor="middle" class="fg2" font-size="7">[Bus] 索引</text>
+          <line x1="257" y1="210" x2="285" y2="210" class="line" marker-end="url(#ah-kp3)"/>
+          <rect x="285" y="195" width="70" height="30" rx="4" fill="#dbeafe" stroke="#06b6d4" stroke-width="1"/>
+          <text x="320" y="215" text-anchor="middle" class="fg" font-size="8">Ctx Table</text>
+          <text x="320" y="240" text-anchor="middle" class="fg2" font-size="7">[Dev:Func] 索引</text>
+          <line x1="357" y1="210" x2="385" y2="210" class="line" marker-end="url(#ah-kp3)"/>
+          <rect x="385" y="195" width="70" height="30" rx="4" fill="#ecfdf5" stroke="#22c55e" stroke-width="1"/>
+          <text x="420" y="215" text-anchor="middle" class="fg" font-size="8">页表 L4–L1</text>
+          <text x="420" y="240" text-anchor="middle" class="fg2" font-size="7">[IOVA] 遍历</text>
+          <line x1="457" y1="210" x2="485" y2="210" class="line" marker-end="url(#ah-kp3)"/>
+          <rect x="485" y="195" width="70" height="30" rx="4" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+          <text x="520" y="210" text-anchor="middle" class="fg" font-size="8" font-weight="bold">HPA</text>
+          <text x="520" y="222" text-anchor="middle" class="fg2" font-size="7">物理地址</text>
+          <text x="520" y="240" text-anchor="middle" class="fg2" font-size="7">访问 DRAM</text>
+        </svg>
+        <figcaption>图 4-3 IOMMU DMA 重映射 — 通过 Root/Context 表和多级页表将设备 IOVA 翻译为 HPA，实现设备间内存隔离</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">SR-IOV 技术中，Virtual Function（VF）的作用是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'VF 是轻量级的硬件功能，不包含完整的设备管理能力，那是 Physical Function（PF）的职责。')">A. 完全替代物理网卡的所有功能</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！SR-IOV 在硬件层面创建多个 VF，每个 VF 是一个独立的 PCIe 功能，拥有自己的 BDF、配置空间和硬件队列。通过 IOMMU，每个 VF 可以安全地分配给不同的虚拟机，实现硬件级的 I/O 虚拟化，性能远优于软件模拟。')">B. 在硬件层面创建独立的 PCIe 功能，可分配给不同虚拟机</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'VF 本身不做加密，它是 I/O 虚拟化的机制，安全性由 IOMMU 的内存隔离保证。')">C. 加密设备与虚拟机之间的数据传输</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, 'VF 的数据路径绕过 Hypervisor（这正是 SR-IOV 的性能优势），不需要 Hypervisor 中转数据。')">D. 在 Hypervisor 中模拟虚拟设备的行为</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 中断重映射（Interrupt Remapping）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>中断是 I/O 系统通知 CPU 的核心机制——当设备完成数据传输、发生错误或需要服务时，它通过发送中断来请求 CPU 处理。在现代系统中，中断通过 <strong>MSI（Message Signaled Interrupts）</strong>或 <strong>MSI-X</strong> 实现：设备向特定内存地址写入一条消息来触发中断。</p>
+            <p>但 MSI/MSI-X 的机制本身存在<strong>严重安全漏洞</strong>：设备在中断消息中指定目标 CPU 和中断向量号，恶意设备可以伪造这些字段，向任意 CPU 发送任意中断。在虚拟化环境中，一个被攻陷的设备可以向其他虚拟机的 vCPU 注入伪造中断，导致拒绝服务或更严重的安全问题。</p>
+            <p><strong>中断重映射（Interrupt Remapping）</strong>是 IOMMU 提供的另一项关键功能：它拦截设备发出的所有中断消息，通过<strong>中断重映射表（IRT, Interrupt Remapping Table）</strong>验证和翻译中断请求，确保中断只能投递到操作系统或 Hypervisor 授权的目标。这是构建安全虚拟化平台的必要条件。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>传统中断机制的演进：</strong></p>
+            <p><strong>① INTx（引脚中断）：</strong>PCI 设备通过共享的物理中断引脚（INTA#–INTD#）触发中断。多个设备共享同一引脚导致中断风暴和轮询开销。电平触发，CPU 需要轮询确认中断源。</p>
+            <p><strong>② MSI（Message Signaled Interrupts）：</strong>PCIe 设备通过向 LAPIC（Local APIC）的特定内存映射地址写入数据来触发中断。消息内容包含：目标 CPU ID（Destination ID）、投递模式（Delivery Mode）和中断向量号（Vector）。每个设备可分配 1-32 个中断向量。</p>
+            <p><strong>③ MSI-X：</strong>MSI 的扩展版本。每个设备可支持多达 2048 个独立的中断向量，每个向量可以独立配置目标 CPU 和向量号。中断向量表存储在设备的 BAR（Base Address Register）空间中。</p>
+            <p><strong>中断重映射的工作方式：</strong></p>
+            <p>启用中断重映射后，设备的 MSI/MSI-X 写入不再直接到达 LAPIC，而是被 IOMMU 拦截。IOMMU 从中断消息中提取<strong>索引</strong>，查找中断重映射表（IRT），获取经过验证的目标 CPU、向量号和投递模式，然后代替设备向正确的 LAPIC 投递中断。</p>
+            <p>中断重映射表由操作系统或 Hypervisor 配置，设备无法直接修改——这确保了中断投递的安全性和正确性。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>MSI 中断消息的格式（x86）：</strong></p>
+            <p>MSI 写入的目标地址和数据编码了中断路由信息：</p>
+            \[
+            \text{Address} = \texttt{0xFEE}\_\underbrace{\text{Dest ID}}_{8\text{位}}\_\texttt{0000}_{4\text{位}}
+            \]
+            \[
+            \text{Data} = \underbrace{\text{Vector}}_{8\text{位}} | \underbrace{\text{Delivery Mode}}_{3\text{位}} | \underbrace{\text{Trigger}}_{1\text{位}} | \ldots
+            \]
+            <p><strong>启用中断重映射后的消息格式变化：</strong></p>
+            <p>地址和数据字段被重新解释为中断重映射表的<strong>索引（handle）</strong>和子索引：</p>
+            \[
+            \text{IRT\_index} = \text{Address}[19:5] | \text{Data}[15:0]
+            \]
+            \[
+            \text{IRTE} = \text{IRT}[\text{IRT\_index}]
+            \]
+            <p>IRTE（Interrupt Remapping Table Entry）包含：真正的 Dest ID、Vector、Delivery Mode、以及源设备验证信息（Source ID / SID）。</p>
+            <p><strong>中断延迟分析：</strong></p>
+            \[
+            T_{\text{intr\_remap}} = T_{\text{IOMMU\_lookup}} + T_{\text{LAPIC\_delivery}} + T_{\text{ISR\_entry}}
+            \]
+            <p>IOMMU 的 IRT 查找可被缓存（类似 IOTLB），典型开销约 50-100ns。相比中断处理本身（ISR 通常数百 ns 到数 μs），重映射开销可忽略。</p>
+            <p><strong>中断向量容量：</strong></p>
+            \[
+            N_{\text{vectors}} = 256 - 32 = 224 \quad \text{（x86 可用中断向量：32-255）}
+            \]
+            <p>MSI-X 支持每设备最多 2048 个中断向量。对于多队列网卡（如 64 个 RSS 队列），每个队列一个 MSI-X 向量可以绑定到不同的 CPU 核心，实现中断负载均衡。</p>
+            <div class="warning-box">⚠️ <strong>中断重映射是 VT-d 的强制要求！</strong>Intel 的虚拟化规范要求在使用 Posted Interrupts（直接向虚拟机投递中断而不触发 VM-Exit）时，必须启用中断重映射。没有中断重映射，设备可以绕过 Hypervisor 的控制向任意 vCPU 注入中断，破坏虚拟化隔离。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>Posted Interrupts（Intel VT-d）：</strong>在虚拟化环境中，传统的设备中断处理需要触发 VM-Exit（虚拟机退出到 Hypervisor）→ Hypervisor 处理中断 → VM-Entry（返回虚拟机）。Posted Interrupts 允许 IOMMU 的中断重映射硬件直接将中断注入到虚拟机的 vCPU（通过 Posted Interrupt Descriptor），无需 VM-Exit，延迟降低约 2-5μs。</p>
+            <p><strong>IRQ 亲和性（IRQ Affinity）：</strong>通过 MSI-X 和中断重映射，操作系统可以将不同设备队列的中断绑定到特定 CPU 核心。例如，8 队列网卡的 8 个 MSI-X 向量分别绑定到 8 个核心，实现接收数据包的并行处理。Linux 中通过 <code>/proc/irq/&lt;N&gt;/smp_affinity</code> 配置。</p>
+            <p><strong>x2APIC 与中断重映射：</strong>Intel 的 x2APIC 模式将 APIC ID 从 8 位扩展到 32 位，支持超过 255 个逻辑 CPU（大规模服务器需求）。x2APIC 的中断投递<strong>强制要求</strong>启用中断重映射——因为 MSI 消息的地址字段只有 8 位 Destination ID，无法寻址 256 个以上的 CPU，必须通过 IRT 间接寻址。</p>
+            <p><strong>中断隔离与安全启动：</strong>在安全启动（Secure Boot）和可信执行环境（如 Intel TXT）中，中断重映射确保平台固件和安全监控器不会被恶意设备通过伪造中断来干扰。这是构建可信计算基（TCB）的硬件要素之一。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一个虚拟化平台运行两个虚拟机 VM1 和 VM2，各自直通一块网卡（NIC1 和 NIC2）。如果不启用中断重映射，NIC1 能否向 VM2 的 vCPU 注入伪造中断？启用后呢？</p>
+            <p><em>解答：</em></p>
+            <p><strong>不启用中断重映射：</strong>NIC1 的 MSI 消息中可以编码任意的 Destination ID 和 Vector。如果攻击者控制了 NIC1 的固件，可以将 MSI 的目标设为 VM2 的 vCPU 所在的物理 CPU，向量设为 VM2 正在使用的中断向量。LAPIC 收到后直接投递中断——<strong>攻击成功</strong>。</p>
+            <p><strong>启用中断重映射后：</strong>NIC1 的 MSI 消息被 IOMMU 拦截。IOMMU 查找 IRT 中 NIC1 对应的条目，该条目由 Hypervisor 配置，仅允许中断投递到 VM1 的 vCPU。IOMMU 还检查消息中的 Source ID 是否匹配 NIC1 的 BDF——<strong>攻击被阻止</strong>。</p>
+            <p>❌ <strong>常见错误：</strong>认为 IOMMU 的 DMA 重映射就足以保证安全。实际上 DMA 重映射只保护内存访问路径，中断投递是另一条独立的攻击面，需要中断重映射单独防护。</p>
+            <p>✅ <strong>正确理解：</strong>完整的 I/O 安全隔离需要<strong>同时</strong>启用 DMA 重映射（保护内存）和中断重映射（保护中断投递）。两者缺一不可。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s6-ch04-kp4">
+        <svg viewBox="0 0 700 310" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}.safe{fill:#22c55e}.danger{fill:#ef4444}</style>
+          <defs>
+            <marker id="ah-kp4" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">中断重映射 — MSI/MSI-X 安全投递</text>
+          <!-- Devices -->
+          <rect x="20" y="50" width="100" height="40" rx="5" fill="#dbeafe" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="70" y="67" text-anchor="middle" class="accent" font-size="9" font-weight="bold">NIC1（VM1）</text>
+          <text x="70" y="82" text-anchor="middle" class="fg2" font-size="7">BDF: 03:00.0</text>
+          <rect x="20" y="105" width="100" height="40" rx="5" fill="#fdf2f8" stroke="#ef4444" stroke-width="1.5"/>
+          <text x="70" y="122" text-anchor="middle" fill="#ef4444" font-size="9" font-weight="bold">NIC2（VM2）</text>
+          <text x="70" y="137" text-anchor="middle" class="fg2" font-size="7">BDF: 04:00.0</text>
+          <!-- MSI arrows to IOMMU -->
+          <line x1="122" y1="70" x2="210" y2="90" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#ah-kp4)"/>
+          <text x="160" y="68" class="fg2" font-size="7">MSI 写入</text>
+          <line x1="122" y1="125" x2="210" y2="105" stroke="#ef4444" stroke-width="1.5" marker-end="url(#ah-kp4)"/>
+          <text x="160" y="128" class="fg2" font-size="7">MSI 写入</text>
+          <!-- IOMMU -->
+          <rect x="210" y="55" width="200" height="85" rx="8" fill="none" stroke="#06b6d4" stroke-width="2.5"/>
+          <text x="310" y="75" text-anchor="middle" class="accent" font-size="11" font-weight="bold">IOMMU — 中断重映射</text>
+          <!-- IRT inside -->
+          <rect x="225" y="82" width="170" height="48" rx="4" fill="#f0f9ff" stroke="#334155" stroke-width="1"/>
+          <text x="310" y="97" text-anchor="middle" class="fg" font-size="9" font-weight="bold">中断重映射表（IRT）</text>
+          <text x="265" y="115" text-anchor="middle" class="fg2" font-size="7">NIC1 → CPU2, Vec 41</text>
+          <text x="265" y="125" text-anchor="middle" class="fg2" font-size="7">NIC2 → CPU5, Vec 58</text>
+          <text x="370" y="115" text-anchor="middle" class="fg2" font-size="7">验证 Source ID</text>
+          <text x="370" y="125" text-anchor="middle" class="fg2" font-size="7">权限检查 ✓</text>
+          <!-- CPUs -->
+          <rect x="480" y="40" width="90" height="40" rx="5" fill="#dbeafe" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="525" y="57" text-anchor="middle" class="accent" font-size="9" font-weight="bold">CPU2</text>
+          <text x="525" y="72" text-anchor="middle" class="fg2" font-size="7">VM1 vCPU</text>
+          <rect x="480" y="95" width="90" height="40" rx="5" fill="#fdf2f8" stroke="#ef4444" stroke-width="1.5"/>
+          <text x="525" y="112" text-anchor="middle" fill="#ef4444" font-size="9" font-weight="bold">CPU5</text>
+          <text x="525" y="127" text-anchor="middle" class="fg2" font-size="7">VM2 vCPU</text>
+          <!-- Correct routing arrows -->
+          <line x1="412" y1="85" x2="478" y2="60" stroke="#22c55e" stroke-width="2" marker-end="url(#ah-kp4)"/>
+          <line x1="412" y1="110" x2="478" y2="115" stroke="#22c55e" stroke-width="2" marker-end="url(#ah-kp4)"/>
+          <text x="450" y="52" class="safe" font-size="8" font-weight="bold">✓</text>
+          <text x="450" y="120" class="safe" font-size="8" font-weight="bold">✓</text>
+          <!-- Blocked attack -->
+          <rect x="100" y="170" width="500" height="120" rx="6" fill="#fef2f2" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="350" y="190" text-anchor="middle" class="danger" font-size="11" font-weight="bold">攻击场景：NIC1 试图伪造中断攻击 VM2</text>
+          <!-- Attack path without IR -->
+          <rect x="120" y="205" width="210" height="35" rx="4" fill="#fee2e2" stroke="#ef4444" stroke-width="1"/>
+          <text x="225" y="220" text-anchor="middle" class="danger" font-size="9">❌ 无中断重映射：伪造 MSI 直达 CPU5</text>
+          <text x="225" y="233" text-anchor="middle" class="fg2" font-size="8">攻击成功！VM2 收到伪造中断</text>
+          <!-- Defense path with IR -->
+          <rect x="370" y="205" width="210" height="35" rx="4" fill="#dcfce7" stroke="#22c55e" stroke-width="1"/>
+          <text x="475" y="220" text-anchor="middle" class="safe" font-size="9">✓ 有中断重映射：IOMMU 验证失败</text>
+          <text x="475" y="233" text-anchor="middle" class="fg2" font-size="8">拦截！Source ID 不匹配 NIC1→VM2</text>
+          <!-- Bottom summary -->
+          <text x="350" y="265" text-anchor="middle" class="fg2" font-size="9" font-weight="bold">完整 I/O 隔离 = DMA 重映射（保护内存） + 中断重映射（保护中断投递）</text>
+          <text x="350" y="282" text-anchor="middle" class="fg2" font-size="9" font-style="italic">两者缺一不可，共同构成虚拟化安全的硬件基础</text>
+        </svg>
+        <figcaption>图 4-4 中断重映射 — IOMMU 通过 IRT 验证和路由设备中断，防止伪造中断攻击</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">为什么 x2APIC 模式强制要求启用中断重映射？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'x2APIC 通过 MSR 寄存器访问（不再使用 MMIO），与性能优化关系不大，本质原因是寻址能力。')">A. x2APIC 的性能优化需要中断重映射硬件加速</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！MSI 消息的地址字段只有 8 位 Destination ID，最多寻址 256 个 CPU。x2APIC 将 APIC ID 扩展到 32 位以支持更多 CPU，但 MSI 格式无法直接编码 32 位 ID。中断重映射通过 IRT 间接寻址——MSI 消息只携带 IRT 索引，实际的 32 位目标 ID 存储在 IRT 条目中。')">B. MSI 消息的 8 位 Destination ID 无法寻址超过 256 个 CPU，需要 IRT 间接寻址</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'x2APIC 不需要额外的物理引脚（它使用 MSR 访问），中断重映射也不涉及引脚数量问题。')">C. x2APIC 需要更多的物理中断引脚</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '中断重映射和缓存一致性协议是完全不同的机制，两者没有依赖关系。')">D. x2APIC 的缓存一致性协议依赖中断重映射</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch03.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="#" class="nav-next disabled">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

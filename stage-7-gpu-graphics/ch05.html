@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.5 计算与图像的统一 — 看见的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s7-ch05-q1",
+        question: "CUDA 中 kernel<<<grid, block>>> 的总线程数如何计算？",
+        options: [
+          "grid × block × warp_size",
+          "grid_dims.x × grid_dims.y × grid_dims.z × block_dims.x × block_dims.y × block_dims.z",
+          "grid_dims + block_dims",
+          "grid_dims × warp_size"
+        ],
+        answer: 1,
+        explanation: "总线程数 = grid 三维尺寸的乘积 × block 三维尺寸的乘积。例如 grid(2,2,1) × block(256,1,1) = 4 × 256 = 1024 个线程。grid 指定 block 的数量（三维），block 指定每个 block 中线程的数量（三维）。"
+      },
+      {
+        id: "s7-ch05-q2",
+        question: "在 Roofline 模型中，一个算法的运算强度（Operational Intensity）低于拐点意味着什么？",
+        options: [
+          "该算法是计算密集型（Compute-bound）",
+          "该算法是访存密集型（Memory-bound）",
+          "该算法已达到峰值性能",
+          "该算法不适合 GPU 执行"
+        ],
+        answer: 1,
+        explanation: "Roofline 模型中，运算强度 = FLOPs / Bytes。当运算强度低于拐点（peak_FLOPS / peak_BW）时，性能受限于内存带宽而非计算能力，即 Memory-bound。优化方向应是减少内存访问或提高数据复用。"
+      },
+      {
+        id: "s7-ch05-q3",
+        question: "BVH（Bounding Volume Hierarchy）将光线与场景的求交复杂度从什么降低到什么？",
+        options: [
+          "O(n²) → O(n)",
+          "O(n) → O(log n)",
+          "O(n) → O(1)",
+          "O(n log n) → O(n)"
+        ],
+        answer: 1,
+        explanation: "暴力遍历所有 n 个三角形为 O(n)。BVH 构建一棵二叉树，每次与 AABB 包围盒比较可排除约一半的几何体，平均复杂度降至 O(log n)。RT Core 硬件加速的正是这个 BVH 遍历 + 光线-三角形求交过程。"
+      },
+      {
+        id: "s7-ch05-q4",
+        question: "Möller-Trumbore 算法利用什么坐标系来判断光线是否与三角形相交？",
+        options: [
+          "笛卡尔坐标系",
+          "重心坐标系（Barycentric Coordinates）",
+          "球坐标系",
+          "齐次坐标系"
+        ],
+        answer: 1,
+        explanation: "Möller-Trumbore 算法将光线方程与三角形的参数方程联立，解出重心坐标 (u, v) 和距离 t。当 u ≥ 0、v ≥ 0、u+v ≤ 1 且 t > 0 时，光线与三角形相交。重心坐标还可用于插值法线、纹理坐标等顶点属性。"
+      },
+      {
+        id: "s7-ch05-q5",
+        question: "DLSS Quality 模式在 4K 输出时，实际渲染分辨率大约是多少？",
+        options: [
+          "3840×2160（原生 4K）",
+          "2560×1440（约 1440p）",
+          "1920×1080（约 1080p）",
+          "1280×720（约 720p）"
+        ],
+        answer: 1,
+        explanation: "DLSS Quality 模式的缩放因子约为 1.5×（面积比约 2.25×），在 4K 输出时渲染分辨率为 2560×1440。Quality 模式是画质最接近原生的档位。Performance 模式渲染 1080p，Ultra Performance 渲染 720p。"
+      },
+      {
+        id: "s7-ch05-q6",
+        question: "DLSS 3 的帧生成（Frame Generation）技术可能引入什么问题？",
+        options: [
+          "降低渲染分辨率",
+          "增加输入延迟（生成帧不反映最新输入）",
+          "大幅增加显存占用",
+          "导致画面撕裂"
+        ],
+        answer: 1,
+        explanation: "DLSS 3 帧生成使用 AI 在两个真实帧之间插入合成帧。这些合成帧基于历史帧预测而非最新输入状态生成，因此会增加感知输入延迟。NVIDIA Reflex 技术通过减少渲染队列深度来补偿这一延迟。"
+      },
+      {
+        id: "s7-ch05-q7",
+        question: "统一着色器架构（Unified Shader Architecture）的核心优势是什么？",
+        options: [
+          "降低 GPU 的制造成本",
+          "动态负载均衡——所有着色器类型共享同一组计算核心",
+          "简化图形 API 的设计",
+          "消除对专用显存的需求"
+        ],
+        answer: 1,
+        explanation: "在统一架构之前，顶点着色器和像素着色器使用独立的硬件单元。当场景偏重顶点处理时，像素单元闲置，反之亦然。统一架构让所有 SM/CU 核心可以动态执行任何类型的着色器，大幅提高硬件利用率。"
+      },
+      {
+        id: "s7-ch05-q8",
+        question: "Mesh Shader 取代了传统图形管线中的哪些阶段？",
+        options: [
+          "像素着色器和混合阶段",
+          "顶点着色器和几何着色器",
+          "曲面细分阶段和光栅化阶段",
+          "帧缓冲输出和显示阶段"
+        ],
+        answer: 1,
+        explanation: "Mesh Shader（配合可选的 Task/Amplification Shader）取代了传统的顶点着色器（Vertex Shader）、曲面细分阶段和几何着色器（Geometry Shader）。Mesh Shader 采用类似 Compute Shader 的灵活编程模型，输出 meshlet（小型三角形组），支持 GPU 驱动的剔除和 LOD 选择。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-7" data-module="ch05" style="--domain-color: var(--c-gpu-graphics);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 7</span><a href="index.html" class="module-name">看见的世界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.5 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · Compute Shader 与 CUDA / OpenCL</a></li>
+      <li><a href="#kp2">02 · 光线追踪硬件加速（RT Core）</a></li>
+      <li><a href="#kp3">03 · DLSS / FSR——AI 超分辨率</a></li>
+      <li><a href="#kp4">04 · 统一着色器架构</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 5</p>
+      <h1>计算与图像的统一</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · Compute Shader 与 CUDA / OpenCL</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>图形管线（Graphics Pipeline）为渲染而生——顶点变换、光栅化、像素着色，一切为画面服务。但 GPU 拥有数千个并行核心和极高的内存带宽，如果只用来画三角形未免太浪费了。</p>
+            <p><strong>通用计算（GPGPU, General-Purpose computing on GPU）</strong>的需求催生了 Compute Shader、CUDA 和 OpenCL——它们让开发者将 GPU 当作<strong>大规模并行处理器</strong>使用，执行物理模拟、图像处理、机器学习推理等非图形任务。理解这些编程模型，是理解现代 GPU 为何能主导 AI 计算的关键。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① Compute Shader</strong></p>
+            <p>Compute Shader 是图形 API（Vulkan / DirectX 12 / OpenGL）中的通用计算阶段，不参与图形管线的光栅化流程。通过 <code>dispatch(groupsX, groupsY, groupsZ)</code> 启动，每个 work-group 包含固定数量的线程（invocations），线程通过 <code>gl_GlobalInvocationID</code> 等内置变量确定自己的任务。</p>
+            <p><strong>② CUDA（NVIDIA 专有）</strong></p>
+            <p>CUDA 使用 <code>kernel&lt;&lt;&lt;grid, block&gt;&gt;&gt;(args)</code> 语法启动内核。<strong>Grid</strong> 由多个 <strong>Block</strong> 组成（1D/2D/3D），每个 Block 包含多个线程。Block 内线程可通过 <strong>共享内存（Shared Memory）</strong>协作。Block 映射到 SM（Streaming Multiprocessor），线程以 <strong>Warp（32 线程）</strong>为单位调度。</p>
+            <p><strong>③ OpenCL（跨平台开放标准）</strong></p>
+            <p>OpenCL 使用 <strong>NDRange</strong> 定义全局工作空间，划分为 <strong>Work-Group</strong>，每个包含多个 <strong>Work-Item</strong>。概念上与 CUDA 的 Grid/Block/Thread 对应，但 OpenCL 可运行在 GPU、CPU、FPGA 等多种设备上。</p>
+            <p><strong>④ 术语对照</strong></p>
+            <p>CUDA Block = OpenCL Work-Group = Vulkan Workgroup；CUDA Thread = OpenCL Work-Item = Vulkan Invocation；CUDA Shared Memory = OpenCL Local Memory。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>总线程数计算：</strong></p>
+            \[
+            N_{\text{threads}} = (G_x \times G_y \times G_z) \times (B_x \times B_y \times B_z)
+            \]
+            <p>其中 \(G\) 为 grid 维度（block 数量），\(B\) 为 block 维度（线程数量）。</p>
+            <p><strong>内存合并访问（Coalesced Access）：</strong></p>
+            <p>同一 Warp 中的 32 个线程若访问连续的 32 × 4 = 128 字节，硬件可合并为<strong>一次 128 字节内存事务</strong>。非合并访问可能退化为多次事务，带宽利用率大幅下降：</p>
+            \[
+            \eta_{\text{BW}} = \frac{\text{有效数据量}}{\text{实际传输量}} \leq 1
+            \]
+            <p><strong>Roofline 模型：</strong></p>
+            <p>定义运算强度 \(I = \dfrac{\text{FLOPs}}{\text{Bytes accessed}}\)，则可达性能为：</p>
+            \[
+            P = \min\!\bigl(\,P_{\text{peak}},\; BW_{\text{peak}} \times I\,\bigr)
+            \]
+            <p>当 \(I < P_{\text{peak}} / BW_{\text{peak}}\)（拐点左侧）时为<strong>访存密集型</strong>，右侧为<strong>计算密集型</strong>。</p>
+            <div class="warning-box">⚠️ <strong>原子操作（Atomic Operations）</strong>会序列化线程访问——当大量线程同时对同一地址执行 atomicAdd 时，性能急剧下降。在热路径中应尽量使用<strong>分层归约（Hierarchical Reduction）</strong>替代全局原子操作。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>物理模拟：</strong>粒子系统（SPH 流体模拟）、布料仿真——每个粒子/顶点映射到一个线程，利用共享内存处理邻域交互。</p>
+            <p><strong>图像处理：</strong>卷积滤波器（如高斯模糊）、FFT 变换。每个线程处理一个像素，work-group 共享 tile 数据以减少重复加载。</p>
+            <p><strong>机器学习推理：</strong>矩阵乘法（GEMM）是神经网络的核心操作。NVIDIA 提供 <strong>cuBLAS</strong>（线性代数）、<strong>cuDNN</strong>（深度学习原语）、<strong>TensorRT</strong>（推理优化引擎）等高度优化的库。</p>
+            <p><strong>密码学与科学计算：</strong>SHA 哈希并行计算、分子动力学模拟（如 AMBER、GROMACS 的 GPU 加速版本）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>设计一个并行归约（Parallel Reduction）求和内核。输入数组长度 \(N = 1{,}048{,}576\)（1M 元素），block 大小 256。描述分层归约策略。</p>
+            <p><em>解答：</em></p>
+            <p>① 启动 \(N / 256 = 4096\) 个 block，每个 block 处理 256 个元素。</p>
+            <p>② <strong>Block 内归约：</strong>每个线程加载一个元素到共享内存。然后执行树形归约（stride 从 128 → 64 → … → 1），每步线程数减半，\(\log_2(256) = 8\) 步后得到 block 级部分和。</p>
+            <p>③ <strong>Block 间归约：</strong>每个 block 的部分和通过 <code>atomicAdd</code> 累加到全局结果，或写入中间数组后再启动第二轮归约内核。</p>
+            \[
+            \text{Block 内步数} = \log_2(B) = 8, \quad \text{两级总步数} = \log_2(N) = 20
+            \]
+            <p>❌ <strong>常见错误：</strong>在 block 内归约时忘记调用 <code>__syncthreads()</code>（CUDA）或 <code>barrier()</code>（OpenCL），导致线程间数据竞争。</p>
+            <p>✅ <strong>正确做法：</strong>每步归约之后必须同步，确保前一步写入的结果对所有线程可见。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch05-kp1">
+        <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#8b5cf6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp1" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">Roofline 模型示意</text>
+          <!-- Axes -->
+          <line x1="100" y1="270" x2="650" y2="270" class="line" marker-end="url(#ah-kp1)"/>
+          <line x1="100" y1="270" x2="100" y2="40" class="line" marker-end="url(#ah-kp1)"/>
+          <text x="375" y="295" text-anchor="middle" class="fg2" font-size="10">运算强度 I（FLOPs/Byte）</text>
+          <text x="60" y="155" text-anchor="middle" class="fg2" font-size="10" transform="rotate(-90,60,155)">性能（GFLOPS）</text>
+          <!-- Peak compute line -->
+          <line x1="350" y1="80" x2="640" y2="80" stroke="#8b5cf6" stroke-width="2"/>
+          <text x="645" y="78" class="accent" font-size="9">P_peak</text>
+          <!-- BW slope -->
+          <line x1="100" y1="270" x2="350" y2="80" stroke="#06b6d4" stroke-width="2"/>
+          <text x="200" y="150" fill="#06b6d4" font-size="9" transform="rotate(-37,200,150)">BW_peak × I</text>
+          <!-- Ridge point -->
+          <circle cx="350" cy="80" r="5" fill="#ef4444"/>
+          <text x="350" y="65" text-anchor="middle" fill="#ef4444" font-size="9" font-weight="bold">拐点</text>
+          <!-- Regions -->
+          <text x="200" y="240" text-anchor="middle" class="fg2" font-size="10" font-style="italic">访存密集型</text>
+          <text x="500" y="100" text-anchor="middle" class="fg2" font-size="10" font-style="italic">计算密集型</text>
+          <!-- Example points -->
+          <circle cx="180" cy="215" r="4" fill="#f59e0b"/>
+          <text x="190" y="210" fill="#f59e0b" font-size="8">向量加法</text>
+          <circle cx="500" cy="82" r="4" fill="#10b981"/>
+          <text x="510" y="76" fill="#10b981" font-size="8">GEMM</text>
+          <circle cx="280" cy="130" r="4" fill="#3b82f6"/>
+          <text x="290" y="125" fill="#3b82f6" font-size="8">卷积</text>
+        </svg>
+        <figcaption>图 5-1 Roofline 模型——运算强度决定性能瓶颈（访存 vs 计算）</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">某 GPU 峰值计算能力为 10 TFLOPS，显存带宽为 500 GB/s。一个算法的运算强度为 8 FLOPs/Byte，该算法是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '拐点 = 10000/500 = 20 FLOPs/Byte。运算强度 8 < 20，位于拐点左侧，是访存密集型。')">A. 计算密集型（Compute-bound）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！拐点 = P_peak / BW_peak = 10000 / 500 = 20 FLOPs/Byte。运算强度 8 < 20，位于拐点左侧，性能受限于带宽。')">B. 访存密集型（Memory-bound）</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '在 Roofline 模型中，任何算法都属于访存密集型或计算密集型之一，不存在"已达峰值"的特殊状态（除非恰好在拐点上）。')">C. 已达到峰值性能</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '运算强度 8 FLOPs/Byte 是一个合理的值（如卷积操作），并不算低。关键是与拐点（20）比较。')">D. 运算强度太低，不适合 GPU</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 光线追踪（Ray Tracing）硬件加速（RT Core）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>光栅化（Rasterization）是"从物体出发"——将三角形投影到屏幕上，用近似方法模拟光影。它很快，但本质上是<strong>伪造光线</strong>：反射、折射、全局光照（GI）都需要各种 hack（环境贴图、屏幕空间反射、光照探针……）。</p>
+            <p><strong>光线追踪（Ray Tracing）</strong>是"从眼睛出发"——模拟真实的光线传播物理。每条光线可能与场景中任何物体相交，精确计算反射、折射和阴影。代价是：每条光线需要测试与场景中所有物体的交点——对于百万级三角形的场景，这意味着<strong>每帧数十亿次求交运算</strong>。没有硬件加速，实时光线追踪根本不可能。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① BVH（Bounding Volume Hierarchy）</strong></p>
+            <p>将场景中的三角形组织为一棵<strong>二叉树</strong>：每个节点是一个 <strong>AABB（Axis-Aligned Bounding Box，轴对齐包围盒）</strong>，叶节点包含少量三角形。光线先与根节点的 AABB 测试；若未命中则跳过整棵子树，若命中则递归测试子节点。这将 O(n) 的暴力测试降低到 O(log n)。</p>
+            <p><strong>② RT Core（NVIDIA Turing / Ampere / Ada）</strong></p>
+            <p>RT Core 是 SM 内的<strong>专用硬件单元</strong>，加速两个操作：<strong>BVH 遍历</strong>（Box Intersection）和<strong>光线-三角形求交</strong>（Triangle Intersection）。当着色器发出 <code>traceRay()</code> 调用时，光线被发送到 RT Core，SM 可以切换到其他 Warp 继续着色——实现<strong>计算与求交的流水线并行</strong>。</p>
+            <p><strong>③ DXR / Vulkan Ray Tracing API</strong></p>
+            <p>DirectX Raytracing（DXR）和 Vulkan Ray Tracing 扩展提供统一的 API：应用程序构建 <strong>TLAS（Top-Level Acceleration Structure）</strong>和 <strong>BLAS（Bottom-Level Acceleration Structure）</strong>，调用 <code>DispatchRays()</code> 启动光线追踪。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>暴力求交 vs BVH：</strong></p>
+            \[
+            T_{\text{brute}} = N_{\text{rays}} \times N_{\text{triangles}} \times C_{\text{intersect}}
+            \]
+            \[
+            T_{\text{BVH}} = N_{\text{rays}} \times O(\log N_{\text{triangles}}) \times C_{\text{intersect}}
+            \]
+            <p>对于 \(N_{\text{triangles}} = 10^6\)，暴力法需约 \(10^6\) 次测试/光线，BVH 仅需约 \(\log_2(10^6) \approx 20\) 次。加速比约 <strong>50,000×</strong>。</p>
+            <p><strong>Möller-Trumbore 光线-三角形求交：</strong></p>
+            <p>光线方程：\(\mathbf{O} + t\mathbf{D}\)，三角形顶点 \(\mathbf{V}_0, \mathbf{V}_1, \mathbf{V}_2\)。联立得：</p>
+            \[
+            \begin{bmatrix} -\mathbf{D} & \mathbf{E}_1 & \mathbf{E}_2 \end{bmatrix}
+            \begin{bmatrix} t \\ u \\ v \end{bmatrix}
+            = \mathbf{T}
+            \]
+            <p>其中 \(\mathbf{E}_1 = \mathbf{V}_1 - \mathbf{V}_0\)，\(\mathbf{E}_2 = \mathbf{V}_2 - \mathbf{V}_0\)，\(\mathbf{T} = \mathbf{O} - \mathbf{V}_0\)。利用 Cramer 法则求解：</p>
+            \[
+            t = \frac{(\mathbf{T} \times \mathbf{E}_1) \cdot \mathbf{E}_2}{(\mathbf{D} \times \mathbf{E}_2) \cdot \mathbf{E}_1}, \quad
+            u = \frac{(\mathbf{D} \times \mathbf{E}_2) \cdot \mathbf{T}}{(\mathbf{D} \times \mathbf{E}_2) \cdot \mathbf{E}_1}, \quad
+            v = \frac{(\mathbf{T} \times \mathbf{E}_1) \cdot \mathbf{D}}{(\mathbf{D} \times \mathbf{E}_2) \cdot \mathbf{E}_1}
+            \]
+            <p>交点有效条件：\(u \geq 0,\; v \geq 0,\; u + v \leq 1,\; t > 0\)。</p>
+            <div class="warning-box">⚠️ RT Core 只加速 <strong>BVH 遍历和光线-三角形求交</strong>——光线命中后的<strong>着色计算</strong>（材质、光照、纹理采样）仍由常规 SM 核心执行。因此场景复杂着色器（如 PBR 材质 + 多层纹理）仍是性能瓶颈。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>混合渲染（Hybrid Rendering）：</strong>主可见性（Primary Visibility）使用光栅化（最快），反射、阴影、全局光照使用光线追踪（最准确）。这是当前游戏中最常见的模式。</p>
+            <p><strong>DXR API 层次：</strong>Ray Generation Shader → Intersection/Any-Hit/Closest-Hit Shader → Miss Shader。开发者定义各阶段行为，硬件负责 BVH 遍历。</p>
+            <p><strong>路径追踪（Path Tracing）：</strong>每个像素发射多条光线，模拟光线在场景中的多次弹射（diffuse/specular bounce），最终收敛到真实光照。电影级渲染（如 Pixar RenderMan）采用此方法，每像素可能需要数百到数千条光线。</p>
+            <p><strong>降噪（Denoising）：</strong>路径追踪的噪声问题通过 AI 降噪器（如 NVIDIA OptiX Denoiser）缓解——用较少的光线数量 + AI 降噪获得近似收敛的结果。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>比较同一游戏场景（百万三角形，1080p）在三种模式下的性能特征：① 纯光栅化 ② 混合光线追踪 ③ 全路径追踪。</p>
+            <p><em>解答：</em></p>
+            <p>① <strong>纯光栅化：</strong>~120 FPS。所有光影通过 shadow map、screen-space reflections (SSR)、baked lightmap 近似。画质有限但速度极快。</p>
+            <p>② <strong>混合光线追踪：</strong>~60 FPS。主可见性光栅化，反射和阴影各发射 1 条光线/像素（~2M 条光线/帧 × 2 = 4M 条）。RT Core 加速求交，着色器处理命中点。画质显著提升（精确反射、柔和阴影）。</p>
+            <p>③ <strong>全路径追踪：</strong>~5-10 FPS（实时）。每像素 8-64 条光线，每条光线多次弹射。2M × 32 × 4 bounces ≈ 2.56 亿条光线/帧。需配合降噪器使用。</p>
+            <p>❌ <strong>常见错误：</strong>认为有了 RT Core 就能实现全路径追踪实时渲染——实际上 RT Core 只加速求交环节，着色和降噪的开销仍然巨大。</p>
+            <p>✅ <strong>正确认识：</strong>当前实时光线追踪的主流方案是混合渲染，全路径追踪仍需搭配 DLSS/降噪等 AI 技术才能接近实时。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch05-kp2">
+        <svg viewBox="0 0 700 340" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.accent{fill:#8b5cf6}.line{stroke:#334155;fill:none;stroke-width:1.5}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">BVH 加速结构与光线遍历</text>
+          <!-- Root AABB -->
+          <rect x="180" y="40" width="340" height="240" fill="#8b5cf6" opacity="0.06" rx="8" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="190" y="58" class="accent" font-size="9">Root AABB</text>
+          <!-- Left child -->
+          <rect x="195" y="70" width="150" height="195" fill="#06b6d4" opacity="0.08" rx="6" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="205" y="88" fill="#06b6d4" font-size="8">Left Child</text>
+          <!-- Right child -->
+          <rect x="355" y="70" width="150" height="195" fill="#f59e0b" opacity="0.08" rx="6" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="365" y="88" fill="#f59e0b" font-size="8">Right Child</text>
+          <!-- Triangles left -->
+          <polygon points="230,140 260,200 200,200" fill="#06b6d4" opacity="0.25" stroke="#06b6d4" stroke-width="1"/>
+          <polygon points="260,120 310,190 240,180" fill="#06b6d4" opacity="0.25" stroke="#06b6d4" stroke-width="1"/>
+          <polygon points="220,210 280,250 200,245" fill="#06b6d4" opacity="0.25" stroke="#06b6d4" stroke-width="1"/>
+          <!-- Triangles right -->
+          <polygon points="400,110 440,170 370,170" fill="#f59e0b" opacity="0.25" stroke="#f59e0b" stroke-width="1"/>
+          <polygon points="420,180 470,240 380,230" fill="#f59e0b" opacity="0.25" stroke="#f59e0b" stroke-width="1"/>
+          <!-- Ray -->
+          <line x1="50" y1="50" x2="410" y2="155" stroke="#ef4444" stroke-width="2"/>
+          <circle cx="50" cy="50" r="4" fill="#ef4444"/>
+          <text x="30" y="42" fill="#ef4444" font-size="9" font-weight="bold">Ray</text>
+          <!-- Hit point -->
+          <circle cx="410" cy="155" r="5" fill="#ef4444"/>
+          <text x="420" y="148" fill="#ef4444" font-size="8">Hit!</text>
+          <!-- BVH tree on right side -->
+          <text x="600" y="55" text-anchor="middle" class="fg" font-size="10" font-weight="bold">BVH 树</text>
+          <rect x="575" y="62" width="50" height="22" rx="4" fill="#8b5cf6" opacity="0.2" stroke="#8b5cf6" stroke-width="1"/>
+          <text x="600" y="77" text-anchor="middle" class="fg2" font-size="8">Root</text>
+          <line x1="588" y1="84" x2="570" y2="100" class="line"/>
+          <line x1="612" y1="84" x2="630" y2="100" class="line"/>
+          <rect x="545" y="100" width="50" height="22" rx="4" fill="#06b6d4" opacity="0.2" stroke="#06b6d4" stroke-width="1"/>
+          <text x="570" y="115" text-anchor="middle" class="fg2" font-size="8">L</text>
+          <rect x="605" y="100" width="50" height="22" rx="4" fill="#f59e0b" opacity="0.2" stroke="#f59e0b" stroke-width="1"/>
+          <text x="630" y="115" text-anchor="middle" class="fg2" font-size="8">R ✓</text>
+          <!-- Leaf nodes -->
+          <line x1="558" y1="122" x2="545" y2="140" class="line"/>
+          <line x1="582" y1="122" x2="595" y2="140" class="line"/>
+          <line x1="618" y1="122" x2="605" y2="140" class="line"/>
+          <line x1="642" y1="122" x2="655" y2="140" class="line"/>
+          <text x="543" y="152" class="fg2" font-size="7">△△</text>
+          <text x="588" y="152" class="fg2" font-size="7">△</text>
+          <text x="600" y="152" fill="#ef4444" font-size="7" font-weight="bold">△✓</text>
+          <text x="650" y="152" class="fg2" font-size="7">△</text>
+          <!-- Legend -->
+          <text x="350" y="310" text-anchor="middle" class="fg2" font-size="9" font-style="italic">光线只需遍历 BVH 的少数节点即可找到交点——O(log n) vs O(n)</text>
+          <text x="350" y="330" text-anchor="middle" class="fg2" font-size="9">RT Core 硬件加速 BVH 遍历 + Möller-Trumbore 三角形求交</text>
+        </svg>
+        <figcaption>图 5-2 BVH 加速结构——光线通过包围盒层次快速定位交点</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">RT Core 硬件加速的是光线追踪的哪个环节？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '着色计算（材质采样、光照计算）仍由 SM 核心的常规着色器执行，RT Core 不参与。')">A. 着色计算（材质和光照）</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！RT Core 专门加速 BVH 遍历（Box Intersection）和光线-三角形求交（Triangle Intersection），这两个操作占光线追踪计算量的大部分。')">B. BVH 遍历和光线-三角形求交</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'BVH 构建通常在 CPU 或通过 Compute Shader 在 GPU 上完成，RT Core 不负责构建。')">C. BVH 构建和场景管理</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '降噪通常使用 Tensor Core（AI 推理）或通用计算着色器完成，与 RT Core 无关。')">D. 降噪和后处理</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · DLSS / FSR——AI 超分辨率</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>分辨率越高，需要着色的像素越多——4K（3840×2160）是 1080p（1920×1080）的<strong>4 倍像素</strong>，GPU 负担呈平方级增长。传统解决方案是买更强的 GPU——但如果 <strong>AI 能从低分辨率图像重建出高分辨率</strong>呢？</p>
+            <p>NVIDIA 的 <strong>DLSS（Deep Learning Super Sampling）</strong>和 AMD 的 <strong>FSR（FidelityFX Super Resolution）</strong>正是这一思路的产物。它们让 GPU 以较低分辨率渲染，再通过 AI 或算法升级到目标分辨率，在几乎不损失画质的前提下大幅提升帧率。这项技术正在重新定义"性能 vs 画质"的权衡。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① DLSS（Deep Learning Super Sampling, NVIDIA）</strong></p>
+            <p>DLSS 使用在 NVIDIA 超级计算机上训练的<strong>深度神经网络</strong>（运行在 Tensor Core 上），结合当前帧的低分辨率渲染、<strong>运动向量（Motion Vectors）</strong>和前几帧的<strong>时域历史（Temporal History）</strong>来重建高分辨率图像。本质上是一个时空超分辨率（Temporal Super-Resolution）问题。</p>
+            <p><strong>② FSR（FidelityFX Super Resolution, AMD）</strong></p>
+            <p><strong>FSR 1.0：</strong>纯空域升级（Spatial Upscaling），使用 Lanczos 滤波 + 边缘检测锐化，不需要运动向量或专用硬件，可在任何 GPU 上运行。<strong>FSR 2.0+：</strong>加入时域累积（Temporal Accumulation），利用运动向量和多帧信息，画质大幅提升，接近 DLSS。</p>
+            <p><strong>③ DLSS 3——帧生成（Frame Generation）</strong></p>
+            <p>DLSS 3 在超分辨率基础上增加了 <strong>AI 帧生成</strong>：在两个真实帧之间用 Optical Flow Accelerator 生成一帧插值帧。这使得显示帧率可达渲染帧率的 2 倍甚至更高，对 CPU 限制场景尤其有效。</p>
+            <p><strong>④ 其他竞品</strong></p>
+            <p><strong>Intel XeSS：</strong>在 Intel Arc GPU 上使用 XMX 引擎（类似 Tensor Core），在其他 GPU 上回退到 DP4a 指令。<strong>TSR（Temporal Super Resolution）：</strong>Unreal Engine 内置的时域升级方案，跨平台通用。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>像素数与性能的关系：</strong></p>
+            \[
+            \text{性能增益} \approx \frac{\text{目标分辨率像素数}}{\text{渲染分辨率像素数}} = \left(\frac{R_{\text{target}}}{R_{\text{render}}}\right)^2
+            \]
+            <p>（假设着色是主要瓶颈，忽略几何处理和升级开销。）</p>
+            <p><strong>DLSS 各质量模式（4K 输出）：</strong></p>
+            \[
+            \begin{aligned}
+            \text{Ultra Quality} &: 2880 \times 1620 \;\Rightarrow\; \frac{3840 \times 2160}{2880 \times 1620} \approx 1.78\times \\
+            \text{Quality} &: 2560 \times 1440 \;\Rightarrow\; \frac{8{,}294{,}400}{3{,}686{,}400} \approx 2.25\times \\
+            \text{Balanced} &: 2227 \times 1253 \;\Rightarrow\; \frac{8{,}294{,}400}{2{,}790{,}431} \approx 2.97\times \\
+            \text{Performance} &: 1920 \times 1080 \;\Rightarrow\; \frac{8{,}294{,}400}{2{,}073{,}600} = 4.0\times \\
+            \text{Ultra Perf.} &: 1280 \times 720 \;\Rightarrow\; \frac{8{,}294{,}400}{921{,}600} = 9.0\times
+            \end{aligned}
+            \]
+            <p>实际增益低于理论值，因为超分辨率网络本身有计算开销（约消耗 1-2ms GPU 时间），时域反馈也需要额外显存和带宽。</p>
+            <p><strong>DLSS Quality 实测典型增益：~2.0-2.5×</strong>（理论 2.25×，减去升级开销）。</p>
+            <div class="warning-box">⚠️ <strong>帧生成（Frame Generation）会增加延迟！</strong>生成的插值帧基于历史帧预测，不反映最新的玩家输入。例如玩家在第 N 帧按下鼠标，但生成的第 N+0.5 帧仍显示按下前的状态。<strong>NVIDIA Reflex</strong> 通过减少渲染队列深度来补偿这一延迟。竞技游戏中应谨慎使用帧生成。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>质量模式选择指南：</strong></p>
+            <p><strong>Ultra Quality / Quality：</strong>画质优先，适合单机大作。Quality 是最常用的档位，画质接近原生且帧率提升显著。</p>
+            <p><strong>Balanced / Performance：</strong>帧率优先，适合需要高刷新率的场景。画质有轻微模糊但可接受。</p>
+            <p><strong>Ultra Performance：</strong>极端情况（如 8K 输出），画质损失较大，不推荐在低于 4K 输出时使用。</p>
+            <p><strong>DLSS 3 帧生成的适用场景：</strong>CPU 瓶颈场景（如开放世界游戏中大量 NPC / AI 逻辑）——帧生成在 GPU 端创造额外帧，绕过 CPU 限制。但不适合对输入延迟极其敏感的竞技游戏。</p>
+            <p><strong>跨平台策略：</strong>主机平台（PS5/Xbox）通常使用 TSR 或 FSR，因为它们不依赖特定硬件。PC 平台根据 GPU 品牌选择 DLSS（NVIDIA）或 FSR（AMD/通用）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某游戏原生 4K 渲染帧率为 30 FPS。计算使用 DLSS Quality 和 Performance 模式后的理论帧率及实际预期帧率。</p>
+            <p><em>解答：</em></p>
+            <p><strong>DLSS Quality（渲染 1440p）：</strong></p>
+            \[
+            \text{理论帧率} = 30 \times 2.25 = 67.5 \text{ FPS}
+            \]
+            <p>扣除升级开销（约 10-15%）：实际 \(\approx 57\text{-}61 \text{ FPS}\)。</p>
+            <p><strong>DLSS Performance（渲染 1080p）：</strong></p>
+            \[
+            \text{理论帧率} = 30 \times 4.0 = 120 \text{ FPS}
+            \]
+            <p>扣除升级开销：实际 \(\approx 85\text{-}100 \text{ FPS}\)。</p>
+            <p>❌ <strong>常见错误：</strong>直接使用像素比作为帧率乘数。实际中几何处理（顶点着色、曲面细分）不受分辨率影响，且升级网络本身消耗 GPU 资源。</p>
+            <p>✅ <strong>正确做法：</strong>理论增益 × 效率系数（通常 0.7-0.9），具体取决于游戏的着色 vs 几何比例。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch05-kp3">
+        <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.accent{fill:#8b5cf6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">DLSS 超分辨率流水线</text>
+          <!-- Low-res render -->
+          <rect x="20" y="60" width="120" height="80" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="80" y="90" text-anchor="middle" class="fg" font-size="10" font-weight="bold">低分辨率渲染</text>
+          <text x="80" y="108" text-anchor="middle" class="fg2" font-size="8">1920×1080</text>
+          <text x="80" y="120" text-anchor="middle" class="fg2" font-size="8">（Performance）</text>
+          <!-- Motion vectors -->
+          <rect x="20" y="160" width="120" height="50" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="80" y="183" text-anchor="middle" class="fg" font-size="9" font-weight="bold">运动向量</text>
+          <text x="80" y="198" text-anchor="middle" class="fg2" font-size="8">Motion Vectors</text>
+          <!-- Temporal history -->
+          <rect x="20" y="225" width="120" height="50" rx="6" fill="#f0fdf4" stroke="#10b981" stroke-width="1.5"/>
+          <text x="80" y="248" text-anchor="middle" class="fg" font-size="9" font-weight="bold">时域历史帧</text>
+          <text x="80" y="263" text-anchor="middle" class="fg2" font-size="8">Temporal History</text>
+          <!-- Arrows to DNN -->
+          <line x1="140" y1="100" x2="220" y2="130" stroke="#334155" stroke-width="1.5"/>
+          <polygon points="218,126 226,132 218,134" fill="#334155"/>
+          <line x1="140" y1="185" x2="220" y2="145" stroke="#334155" stroke-width="1.5"/>
+          <polygon points="218,141 226,145 218,149" fill="#334155"/>
+          <line x1="140" y1="250" x2="220" y2="155" stroke="#334155" stroke-width="1.5"/>
+          <polygon points="218,152 226,157 218,160" fill="#334155"/>
+          <!-- DNN block -->
+          <rect x="228" y="90" width="140" height="100" rx="8" fill="#8b5cf6" opacity="0.15" stroke="#8b5cf6" stroke-width="2"/>
+          <text x="298" y="125" text-anchor="middle" class="accent" font-size="11" font-weight="bold">AI 神经网络</text>
+          <text x="298" y="143" text-anchor="middle" class="fg2" font-size="8">运行在 Tensor Core</text>
+          <text x="298" y="158" text-anchor="middle" class="fg2" font-size="8">时空超分辨率重建</text>
+          <text x="298" y="173" text-anchor="middle" class="fg2" font-size="7">~1-2ms GPU 时间</text>
+          <!-- Arrow to output -->
+          <line x1="368" y1="140" x2="430" y2="140" stroke="#334155" stroke-width="1.5"/>
+          <polygon points="428,136 436,140 428,144" fill="#334155"/>
+          <!-- High-res output -->
+          <rect x="440" y="85" width="130" height="110" rx="6" fill="#dcfce7" stroke="#10b981" stroke-width="2"/>
+          <text x="505" y="120" text-anchor="middle" class="fg" font-size="11" font-weight="bold">高分辨率输出</text>
+          <text x="505" y="140" text-anchor="middle" fill="#10b981" font-size="10" font-weight="bold">3840×2160</text>
+          <text x="505" y="158" text-anchor="middle" class="fg2" font-size="8">≈ 原生 4K 画质</text>
+          <text x="505" y="175" text-anchor="middle" class="fg2" font-size="8">帧率提升 ~2-4×</text>
+          <!-- Frame gen (DLSS 3) -->
+          <rect x="440" y="215" width="240" height="60" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,3"/>
+          <text x="560" y="238" text-anchor="middle" class="fg" font-size="10" font-weight="bold">DLSS 3 帧生成</text>
+          <text x="560" y="255" text-anchor="middle" class="fg2" font-size="8">Optical Flow → AI 插帧 → 额外帧率（⚠️ +延迟）</text>
+          <text x="560" y="268" text-anchor="middle" fill="#ef4444" font-size="7">需配合 NVIDIA Reflex 降低延迟</text>
+        </svg>
+        <figcaption>图 5-3 DLSS 超分辨率流水线——低分辨率渲染 + AI 重建 + 帧生成</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">DLSS Performance 模式在 4K 输出时的渲染分辨率和理论像素减少比是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '2560×1440 是 Quality 模式的渲染分辨率，理论像素减少比为 2.25×。')">A. 2560×1440，减少 2.25×</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！Performance 模式渲染 1920×1080（约 207 万像素），4K 目标为 829 万像素，比值 = 4.0×。')">B. 1920×1080，减少 4.0×</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '1280×720 是 Ultra Performance 模式，像素减少比高达 9.0×，画质损失较大。')">C. 1280×720，减少 9.0×</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '2880×1620 是 Ultra Quality 模式，像素减少比约 1.78×。')">D. 2880×1620，减少 1.78×</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 现代 GPU 的统一着色器架构</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在 GPU 发展早期（DirectX 9 时代之前），顶点处理和像素处理使用<strong>独立的硬件单元</strong>——顶点着色器单元（Vertex Shader Units）和像素着色器单元（Pixel Shader Units）是物理上分开的。</p>
+            <p>这带来一个严重问题：当场景中小三角形密集（像素着色压力大、顶点着色轻松）时，顶点单元闲置；反之（大量复杂几何、简单着色）时，像素单元闲置。<strong>无论哪种情况，总有一半硬件在浪费。</strong></p>
+            <p>统一着色器架构（Unified Shader Architecture）从根本上解决了这一问题——所有着色器类型共享同一组可编程核心，按需动态分配。这一架构变革不仅提升了图形性能，更让 GPU 成为了通用并行计算平台（GPGPU 的硬件基础）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① 固定功能分离架构（Pre-Unified）</strong></p>
+            <p>NVIDIA GeForce 7 / ATI Radeon X1000 系列：芯片内部有固定数量的专用顶点着色器单元和像素着色器单元。例如 GeForce 7800 GTX 有 8 个顶点单元和 24 个像素单元。硬件比例在芯片设计时固定，无法根据实际工作负载调整。</p>
+            <p><strong>② 统一着色器架构（Unified Shader Architecture）</strong></p>
+            <p>NVIDIA GeForce 8800（G80, 2006）和 ATI Radeon HD 2900（R600, 2007）引入统一架构：所有着色器类型（Vertex / Geometry / Pixel / Compute）运行在相同的 <strong>SM（Streaming Multiprocessor）</strong>或 <strong>CU（Compute Unit）</strong>上。GPU 调度器动态将 Warp/Wavefront 分配给空闲核心。</p>
+            <p><strong>③ Mesh Shader（NVIDIA Turing+, 2018）</strong></p>
+            <p>传统图形管线的顶点 → 曲面细分 → 几何着色器链路固定且效率低下。<strong>Mesh Shader</strong> 用类似 Compute Shader 的灵活模型取代之：<strong>Task Shader</strong>（可选，负责剔除和 LOD 决策）→ <strong>Mesh Shader</strong>（输出 meshlet，即小型三角形组）。GPU 驱动的渲染（GPU-Driven Rendering）成为可能。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>固定架构 vs 统一架构的利用率对比：</strong></p>
+            <p>假设场景中 70% 为像素着色工作量（\(W_P\)），30% 为顶点着色工作量（\(W_V\)），总核心数 \(N\)。</p>
+            <p><strong>固定架构</strong>（假设 75% 核心分配给像素、25% 给顶点）：</p>
+            \[
+            T_{\text{fixed}} = \max\!\left(\frac{W_P}{0.75N},\; \frac{W_V}{0.25N}\right)
+            \]
+            <p>像素时间 = \(\frac{0.7}{0.75N} = \frac{0.933}{N}\)，顶点时间 = \(\frac{0.3}{0.25N} = \frac{1.2}{N}\)</p>
+            <p>\(T_{\text{fixed}} = \frac{1.2}{N}\)（受限于顶点单元，尽管像素单元仅 78% 负载）。</p>
+            <p><strong>统一架构</strong>（所有核心动态分配）：</p>
+            \[
+            T_{\text{unified}} = \frac{W_V + W_P}{N} = \frac{0.3 + 0.7}{N} = \frac{1.0}{N}
+            \]
+            <p><strong>加速比：</strong></p>
+            \[
+            \text{Speedup} = \frac{T_{\text{fixed}}}{T_{\text{unified}}} = \frac{1.2}{1.0} = 1.2\times
+            \]
+            <p>工作负载越不均衡，统一架构优势越明显。极端情况下（99% 像素、1% 顶点），固定架构的顶点单元严重过载而像素单元几乎空闲。</p>
+            <div class="warning-box">⚠️ 统一架构并不意味着所有着色器类型的执行效率完全相同——不同着色器对<strong>寄存器数量（Register Pressure）</strong>和<strong>共享内存</strong>的需求不同，影响 SM 的 <strong>Occupancy（占用率）</strong>。复杂的像素着色器可能因寄存器不足导致 Warp 数量减少，降低延迟隐藏能力。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>Mesh Shader + GPU-Driven Rendering：</strong>传统管线中 CPU 逐物体提交 Draw Call，GPU 被动执行。Mesh Shader 允许 GPU 自主决定渲染内容：Task Shader 在 GPU 上执行<strong>视锥剔除（Frustum Culling）</strong>和 <strong>LOD 选择</strong>，Mesh Shader 直接输出可见的 meshlet。CPU 只需提交一次 indirect dispatch。</p>
+            <p><strong>Nanite（Unreal Engine 5）：</strong>虚拟化几何系统，将场景中数十亿三角形组织为 meshlet 层次结构。GPU 动态选择每个物体的适当 LOD 并流式加载，使用 Mesh Shader 或 Compute Shader 实现软件光栅化。开发者无需手动制作 LOD——Nanite 自动处理。</p>
+            <p><strong>神经渲染（Neural Rendering）：</strong>统一架构使得 GPU 可以同时运行图形管线和 AI 推理。<strong>NeRF（Neural Radiance Fields）</strong>使用神经网络表示 3D 场景，在 GPU 上通过体积渲染 + MLP 推理生成新视角图像。</p>
+            <p><strong>Compute + Graphics 混合管线：</strong>现代游戏引擎大量使用 Compute Shader 实现后处理（Bloom、DOF、TAA）、粒子系统、GPU 剔除等——这些都依赖统一架构的灵活调度能力。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>某 GPU 有 64 个统一着色器核心。场景 A 的工作负载为 70% 像素着色 + 30% 顶点着色；场景 B 为 40% 像素 + 60% 顶点。比较固定架构（48 像素 + 16 顶点）和统一架构在两个场景中的利用率。</p>
+            <p><em>解答：</em></p>
+            <p><strong>场景 A（70P / 30V）——固定架构：</strong></p>
+            \[
+            T_P = \frac{0.7}{48},\; T_V = \frac{0.3}{16} \;\Rightarrow\; T_P = 0.0146,\; T_V = 0.01875
+            \]
+            <p>\(T = \max(0.0146, 0.01875) = 0.01875\)。利用率 = \(\frac{0.7 + 0.3}{64 \times 0.01875} = 83.3\%\)</p>
+            <p><strong>场景 A——统一架构：</strong> \(T = \frac{1.0}{64} = 0.01563\)。利用率 = <strong>100%</strong>。</p>
+            <p><strong>场景 B（40P / 60V）——固定架构：</strong></p>
+            \[
+            T_P = \frac{0.4}{48} = 0.00833,\; T_V = \frac{0.6}{16} = 0.0375
+            \]
+            <p>\(T = 0.0375\)。利用率 = \(\frac{1.0}{64 \times 0.0375} = 41.7\%\)（顶点严重过载！）</p>
+            <p><strong>场景 B——统一架构：</strong> \(T = \frac{1.0}{64} = 0.01563\)。利用率 = <strong>100%</strong>。加速比 = 2.4×。</p>
+            <p>❌ <strong>常见错误：</strong>假设固定架构中两种着色器可以"借用"对方的空闲单元——实际上硬件物理隔离，无法跨类型调度。</p>
+            <p>✅ <strong>正确理解：</strong>统一架构的核心优势就是消除了这种物理隔离，让所有核心成为通用计算资源。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch05-kp4">
+        <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.accent{fill:#8b5cf6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <text x="350" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">固定架构 vs 统一着色器架构</text>
+          <!-- Fixed architecture (left) -->
+          <text x="175" y="48" text-anchor="middle" class="fg" font-size="11" font-weight="bold">固定分离架构</text>
+          <!-- Vertex units -->
+          <rect x="30" y="60" width="130" height="100" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="95" y="80" text-anchor="middle" fill="#3b82f6" font-size="10" font-weight="bold">顶点着色器单元</text>
+          <text x="95" y="95" text-anchor="middle" class="fg2" font-size="8">8 个专用单元</text>
+          <!-- Idle indicator -->
+          <rect x="45" y="105" width="100" height="18" fill="#3b82f6" opacity="0.15" rx="3"/>
+          <rect x="45" y="105" width="30" height="18" fill="#3b82f6" opacity="0.4" rx="3"/>
+          <text x="95" y="118" text-anchor="middle" class="fg2" font-size="7">利用率 30%</text>
+          <text x="95" y="150" text-anchor="middle" fill="#ef4444" font-size="8">⬆ 70% 闲置！</text>
+          <!-- Pixel units -->
+          <rect x="190" y="60" width="130" height="100" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="255" y="80" text-anchor="middle" fill="#f59e0b" font-size="10" font-weight="bold">像素着色器单元</text>
+          <text x="255" y="95" text-anchor="middle" class="fg2" font-size="8">24 个专用单元</text>
+          <rect x="205" y="105" width="100" height="18" fill="#f59e0b" opacity="0.15" rx="3"/>
+          <rect x="205" y="105" width="93" height="18" fill="#f59e0b" opacity="0.4" rx="3"/>
+          <text x="255" y="118" text-anchor="middle" class="fg2" font-size="7">利用率 93%</text>
+          <text x="255" y="150" text-anchor="middle" fill="#10b981" font-size="8">接近满载</text>
+          <!-- Arrow -->
+          <text x="175" y="185" text-anchor="middle" class="fg2" font-size="9">总利用率 ≈ 74%</text>
+          <!-- Divider -->
+          <line x1="350" y1="40" x2="350" y2="300" stroke="#334155" stroke-width="0.5" stroke-dasharray="6,4"/>
+          <!-- Unified architecture (right) -->
+          <text x="525" y="48" text-anchor="middle" class="fg" font-size="11" font-weight="bold">统一着色器架构</text>
+          <rect x="390" y="60" width="270" height="100" rx="8" fill="#8b5cf6" opacity="0.08" stroke="#8b5cf6" stroke-width="2"/>
+          <text x="525" y="82" text-anchor="middle" class="accent" font-size="11" font-weight="bold">统一 SM / CU 核心池</text>
+          <text x="525" y="98" text-anchor="middle" class="fg2" font-size="8">32 个通用核心——动态分配</text>
+          <!-- Dynamic allocation bar -->
+          <rect x="405" y="110" width="240" height="22" fill="#8b5cf6" opacity="0.1" rx="4"/>
+          <rect x="405" y="110" width="72" height="22" fill="#3b82f6" opacity="0.5" rx="4"/>
+          <rect x="477" y="110" width="168" height="22" fill="#f59e0b" opacity="0.5" rx="4"/>
+          <text x="441" y="125" text-anchor="middle" font-size="7" fill="#ffffff" font-weight="bold">V 30%</text>
+          <text x="561" y="125" text-anchor="middle" font-size="7" fill="#ffffff" font-weight="bold">P 70%</text>
+          <text x="525" y="150" text-anchor="middle" fill="#10b981" font-size="9" font-weight="bold">总利用率 ≈ 100%</text>
+          <!-- Benefit text -->
+          <text x="525" y="185" text-anchor="middle" class="fg2" font-size="9">工作负载变化时动态重新分配</text>
+          <!-- Lower comparison -->
+          <text x="175" y="215" text-anchor="middle" class="fg" font-size="10" font-weight="bold">场景变化时…</text>
+          <text x="175" y="235" text-anchor="middle" class="fg2" font-size="9">像素重 → 顶点闲置</text>
+          <text x="175" y="250" text-anchor="middle" class="fg2" font-size="9">顶点重 → 像素闲置</text>
+          <text x="175" y="270" text-anchor="middle" fill="#ef4444" font-size="9">硬件比例固定，无法调整</text>
+          <text x="525" y="215" text-anchor="middle" class="fg" font-size="10" font-weight="bold">场景变化时…</text>
+          <text x="525" y="235" text-anchor="middle" class="fg2" font-size="9">像素重 → 更多核心分配给像素</text>
+          <text x="525" y="250" text-anchor="middle" class="fg2" font-size="9">顶点重 → 更多核心分配给顶点</text>
+          <text x="525" y="270" text-anchor="middle" fill="#10b981" font-size="9">动态均衡，利用率始终接近 100%</text>
+          <text x="525" y="295" text-anchor="middle" class="fg2" font-size="8" font-style="italic">同一组核心还可运行 Compute Shader / Mesh Shader</text>
+        </svg>
+        <figcaption>图 5-4 固定 vs 统一着色器架构——动态负载均衡消除硬件闲置</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">Mesh Shader 相比传统顶点+几何着色器管线的核心优势是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, 'Mesh Shader 本身不直接提高着色质量——它改变的是几何处理阶段的灵活性和效率。')">A. 提高像素着色质量</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！Mesh Shader 采用类似 Compute Shader 的灵活编程模型，支持 GPU 驱动的剔除、LOD 选择和 meshlet 输出，取代了固定且低效的 VS→HS→DS→GS 管线。')">B. 灵活的 Compute-like 编程模型，支持 GPU 驱动渲染</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '显存使用量主要取决于纹理和缓冲区大小，与管线阶段的选择关系不大。')">C. 减少显存使用量</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '光线追踪使用 RT Core 和 traceRay() API，与 Mesh Shader 是正交的技术。')">D. 取代光线追踪</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch04.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="#" class="nav-next disabled">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

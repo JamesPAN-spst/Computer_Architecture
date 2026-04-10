@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.2 布尔代数与化简 — 逻辑的诞生 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s2-ch02-q1",
+        question: "利用布尔代数化简 \\(A + A'B\\)，结果是？",
+        options: [
+          "\\(A\\)",
+          "\\(A + B\\)",
+          "\\(AB\\)",
+          "\\(A'B\\)"
+        ],
+        answer: 1,
+        explanation: "利用分配律展开：\\(A + A'B = A \\cdot 1 + A'B = A(B + B') + A'B = AB + AB' + A'B\\)。其中 \\(AB + A'B = B(A + A') = B\\)，所以原式 \\(= AB' + B = A + B\\)。更直接的证明：\\(A + A'B = (A + A')(A + B) = 1 \\cdot (A + B) = A + B\\)。注意这里利用了布尔代数特有的分配律 \\(A + BC = (A+B)(A+C)\\)，这在普通代数中不成立。"
+      },
+      {
+        id: "s2-ch02-q2",
+        question: "布尔代数中，\\(A + BC\\) 可以展开为？",
+        options: [
+          "\\(AB + AC\\)",
+          "\\((A + B)(A + C)\\)",
+          "\\(A + B + C\\)",
+          "\\(ABC\\)"
+        ],
+        answer: 1,
+        explanation: "布尔代数的 OR 对 AND 分配律（也叫第二分配律）为 \\(A + BC = (A + B)(A + C)\\)。验证：\\((A+B)(A+C) = AA + AC + AB + BC = A + AC + AB + BC = A(1 + C + B) + BC = A + BC\\)。这个分配律在普通实数代数中不成立（例如 \\(2 + 3 \\times 4 = 14 \\neq (2+3)(2+4) = 30\\)），这是布尔代数与普通代数的重要区别。"
+      },
+      {
+        id: "s2-ch02-q3",
+        question: "在 4 变量卡诺图中，一个包含 4 个相邻单元格的分组可以消去几个变量？",
+        options: [
+          "1 个",
+          "2 个",
+          "3 个",
+          "4 个"
+        ],
+        answer: 1,
+        explanation: "分组大小与消去的变量数关系为：\\(2^k\\) 个单元格消去 \\(k\\) 个变量。因此 4 = \\(2^2\\) 个单元格消去 2 个变量，剩余 2 个变量构成乘积项。类似地，2 个单元格消去 1 个变量，8 个单元格消去 3 个变量，16 个单元格（覆盖整个 4 变量卡诺图）消去所有 4 个变量，结果为常数 1。"
+      },
+      {
+        id: "s2-ch02-q4",
+        question: "4 变量卡诺图的列标按什么顺序排列？",
+        options: [
+          "00, 01, 10, 11（二进制递增）",
+          "00, 01, 11, 10（格雷码）",
+          "00, 10, 01, 11（交替）",
+          "00, 11, 01, 10（随机）"
+        ],
+        answer: 1,
+        explanation: "卡诺图使用格雷码（Gray Code）排列：00, 01, 11, 10。格雷码的核心特性是相邻编码之间只有 1 位不同。这保证了卡诺图中物理相邻的单元格在逻辑上也只差一个变量，从而使得"相邻单元格分组"直接对应"消去变量"。如果使用自然二进制顺序（00, 01, 10, 11），则 01 和 10 相邻但有 2 位不同，无法正确化简。"
+      },
+      {
+        id: "s2-ch02-q5",
+        question: "根据德摩根定律，\\(\\overline{A + B + C}\\) 等于？",
+        options: [
+          "\\(\\overline{A} + \\overline{B} + \\overline{C}\\)",
+          "\\(\\overline{A} \\cdot \\overline{B} \\cdot \\overline{C}\\)",
+          "\\(\\overline{ABC}\\)",
+          "\\(A'B' + C'\\)"
+        ],
+        answer: 1,
+        explanation: "德摩根定律推广到 n 个变量：\\(\\overline{A_1 + A_2 + \\cdots + A_n} = \\overline{A_1} \\cdot \\overline{A_2} \\cdots \\overline{A_n}\\)。"打破（break）"整体取反的横杠，将 OR 变为 AND，每个变量分别取反。因此 \\(\\overline{A + B + C} = A' \\cdot B' \\cdot C'\\)。直觉上：\\(A+B+C\\) 只要有一个为 1 就为 1，所以其取反要求所有变量都为 0，即 \\(A'=1, B'=1, C'=1\\)，等价于 \\(A' \\cdot B' \\cdot C'\\)。"
+      },
+      {
+        id: "s2-ch02-q6",
+        question: "NAND 门的逻辑等价形式（通过德摩根变换）是？",
+        options: [
+          "AND 门接 NOT（先与后非）",
+          "OR 门的两个输入分别取反",
+          "NOR 门接 NOT",
+          "XOR 门接 NOT"
+        ],
+        answer: 1,
+        explanation: "由德摩根定律：\\(\\overline{A \\cdot B} = \\overline{A} + \\overline{B}\\)。这意味着 NAND 门（对 AND 取反）等价于先分别对各输入取反，再做 OR 运算。在电路图中，这表现为：一个 NAND 门可以画成一个 OR 门，但输入端各有一个"气泡"（表示取反）。这就是"气泡推动（Bubble Pushing）"技术的核心原理，在 NAND-only 电路设计中至关重要。"
+      },
+      {
+        id: "s2-ch02-q7",
+        question: "在 BCD 编码（4 位表示十进制 0-9）中，有多少个无关项（Don't Care）？",
+        options: [
+          "4 个",
+          "6 个",
+          "8 个",
+          "10 个"
+        ],
+        answer: 1,
+        explanation: "4 位二进制可以表示 \\(2^4 = 16\\) 种组合（0000 到 1111），但 BCD 只使用其中的 0-9（即 0000 到 1001），共 10 种。剩余的 6 种组合（1010, 1011, 1100, 1101, 1110, 1111，即十进制 10-15）在 BCD 编码中永远不会出现，因此对应的输出可以任意指定为 0 或 1——这就是 6 个无关项。在卡诺图中，这些无关项标记为 X 或 d，可以被选择性地纳入分组以获得更简洁的表达式。"
+      },
+      {
+        id: "s2-ch02-q8",
+        question: "在卡诺图化简中，无关项（Don't Care）应该如何处理？",
+        options: [
+          "全部视为 0",
+          "全部视为 1",
+          "需要时视为 1（扩大分组），不需要时视为 0",
+          "完全忽略，不标记在卡诺图上"
+        ],
+        answer: 2,
+        explanation: "无关项的正确处理方式是：在卡诺图上标记为 X，然后在圈定分组时，选择性地将某些 X 纳入分组（视为 1），以扩大分组、减少乘积项中的变量数。不需要的 X 则自动视为 0。关键原则是：对于不同的输出函数，同一个无关项可以被分配不同的值。这种灵活性是无关项能够有效优化电路的核心原因。"
+      }
+    ];
+  </script>
+
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+
+<body class="chapter-page" data-category="stage-2" data-module="ch02"
+      style="--domain-color: var(--c-logic);">
+
+  <!-- ═══════════ TOPBAR ═══════════ -->
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module">
+      <span class="module-domain">STAGE 2</span>
+      <a href="index.html" class="module-name">逻辑的诞生</a>
+    </div>
+    <div class="topbar-right">
+      <span class="chapter-indicator">Ch.2 / 4</span>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <!-- ═══════════ TOC SIDEBAR ═══════════ -->
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · 布尔公理与定理</a></li>
+      <li><a href="#kp2">02 · 卡诺图化简</a></li>
+      <li><a href="#kp3">03 · 德摩根定律</a></li>
+      <li><a href="#kp4">04 · 无关项的利用</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <!-- ═══════════ MAIN CONTENT ═══════════ -->
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 2</p>
+      <h1>布尔代数与化简</h1>
+    </header>
+
+    <!-- ═══════════ KP 1 ═══════════ -->
+    <section id="kp1" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">01</span>布尔公理与定理（Boolean Axioms &amp; Theorems）
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在 Chapter 1 中，我们学会了用晶体管搭建物理逻辑门——NOT、NAND、NOR。现在假设你需要设计一个包含 100 个逻辑门的电路来实现某个复杂的判断条件，比如"当 A 为真且 B 为假，或者 C 和 D 都为真，又或者……"。如果没有系统的数学工具，你只能靠直觉把门一个个连起来，不仅效率低下，还无法保证电路是最优的。</p>
+            <p>1854 年，英国数学家 George Boole 发表了《思维的法则》（The Laws of Thought），提出了一套用数学符号处理逻辑关系的代数系统。这套系统后来被称为<strong>布尔代数（Boolean Algebra）</strong>。它给我们提供了精确的公理和定理，让我们能够像化简数学表达式一样化简逻辑表达式——更少的逻辑运算意味着更少的逻辑门，从而节省面积、降低功耗、减少延迟。</p>
+            <p>布尔代数是整个数字逻辑设计的数学基础。现代 EDA（Electronic Design Automation）工具在进行逻辑综合时，内部就在反复运用这些定理。掌握这些基本功，是理解后续所有数字电路设计的前提。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>布尔代数操作的对象是<strong>二值集合</strong> \(\{0, 1\}\)，定义三种基本运算：</p>
+            <p><strong>与运算（AND）</strong>，记作 \(A \cdot B\) 或简写为 \(AB\)：当且仅当两个操作数都为 1 时结果为 1。</p>
+            <p><strong>或运算（OR）</strong>，记作 \(A + B\)：只要有一个操作数为 1，结果就为 1。</p>
+            <p><strong>非运算（NOT）</strong>，记作 \(\overline{A}\) 或 \(A'\)：将 0 变 1，将 1 变 0。</p>
+            <p>在此基础上，布尔代数的<strong>基本公理（Axioms）</strong>如下，每条公理都有 AND/OR 对偶的两个形式：</p>
+            <p><strong>同一律（Identity）：</strong>\(A + 0 = A\)，\(A \cdot 1 = A\)。0 是 OR 的单位元，1 是 AND 的单位元。</p>
+            <p><strong>零律/全律（Null/Domination）：</strong>\(A + 1 = 1\)，\(A \cdot 0 = 0\)。OR 1 恒为 1，AND 0 恒为 0。</p>
+            <p><strong>互补律（Complement）：</strong>\(A + A' = 1\)，\(A \cdot A' = 0\)。一个变量与其反变量 OR 得 1，AND 得 0。</p>
+            <p><strong>对合律（Involution）：</strong>\((A')' = A\)。双重取反等于不取反。</p>
+            <p><strong>幂等律（Idempotent）：</strong>\(A + A = A\)，\(A \cdot A = A\)。一个变量与自身 OR 或 AND 等于自身。</p>
+            <p><strong>交换律（Commutative）：</strong>\(A + B = B + A\)，\(A \cdot B = B \cdot A\)。运算顺序不影响结果。</p>
+            <p><strong>结合律（Associative）：</strong>\((A + B) + C = A + (B + C)\)，\((A \cdot B) \cdot C = A \cdot (B \cdot C)\)。括号位置不影响结果。</p>
+            <p><strong>分配律（Distributive）：</strong>\(A \cdot (B + C) = AB + AC\)，以及布尔代数特有的 \(A + BC = (A + B)(A + C)\)。后者在普通代数中不成立！</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>利用基本公理，我们可以推导出一系列强大的定理。下面逐步证明几个最重要的定理：</p>
+            <p><strong>吸收律（Absorption Law）：</strong>\(A + AB = A\)</p>
+            <p>证明过程：</p>
+            \[A + AB = A \cdot 1 + A \cdot B \quad \text{（同一律：} A = A \cdot 1\text{）}\]
+            \[= A(1 + B) \quad \text{（分配律提取公因子 } A\text{）}\]
+            \[= A \cdot 1 \quad \text{（零律：} 1 + B = 1\text{）}\]
+            \[= A \quad \text{（同一律）}\]
+
+            <p><strong>重要化简定理：</strong>\(A + A'B = A + B\)</p>
+            <p>证明过程：</p>
+            \[A + A'B = (A + A')(A + B) \quad \text{（布尔分配律：} X + YZ = (X+Y)(X+Z)\text{）}\]
+            \[= 1 \cdot (A + B) \quad \text{（互补律：} A + A' = 1\text{）}\]
+            \[= A + B \quad \text{（同一律）}\]
+            <p>这个定理非常实用：它告诉我们，如果一项 \(A\) 已经独立存在，那么另一项中与 \(A'\) 相乘的部分可以直接去掉 \(A'\)。</p>
+
+            <p><strong>共识定理（Consensus Theorem）：</strong>\(AB + A'C + BC = AB + A'C\)</p>
+            <p>证明过程：</p>
+            \[AB + A'C + BC = AB + A'C + BC(A + A')\]
+            \[= AB + A'C + ABC + A'BC \quad \text{（展开，因为 } A + A' = 1\text{）}\]
+            \[= AB(1 + C) + A'C(1 + B)\]
+            \[= AB + A'C \quad \text{（因为 } 1 + C = 1, \; 1 + B = 1\text{）}\]
+            <p>共识定理的含义是：当已有 \(AB\) 和 \(A'C\) 两项时，\(BC\) 项是冗余的（因为它被前两项"覆盖"了），可以安全删除。</p>
+
+            <div class="warning-box">
+              ⚠️ <strong>布尔代数 ≠ 普通代数！</strong>在布尔代数中，\(+\) 表示 OR，\(\cdot\) 表示 AND。\(A + A = A\)（不是 \(2A\)！），\(A \cdot A = A\)（不是 \(A^2\)！）。尤其注意分配律：布尔代数中 \(A + BC = (A+B)(A+C)\) 成立，但在普通代数中 \(2 + 3 \times 4 = 14 \neq (2+3)(2+4) = 30\)。切勿将普通代数直觉带入布尔代数！
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>逻辑优化（Logic Optimization）：</strong>布尔代数化简直接减少逻辑门的数量。例如，一个包含 5 个乘积项的表达式化简到 2 个，意味着所需的 AND 门和 OR 门减少了一半以上。在现代芯片中，即使每个门节省微小的面积和功耗，乘以数十亿门的规模，总体效益也是巨大的。</p>
+            <p><strong>EDA 工具链：</strong>Synopsys Design Compiler、Cadence Genus 等工业级 EDA 工具在逻辑综合（Logic Synthesis）阶段，会自动对 RTL（寄存器传输级）描述进行布尔代数变换和化简。工程师编写 Verilog 或 VHDL 代码后，工具会将其转换为最优的门级网表。工具内部使用的算法（如 BDD——二叉决策图）本质上就是对布尔代数定理的程序化实现。</p>
+            <p><strong>延迟优化：</strong>化简不仅减少面积，还减少信号通过的逻辑级数（logic levels）。每经过一个门就增加一个传播延迟，逻辑级数越少，电路的关键路径（critical path）越短，时钟频率就能越高。</p>
+            <p><strong>功耗考量：</strong>更少的门意味着更少的动态开关活动（switching activity），直接降低动态功耗 \(P_{dyn} = \alpha C_L V_{DD}^2 f\)。在移动设备和 IoT 设备中，功耗优化至关重要。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>化简 \(F = AB + AB' + A'B\)</p>
+            <p><strong>✅ 正确解法（逐步推导）：</strong></p>
+            <p>第一步：观察前两项 \(AB + AB'\)，提取公因子 \(A\)：</p>
+            \[AB + AB' = A(B + B') = A \cdot 1 = A\]
+            <p>第二步：将结果代回原式：</p>
+            \[F = A + A'B\]
+            <p>第三步：应用定理 \(A + A'B = A + B\)：</p>
+            \[F = A + B\]
+            <p>验证：用真值表检查。当 \(A=0, B=0\)：原式 \(= 0+0+0 = 0\)，化简式 \(= 0+0 = 0\) ✓。当 \(A=0, B=1\)：原式 \(= 0+0+1 = 1\)，化简式 \(= 0+1 = 1\) ✓。当 \(A=1, B=0\)：原式 \(= 0+1+0 = 1\)，化简式 \(= 1+0 = 1\) ✓。当 \(A=1, B=1\)：原式 \(= 1+0+0 = 1\)，化简式 \(= 1+1 = 1\) ✓。</p>
+            <p><strong>❌ 常见错误：</strong>初学者经常把 \(+\) 当作算术加法。例如，看到 \(AB + AB'\) 会想"把 \(B\) 和 \(B'\) 加起来"得到某个非布尔结果。记住：在布尔代数中，\(B + B' = 1\)（互补律），而不是 \(B + B' = 2B'\) 或其他算术结果。</p>
+            <div class="warning-box">
+              ⚠️ <strong>化简后务必验证！</strong>用真值表逐行检查原式和化简式是否完全一致。工程实践中一个门的错误就可能导致整个芯片报废。养成验证习惯，是从"学生"到"工程师"的关键一步。
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch02-kp1">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+          <!-- Title -->
+          <text x="200" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">布尔恒等式速查表（对偶配对）</text>
+
+          <!-- Column Headers -->
+          <text x="120" y="42" text-anchor="middle" class="accent" font-size="11" font-weight="bold">OR 形式</text>
+          <text x="300" y="42" text-anchor="middle" class="accent" font-size="11" font-weight="bold">AND 形式</text>
+          <line x1="40" y1="48" x2="360" y2="48" class="line" stroke-dasharray="4,3"/>
+
+          <!-- Identity -->
+          <text x="14" y="68" class="fg2" font-size="9">同一律</text>
+          <text x="120" y="68" text-anchor="middle" class="fg" font-size="11">A + 0 = A</text>
+          <text x="300" y="68" text-anchor="middle" class="fg" font-size="11">A · 1 = A</text>
+
+          <!-- Null -->
+          <text x="14" y="90" class="fg2" font-size="9">零律</text>
+          <text x="120" y="90" text-anchor="middle" class="fg" font-size="11">A + 1 = 1</text>
+          <text x="300" y="90" text-anchor="middle" class="fg" font-size="11">A · 0 = 0</text>
+
+          <!-- Complement -->
+          <text x="14" y="112" class="fg2" font-size="9">互补律</text>
+          <text x="120" y="112" text-anchor="middle" class="fg" font-size="11">A + A' = 1</text>
+          <text x="300" y="112" text-anchor="middle" class="fg" font-size="11">A · A' = 0</text>
+
+          <!-- Idempotent -->
+          <text x="14" y="134" class="fg2" font-size="9">幂等律</text>
+          <text x="120" y="134" text-anchor="middle" class="fg" font-size="11">A + A = A</text>
+          <text x="300" y="134" text-anchor="middle" class="fg" font-size="11">A · A = A</text>
+
+          <!-- Absorption -->
+          <text x="14" y="156" class="fg2" font-size="9">吸收律</text>
+          <text x="120" y="156" text-anchor="middle" class="fg" font-size="11">A + AB = A</text>
+          <text x="300" y="156" text-anchor="middle" class="fg" font-size="11">A(A + B) = A</text>
+
+          <!-- Distributive -->
+          <text x="14" y="178" class="fg2" font-size="9">分配律</text>
+          <text x="120" y="178" text-anchor="middle" class="fg" font-size="11">A + BC = (A+B)(A+C)</text>
+          <text x="300" y="178" text-anchor="middle" class="fg" font-size="11">A(B + C) = AB + AC</text>
+
+          <!-- De Morgan -->
+          <text x="14" y="200" class="fg2" font-size="9">德摩根</text>
+          <text x="120" y="200" text-anchor="middle" class="fg" font-size="11">(A + B)' = A'B'</text>
+          <text x="300" y="200" text-anchor="middle" class="fg" font-size="11">(AB)' = A' + B'</text>
+
+          <!-- Consensus -->
+          <text x="14" y="222" class="fg2" font-size="9">共识</text>
+          <text x="200" y="222" text-anchor="middle" class="fg" font-size="11">AB + A'C + BC = AB + A'C</text>
+
+          <!-- Dual arrow -->
+          <line x1="210" y1="38" x2="210" y2="210" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3" fill="none"/>
+          <text x="210" y="236" text-anchor="middle" class="accent" font-size="9">↕ 对偶（Duality）：0↔1, +↔·</text>
+        </svg>
+        <figcaption>图 2-1：布尔恒等式速查表 — OR 形式与 AND 形式一一对偶配对</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">化简布尔表达式 \(A + A'B\) 的结果是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '不对。A + A\'B 不等于 A，因为当 A=0, B=1 时，原式 = 0 + 1·1 = 1，但 A = 0。')">
+            A. \(A\)
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！利用布尔分配律：A + A\'B = (A + A\')(A + B) = 1·(A + B) = A + B。')">
+            B. \(A + B\)
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '不对。AB 不包含 A=1,B=0 的情况，但原式中 A + A\'B 在 A=1,B=0 时等于 1。')">
+            C. \(AB\)
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '不对。B 不包含 A=1,B=0 的情况，但原式在 A=1,B=0 时等于 1。')">
+            D. \(B\)
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 2 ═══════════ -->
+    <section id="kp2" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">02</span>卡诺图化简（Karnaugh Map Simplification）
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>布尔代数化简很强大，但有一个明显的问题：它依赖于你的"数学直觉"。面对一个复杂的表达式，你需要凭经验选择先用哪条定理、先化简哪一部分。不同的化简路径可能导致不同的结果，而你无法保证自己找到了最简形式。</p>
+            <p>有没有一种系统的、可视化的方法，不需要灵感和经验，就能保证找到最简化的表达式？答案是有的——<strong>卡诺图（Karnaugh Map，简称 K-map）</strong>。1953 年，贝尔实验室的 Maurice Karnaugh 发明了这种方法。它将布尔函数的真值表映射到一个二维网格上，通过视觉上的"圈组"操作，直接读出最简表达式。</p>
+            <p>对于 2 到 5 个变量的函数，卡诺图是最高效的手工化简方法。超过 5 个变量时，卡诺图的维度增长使其难以手工操作，需要转向计算机算法（如 Quine-McCluskey 方法）。但 K-map 的核心思想——通过分组消去变量——仍然是所有逻辑优化算法的概念基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>卡诺图的核心思想：</strong>将真值表重新排列为二维网格，使得相邻单元格之间只有一个变量的值不同。这样，当两个相邻单元格都为 1 时，它们的乘积项只在那一个变量上不同，而该变量就可以被消去。</p>
+            <p><strong>格雷码排列（Gray Code Ordering）：</strong>卡诺图的行和列使用格雷码（Gray Code）而非自然二进制序编号：00, 01, 11, 10。格雷码的核心特性是相邻编码只有 1 位不同。例如 01 和 11 只在最高位不同，11 和 10 只在最低位不同。</p>
+            <p><strong>不同变量数的卡诺图：</strong></p>
+            <p>2 变量：\(2 \times 2\) 网格（4 个单元格），行标为 A，列标为 B。</p>
+            <p>3 变量：\(2 \times 4\) 网格（8 个单元格），行标为 A，列标为 BC（格雷码：00, 01, 11, 10）。</p>
+            <p>4 变量：\(4 \times 4\) 网格（16 个单元格），行标为 AB（格雷码），列标为 CD（格雷码）。</p>
+            <p><strong>分组规则：</strong></p>
+            <p>（1）只能将值为 1 的单元格分组。</p>
+            <p>（2）分组必须是矩形，大小为 \(2\) 的幂次：1, 2, 4, 8, 16……</p>
+            <p>（3）分组越大越好——\(2^k\) 个单元格的分组可以消去 \(k\) 个变量。</p>
+            <p>（4）每个值为 1 的单元格必须至少被一个分组覆盖。</p>
+            <p>（5）分组可以重叠（同一个单元格可以属于多个分组）。</p>
+            <p>（6）<strong>卡诺图是环形拓扑！</strong>最左列与最右列相邻，最上行与最下行相邻。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>完整示例：4 变量 K-map 化简</strong></p>
+            <p>给定函数 \(F(A,B,C,D) = \sum m(0,1,2,5,8,9,10)\)，即最小项为 \(m_0, m_1, m_2, m_5, m_8, m_9, m_{10}\)。</p>
+            <p><strong>第一步：填写卡诺图。</strong>将 4 变量卡诺图的行标设为 AB（格雷码：00, 01, 11, 10），列标设为 CD（格雷码：00, 01, 11, 10）。将每个最小项对应的单元格填入 1，其余填入 0。</p>
+            <p>最小项与坐标的对应关系：\(m_0 = \overline{A}\overline{B}\overline{C}\overline{D}\)（AB=00, CD=00）→ 第 0 行第 0 列。\(m_1 = \overline{A}\overline{B}\overline{C}D\)（AB=00, CD=01）→ 第 0 行第 1 列。\(m_2 = \overline{A}\overline{B}C\overline{D}\)（AB=00, CD=10）→ 第 0 行第 3 列（注意格雷码中 10 在第 3 列！）。\(m_5 = \overline{A}B\overline{C}D\)（AB=01, CD=01）→ 第 1 行第 1 列。\(m_8 = A\overline{B}\overline{C}\overline{D}\)（AB=10, CD=00）→ 第 3 行第 0 列。\(m_9 = A\overline{B}\overline{C}D\)（AB=10, CD=01）→ 第 3 行第 1 列。\(m_{10} = A\overline{B}C\overline{D}\)（AB=10, CD=10）→ 第 3 行第 3 列。</p>
+            <p><strong>第二步：圈定分组。</strong></p>
+            <p>分组 1：\(m_0, m_1, m_8, m_9\)（第 0 行前两列 + 第 3 行前两列）。注意第 0 行（AB=00）和第 3 行（AB=10）在卡诺图中是相邻的（它们只在 B 上不同……等等，实际上 00 和 10 在 A 上不同）。这 4 个单元格覆盖了 AB=00 和 AB=10 的 CD=00 和 CD=01 区域。消去 2 个变量（A 和 D 在组内都有 0 和 1），剩余 \(\overline{B}\overline{C}\)。等一下，让我重新分析：这 4 个单元格的变量值为 \(ABCD \in \{0000, 0001, 1000, 1001\}\)。A 取 0 和 1 → A 被消去。B 恒为 0 → B'。C 恒为 0 → C'。D 取 0 和 1 → D 被消去。乘积项为 \(\overline{B}\overline{C}\)。</p>
+            <p>分组 2：\(m_0, m_2, m_8, m_{10}\)（第 0 列和第 3 列，第 0 行和第 3 行）。这 4 个单元格的变量值为 \(\{0000, 0010, 1000, 1010\}\)。A 取 0 和 1 → 消去。B 恒为 0 → B'。C 取 0 和 1 → 消去。D 恒为 0 → D'。乘积项为 \(\overline{B}\overline{D}\)。</p>
+            <p>分组 3：\(m_1, m_5\)（两个单元格）。变量值 \(\{0001, 0101\}\)。A 恒为 0 → A'。B 取 0 和 1 → 消去。C 恒为 0 → C'。D 恒为 1 → D。乘积项为 \(\overline{A}\overline{C}D\)。</p>
+            <p><strong>第三步：写出最终表达式。</strong></p>
+            \[F = \overline{B}\overline{C} + \overline{B}\overline{D} + \overline{A}\overline{C}D\]
+
+            <div class="warning-box">
+              ⚠️ <strong>卡诺图是环形的！</strong>最左列（CD=00）与最右列（CD=10）相邻，第一行（AB=00）与最后一行（AB=10）相邻。忘记"环绕"相邻性是 K-map 化简中最常见的错误，会导致遗漏更大的分组，得到非最简结果。
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>FPGA 设计：</strong>在 FPGA 开发中，设计者经常使用卡诺图来手工优化小规模的组合逻辑，尤其是 2-4 变量的控制逻辑（如状态机的输出逻辑、使能信号生成）。虽然综合工具会自动优化，但理解 K-map 有助于工程师验证工具的结果是否合理。</p>
+            <p><strong>PLA 编程：</strong>可编程逻辑阵列（Programmable Logic Array, PLA）的 AND 平面和 OR 平面直接对应 SOP（和积式）表达式的结构。K-map 得到的最简 SOP 直接映射到 PLA 中最少数量的乘积项和最少的互连，节省硅面积。</p>
+            <p><strong>Quine-McCluskey 算法：</strong>对于超过 5 个变量的函数，手工 K-map 不再实际。Quine-McCluskey 算法是 K-map 思想的程序化实现，由计算机自动执行。EDA 工具中的 two-level logic minimization 模块（如 ESPRESSO）就是基于这类算法的改进版。</p>
+            <p><strong>测试与调试：</strong>K-map 还是分析电路故障的有效工具。如果测试发现某个输出在特定输入组合下错误，可以在 K-map 上标出故障点，快速定位是哪个乘积项或分组出了问题。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>用卡诺图化简 \(F(A,B,C,D) = \sum m(0,1,2,5,8,9,10)\)。</p>
+            <p><strong>✅ 正确结果：</strong>\(F = \overline{B}\overline{C} + \overline{B}\overline{D} + \overline{A}\overline{C}D\)</p>
+            <p>这需要 3 个乘积项（AND 门），1 个 3 输入 OR 门，以及若干 NOT 门。总计约 7-8 个逻辑门。而如果直接用最小项展开，需要 7 个 4 输入 AND 门和 1 个 7 输入 OR 门——门数和扇入都大幅增加。</p>
+            <p><strong>❌ 常见错误 1：忘记环绕相邻性。</strong>如果忽略了第 0 行和第 3 行的相邻关系（在 4 变量 K-map 中，AB=00 和 AB=10 的行是相邻的），就无法将 \(m_0, m_2, m_8, m_{10}\) 组成一个 4 单元格的分组，导致结果不是最简的。</p>
+            <p><strong>❌ 常见错误 2：分组大小不是 2 的幂次。</strong>例如试图将 3 个单元格或 5 个单元格圈在一起。分组大小只能是 1, 2, 4, 8, 16……（\(2^0, 2^1, 2^2, 2^3, 2^4\)），而且必须是矩形。</p>
+            <p><strong>❌ 常见错误 3：遗漏未覆盖的单元格。</strong>每个值为 1 的单元格必须被至少一个分组覆盖。圈完分组后，务必检查所有的 1 是否都已被圈入。</p>
+            <div class="warning-box">
+              ⚠️ <strong>格雷码列顺序！</strong>卡诺图的列标顺序是 00, 01, 11, 10（格雷码），而不是 00, 01, 10, 11（自然二进制）。如果用错了顺序，相邻单元格之间会有 2 位不同，分组化简将产生完全错误的结果！
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch02-kp2">
+        <svg viewBox="0 0 400 280" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+          <!-- Title -->
+          <text x="200" y="16" text-anchor="middle" class="fg" font-size="11" font-weight="bold">4 变量卡诺图：F = Σm(0,1,2,5,8,9,10)</text>
+
+          <!-- Column/Row labels -->
+          <text x="120" y="38" text-anchor="middle" class="accent" font-size="10" font-weight="bold">CD</text>
+          <text x="62" y="70" text-anchor="end" class="accent" font-size="10" font-weight="bold">AB</text>
+          <text x="110" y="55" text-anchor="middle" class="fg2" font-size="9">00</text>
+          <text x="160" y="55" text-anchor="middle" class="fg2" font-size="9">01</text>
+          <text x="210" y="55" text-anchor="middle" class="fg2" font-size="9">11</text>
+          <text x="260" y="55" text-anchor="middle" class="fg2" font-size="9">10</text>
+          <text x="72" y="82" text-anchor="middle" class="fg2" font-size="9">00</text>
+          <text x="72" y="122" text-anchor="middle" class="fg2" font-size="9">01</text>
+          <text x="72" y="162" text-anchor="middle" class="fg2" font-size="9">11</text>
+          <text x="72" y="202" text-anchor="middle" class="fg2" font-size="9">10</text>
+
+          <!-- Grid -->
+          <rect x="85" y="60" width="200" height="160" fill="none" class="line"/>
+          <line x1="135" y1="60" x2="135" y2="220" class="line"/>
+          <line x1="185" y1="60" x2="185" y2="220" class="line"/>
+          <line x1="235" y1="60" x2="235" y2="220" class="line"/>
+          <line x1="85" y1="100" x2="285" y2="100" class="line"/>
+          <line x1="85" y1="140" x2="285" y2="140" class="line"/>
+          <line x1="85" y1="180" x2="285" y2="180" class="line"/>
+
+          <!-- Cell values: Row AB=00 -->
+          <text x="110" y="85" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="160" y="85" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="210" y="85" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="260" y="85" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <!-- Row AB=01 -->
+          <text x="110" y="125" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="160" y="125" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="210" y="125" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="260" y="125" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <!-- Row AB=11 -->
+          <text x="110" y="165" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="160" y="165" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="210" y="165" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="260" y="165" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <!-- Row AB=10 -->
+          <text x="110" y="205" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="160" y="205" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="210" y="205" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="260" y="205" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+
+          <!-- Group 1: m0,m1,m8,m9 (B'C') - blue dashed rect wrapping top-left 2 + bottom-left 2 -->
+          <rect x="88" y="63" width="94" height="34" rx="6" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="5,3"/>
+          <rect x="88" y="183" width="94" height="34" rx="6" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="5,3"/>
+          <text x="310" y="82" class="fg2" font-size="9" fill="#3b82f6">B'C'</text>
+
+          <!-- Group 2: m0,m2,m8,m10 (B'D') - green dashed rect wrapping corners -->
+          <rect x="88" y="63" width="14" height="34" rx="3" fill="none" stroke="#10b981" stroke-width="2" opacity="0.5"/>
+          <rect x="243" y="63" width="39" height="34" rx="3" fill="none" stroke="#10b981" stroke-width="2" opacity="0.5"/>
+          <rect x="88" y="183" width="14" height="34" rx="3" fill="none" stroke="#10b981" stroke-width="2" opacity="0.5"/>
+          <rect x="243" y="183" width="39" height="34" rx="3" fill="none" stroke="#10b981" stroke-width="2" opacity="0.5"/>
+          <text x="310" y="100" class="fg2" font-size="9" fill="#10b981">B'D'</text>
+
+          <!-- Group 3: m1,m5 (A'C'D) - orange rect -->
+          <rect x="138" y="63" width="44" height="74" rx="6" fill="none" stroke="#f59e0b" stroke-width="2"/>
+          <text x="310" y="118" class="fg2" font-size="9" fill="#f59e0b">A'C'D</text>
+
+          <!-- Result -->
+          <text x="200" y="250" text-anchor="middle" class="fg" font-size="11" font-weight="bold">F = B'C' + B'D' + A'C'D</text>
+          <text x="200" y="268" text-anchor="middle" class="fg2" font-size="9">三个分组分别对应三个乘积项</text>
+        </svg>
+        <figcaption>图 2-2：4 变量卡诺图化简示例 — 格雷码排列，三组分组圈定</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在 4 变量卡诺图中，一个包含 4 个相邻单元格的分组可以消去多少个变量？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '1 个单元格消去 0 个变量，2 个单元格消去 1 个变量。4 个单元格消去的更多。')">
+            A. 1 个变量
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！4 = 2² 个单元格消去 2 个变量。规律是 2^k 个单元格消去 k 个变量。')">
+            B. 2 个变量
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '8 个单元格消去 3 个变量，不是 4 个单元格。')">
+            C. 3 个变量
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '16 个单元格（覆盖整个 4 变量卡诺图）才消去 4 个变量。')">
+            D. 4 个变量
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 3 ═══════════ -->
+    <section id="kp3" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">03</span>德摩根定律（De Morgan's Laws）
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>假设你手头只有 NAND 门（这在实际芯片设计中很常见，因为 NAND 门在 CMOS 工艺中效率最高），但你需要实现一个 OR 运算。怎么办？又或者，你有一个复杂的布尔表达式，需要将它从"积之和（SOP）"转换为"和之积（POS）"形式。这些操作都需要在 AND 和 OR 之间自由转换。</p>
+            <p><strong>德摩根定律（De Morgan's Laws）</strong>正是解决这个问题的关键工具。它告诉我们：对一个 AND 运算取反，等价于对各个输入分别取反再做 OR 运算；反之亦然。这两条定律由 19 世纪英国数学家 Augustus De Morgan 提出，是布尔代数中最常用的变换规则。</p>
+            <p>在电路设计中，德摩根定律衍生出一种叫做"气泡推动（Bubble Pushing）"的技术——通过在电路图上推动反相气泡（inversion bubbles），可以将一种门型转换为另一种。这使得设计者能够灵活选择最适合当前工艺的门类型来实现任意逻辑。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>德摩根定律的两种形式：</strong></p>
+            <p><strong>第一定律（AND 的否定 → OR）：</strong></p>
+            \[\overline{A \cdot B} = \overline{A} + \overline{B}\]
+            <p>用语言描述："打破横杠，将 AND 变为 OR，每个变量分别取反。"</p>
+            <p><strong>第二定律（OR 的否定 → AND）：</strong></p>
+            \[\overline{A + B} = \overline{A} \cdot \overline{B}\]
+            <p>用语言描述："打破横杠，将 OR 变为 AND，每个变量分别取反。"</p>
+            <p><strong>推广到 n 个变量：</strong></p>
+            \[\overline{A_1 \cdot A_2 \cdot \ldots \cdot A_n} = \overline{A_1} + \overline{A_2} + \ldots + \overline{A_n}\]
+            \[\overline{A_1 + A_2 + \ldots + A_n} = \overline{A_1} \cdot \overline{A_2} \cdot \ldots \cdot \overline{A_n}\]
+            <p><strong>简明记忆口诀：</strong>"Break the bar, change the sign"（打破横杠，变换运算）。横杠（否定）覆盖整个表达式时，将它"打碎"成各个子项的否定，同时将 AND 和 OR 互换。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>方法一：真值表穷举验证（Proof by Exhaustion）</strong></p>
+            <p>以第一定律 \(\overline{A \cdot B} = \overline{A} + \overline{B}\) 为例，列出所有可能的输入组合：</p>
+            <p>当 \(A=0, B=0\)：左边 = \(\overline{0 \cdot 0} = \overline{0} = 1\)。右边 = \(1 + 1 = 1\)。✓</p>
+            <p>当 \(A=0, B=1\)：左边 = \(\overline{0 \cdot 1} = \overline{0} = 1\)。右边 = \(1 + 0 = 1\)。✓</p>
+            <p>当 \(A=1, B=0\)：左边 = \(\overline{1 \cdot 0} = \overline{0} = 1\)。右边 = \(0 + 1 = 1\)。✓</p>
+            <p>当 \(A=1, B=1\)：左边 = \(\overline{1 \cdot 1} = \overline{1} = 0\)。右边 = \(0 + 0 = 0\)。✓</p>
+            <p>所有 4 种输入组合下，左右两边的值完全相同，证毕。</p>
+
+            <p><strong>方法二：布尔公理代数证明</strong></p>
+            <p>要证明 \(\overline{A \cdot B} = \overline{A} + \overline{B}\)，只需验证 \(\overline{A} + \overline{B}\) 满足 \(AB\) 的补元定义，即：</p>
+            \[(AB)(\overline{A} + \overline{B}) = 0 \quad \text{（互补律的 AND 条件）}\]
+            \[(AB) + (\overline{A} + \overline{B}) = 1 \quad \text{（互补律的 OR 条件）}\]
+            <p>验证条件一：\((AB)(\overline{A} + \overline{B}) = AB\overline{A} + AB\overline{B} = 0 \cdot B + A \cdot 0 = 0\)。✓</p>
+            <p>验证条件二：\((AB) + \overline{A} + \overline{B} = (AB + \overline{A}) + \overline{B} = (A + \overline{A})(B + \overline{A}) + \overline{B} = (B + \overline{A}) + \overline{B} = (B + \overline{B}) + \overline{A} = 1 + \overline{A} = 1\)。✓</p>
+            <p>由互补律的唯一性，\(\overline{AB} = \overline{A} + \overline{B}\)。</p>
+
+            <p><strong>气泡推动（Bubble Pushing）技术：</strong></p>
+            <p>德摩根定律在电路图中的视觉表现就是"气泡推动"。NAND 门（AND + 输出气泡）等价于输入端各加气泡的 OR 门。NOR 门（OR + 输出气泡）等价于输入端各加气泡的 AND 门。具体操作规则：</p>
+            <p>（1）将门的输出端气泡推到所有输入端（或反过来）。</p>
+            <p>（2）同时将门的类型在 AND/OR 之间切换。</p>
+            <p>这种技术使得设计者可以在电路图上直接看出 NAND/NOR 实现的等效逻辑功能，而无需写出布尔表达式。</p>
+
+            <div class="warning-box">
+              ⚠️ <strong>横杠必须覆盖"整个"表达式！</strong>\(\overline{A \cdot B} = \overline{A} + \overline{B}\) 是正确的（横杠覆盖了整个 \(AB\)），但 \(A \cdot \overline{B}\) 绝不等于 \(\overline{A \cdot B}\)——前者是"A AND (NOT B)"，后者是"NOT (A AND B)"，含义完全不同！应用德摩根定律前，务必确认否定号的作用范围。
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>NAND-only 电路设计：</strong>在 CMOS 工艺中，NAND 门的速度和面积特性优于其他门类型。因此，工业界的标准做法是将所有逻辑电路转换为只使用 NAND 门的等价电路。德摩根定律是这种转换的数学基础。例如，要将 \(F = A + B\) 用 NAND 实现：</p>
+            \[A + B = \overline{\overline{A + B}} = \overline{\overline{A} \cdot \overline{B}} = \text{NAND}(\overline{A}, \overline{B})\]
+            <p>先分别取反（各用 1 个 NAND），再用 1 个 NAND 组合，共 3 个 NAND 门。</p>
+            <p><strong>SOP 与 POS 转换：</strong>德摩根定律是在"积之和"（Sum of Products, SOP）与"和之积"（Product of Sums, POS）之间转换的关键工具。给定一个 SOP 表达式，对其取补再用德摩根展开，就得到 POS 形式。这在某些设计场景中（如 PLA 的 OR 平面优化）非常有用。</p>
+            <p><strong>形式验证：</strong>在芯片设计流程中，"形式验证（Formal Verification）"使用数学方法证明两个电路设计在逻辑上等价。德摩根定律是形式验证引擎中最基本的变换规则之一，帮助工具在不同的门级表示之间建立等价关系。</p>
+            <p><strong>编程中的应用：</strong>德摩根定律在软件编程中也很常见。例如，条件判断 <code>!(a &amp;&amp; b)</code> 等价于 <code>(!a || !b)</code>。编译器的优化器经常利用这种等价性来简化条件分支的代码生成。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>将 \(F = (A + B)(C + D)\) 转换为仅使用 NAND 门的实现。</p>
+            <p><strong>✅ 正确解法：</strong></p>
+            <p>第一步：对 \(F\) 取双重否定（不改变值）：</p>
+            \[F = \overline{\overline{(A + B)(C + D)}}\]
+            <p>第二步：对内层取反，用德摩根定律（第一定律，AND 的否定 → OR）：</p>
+            \[\overline{(A + B)(C + D)} = \overline{(A + B)} + \overline{(C + D)}\]
+            <p>第三步：对 \(\overline{A+B}\) 和 \(\overline{C+D}\) 分别用德摩根定律（第二定律，OR 的否定 → AND）：</p>
+            \[\overline{A + B} = \overline{A} \cdot \overline{B}, \quad \overline{C + D} = \overline{C} \cdot \overline{D}\]
+            <p>第四步：代回原式：</p>
+            \[F = \overline{\overline{A} \cdot \overline{B} + \overline{C} \cdot \overline{D}}\]
+            <p>这可以用 NAND 门实现：\(F = \text{NAND}(\text{NAND}(\overline{A}, \overline{B}), \text{NAND}(\overline{C}, \overline{D}))\)，其中 \(\overline{A} = \text{NAND}(A,A)\) 等，共需要 7 个 NAND 门。</p>
+            <p><strong>❌ 常见错误：</strong>不对所有内部项取反。例如，有学生写 \(\overline{(A+B)(C+D)} = (\overline{A} + \overline{B})(\overline{C} + \overline{D})\)——这是错的！必须先"打破"外层的 AND（变为 OR），然后再分别处理内层的 OR（变为 AND）。一步到位是不行的。</p>
+            <div class="warning-box">
+              ⚠️ <strong>德摩根定律只"拆一层"！</strong>遇到嵌套表达式时，必须从外向内（或从内向外）逐层应用。例如 \(\overline{(A+B) \cdot C}\) 先拆外层 AND → \(\overline{A+B} + \overline{C}\)，然后再对 \(\overline{A+B}\) 拆内层 OR → \(\overline{A}\cdot\overline{B} + \overline{C}\)。不能跳步！
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch02-kp3">
+        <svg viewBox="0 0 400 240" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+
+          <!-- Title -->
+          <text x="200" y="16" text-anchor="middle" class="fg" font-size="11" font-weight="bold">气泡推动（Bubble Pushing）：德摩根定律的电路图表现</text>
+
+          <!-- NAND gate = OR with inverted inputs -->
+          <text x="100" y="42" text-anchor="middle" class="accent" font-size="10" font-weight="bold">NAND 门</text>
+          <!-- NAND gate body (D-shape) -->
+          <path d="M 55 55 L 55 105 Q 55 80 85 80 Q 55 80 55 55 Z" class="line" fill="#fef3c7"/>
+          <rect x="55" y="55" width="40" height="50" rx="3" fill="#fef3c7" stroke="#334155" stroke-width="1.5"/>
+          <path d="M 95 55 Q 115 80 95 105" class="line"/>
+          <!-- Output bubble -->
+          <circle cx="118" cy="80" r="5" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <!-- Inputs -->
+          <line x1="30" y1="70" x2="55" y2="70" class="line"/>
+          <line x1="30" y1="90" x2="55" y2="90" class="line"/>
+          <!-- Output -->
+          <line x1="123" y1="80" x2="148" y2="80" class="line"/>
+          <text x="35" y="65" class="fg2" font-size="9">A</text>
+          <text x="35" y="100" class="fg2" font-size="9">B</text>
+          <text x="135" y="74" class="fg2" font-size="9">Y</text>
+          <text x="85" y="120" text-anchor="middle" class="fg2" font-size="8">Y = (AB)'</text>
+
+          <!-- Equals sign -->
+          <text x="185" y="84" text-anchor="middle" class="accent" font-size="18" font-weight="bold">=</text>
+
+          <!-- OR gate with inverted inputs -->
+          <text x="300" y="42" text-anchor="middle" class="accent" font-size="10" font-weight="bold">输入取反的 OR 门</text>
+          <!-- Input bubbles -->
+          <circle cx="237" cy="70" r="5" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <circle cx="237" cy="90" r="5" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <!-- OR gate body -->
+          <path d="M 242 55 Q 252 80 242 105" class="line" fill="none"/>
+          <rect x="250" y="55" width="40" height="50" rx="3" fill="#dbeafe" stroke="#334155" stroke-width="1.5"/>
+          <path d="M 290 55 Q 310 80 290 105" class="line"/>
+          <!-- Inputs -->
+          <line x1="215" y1="70" x2="232" y2="70" class="line"/>
+          <line x1="215" y1="90" x2="232" y2="90" class="line"/>
+          <!-- Output -->
+          <line x1="307" y1="80" x2="340" y2="80" class="line"/>
+          <text x="220" y="65" class="fg2" font-size="9">A</text>
+          <text x="220" y="100" class="fg2" font-size="9">B</text>
+          <text x="330" y="74" class="fg2" font-size="9">Y</text>
+          <text x="265" y="76" text-anchor="middle" class="fg" font-size="10">OR</text>
+          <text x="275" y="120" text-anchor="middle" class="fg2" font-size="8">Y = A' + B'</text>
+
+          <!-- Separator -->
+          <line x1="20" y1="135" x2="380" y2="135" class="line" stroke-dasharray="4,3"/>
+
+          <!-- NOR gate = AND with inverted inputs -->
+          <text x="100" y="155" text-anchor="middle" class="accent" font-size="10" font-weight="bold">NOR 门</text>
+          <!-- NOR gate body -->
+          <path d="M 55 165 Q 65 190 55 215" class="line" fill="none"/>
+          <rect x="60" y="165" width="40" height="50" rx="3" fill="#dbeafe" stroke="#334155" stroke-width="1.5"/>
+          <path d="M 100 165 Q 120 190 100 215" class="line"/>
+          <!-- Output bubble -->
+          <circle cx="118" cy="190" r="5" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <!-- Inputs -->
+          <line x1="30" y1="180" x2="55" y2="180" class="line"/>
+          <line x1="30" y1="200" x2="55" y2="200" class="line"/>
+          <!-- Output -->
+          <line x1="123" y1="190" x2="148" y2="190" class="line"/>
+          <text x="35" y="175" class="fg2" font-size="9">A</text>
+          <text x="35" y="210" class="fg2" font-size="9">B</text>
+          <text x="135" y="184" class="fg2" font-size="9">Y</text>
+          <text x="80" y="186" text-anchor="middle" class="fg" font-size="10">OR</text>
+          <text x="85" y="232" text-anchor="middle" class="fg2" font-size="8">Y = (A+B)'</text>
+
+          <!-- Equals sign -->
+          <text x="185" y="194" text-anchor="middle" class="accent" font-size="18" font-weight="bold">=</text>
+
+          <!-- AND gate with inverted inputs -->
+          <text x="300" y="155" text-anchor="middle" class="accent" font-size="10" font-weight="bold">输入取反的 AND 门</text>
+          <!-- Input bubbles -->
+          <circle cx="237" cy="180" r="5" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <circle cx="237" cy="200" r="5" fill="none" stroke="#334155" stroke-width="1.5"/>
+          <!-- AND gate body -->
+          <rect x="242" y="165" width="40" height="50" rx="3" fill="#fef3c7" stroke="#334155" stroke-width="1.5"/>
+          <path d="M 282 165 Q 302 190 282 215" class="line"/>
+          <!-- Inputs -->
+          <line x1="215" y1="180" x2="232" y2="180" class="line"/>
+          <line x1="215" y1="200" x2="232" y2="200" class="line"/>
+          <!-- Output -->
+          <line x1="300" y1="190" x2="340" y2="190" class="line"/>
+          <text x="220" y="175" class="fg2" font-size="9">A</text>
+          <text x="220" y="210" class="fg2" font-size="9">B</text>
+          <text x="330" y="184" class="fg2" font-size="9">Y</text>
+          <text x="262" y="195" text-anchor="middle" class="fg" font-size="10">AND</text>
+          <text x="275" y="232" text-anchor="middle" class="fg2" font-size="8">Y = A' · B'</text>
+        </svg>
+        <figcaption>图 2-3：德摩根定律的电路等价 — NAND = 输入取反的 OR，NOR = 输入取反的 AND</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">根据德摩根定律，\(\overline{A + B + C}\) 化简为？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '不对。打破横杠时，运算也要改变——OR 应变为 AND，不能保持 OR 不变。')">
+            A. \(\overline{A} + \overline{B} + \overline{C}\)
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！"打破横杠，变换运算"：将 OR 变为 AND，每个变量分别取反。\\(\\overline{A+B+C} = \\overline{A} \\cdot \\overline{B} \\cdot \\overline{C}\\)。')">
+            B. \(\overline{A} \cdot \overline{B} \cdot \overline{C}\)
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '不对。德摩根定律要求每个变量分别取反，不是整体保持不变。')">
+            C. \(\overline{ABC}\)
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '不对。这不符合德摩根定律的任何形式。回忆："打破横杠，变换运算"。')">
+            D. \(A' \\cdot B' + C'\)
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ KP 4 ═══════════ -->
+    <section id="kp4" class="kp-section">
+      <h2 class="kp-title">
+        <span class="kp-number">04</span>无关项（Don't Care Conditions）的利用
+      </h2>
+
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>在现实的数字系统中，并非所有的输入组合都会实际出现。一个典型的例子是<strong>BCD（Binary-Coded Decimal）编码</strong>：用 4 位二进制表示十进制数字 0-9。4 位二进制有 \(2^4 = 16\) 种组合（0000 到 1111），但 BCD 只使用其中的 10 种（0000 到 1001），剩余 6 种组合（1010 到 1111）在正常运行中<strong>永远不会出现</strong>。</p>
+            <p>对于这些永远不会出现的输入组合，对应的输出值是什么？答案是：<strong>我们不在乎！</strong>因为它们不会发生，所以无论输出是 0 还是 1，都不影响电路的正确性。这些输出值被称为<strong>无关项（Don't Care Conditions）</strong>，在真值表中用 \(X\) 或 \(d\) 表示。</p>
+            <p>聪明的设计者可以利用这种灵活性：在卡诺图化简中，将某些 \(X\) 视为 1（纳入分组）来扩大分组面积，从而得到比完全不考虑无关项更简洁的表达式。这是"免费午餐"——不增加任何功能约束，却能减少门数。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>无关项的来源：</strong></p>
+            <p><strong>（1）输入无关项（Input Don't Cares）：</strong>某些输入组合在物理上不可能出现。例如 BCD 编码中的 1010-1111，或者两个互斥的传感器信号不可能同时为高。</p>
+            <p><strong>（2）输出无关项（Output Don't Cares）：</strong>对于某些输入组合，设计者不关心输出的值。例如，一个只在使能信号为高时工作的电路，当使能信号为低时，输出值是什么都无所谓。</p>
+            <p><strong>在真值表和卡诺图中的表示：</strong>无关项在真值表中标记为 \(X\)（或 \(d\) 或 \(\phi\)）。在卡诺图中，将 \(X\) 填入对应的单元格。分组时，设计者可以选择性地将某些 \(X\) 视为 1（纳入分组）或视为 0（忽略），以获得最大的分组面积。</p>
+            <p><strong>关键规则：</strong>对于不同的输出函数，同一个无关项可以被分配不同的值。例如，在 BCD-to-7-segment 解码器中，段 \(a\) 的化简可能将某个 \(X\) 视为 1，而段 \(b\) 的化简将同一个 \(X\) 视为 0。这完全合法，因为那些输入组合本来就不会出现。</p>
+            <p><strong>注意：</strong>\(X\) 不是第三个逻辑值！布尔代数仍然是二值的。\(X\) 只是表示"设计者可以自由选择 0 或 1 作为该单元格的值"。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>BCD-to-7-Segment 解码器示例：段 \(a\) 的化简</strong></p>
+            <p>七段显示器有 7 个段（a-g），每个段由一个独立的布尔函数控制。以段 \(a\)（显示器的顶部横段）为例：</p>
+            <p>段 \(a\) 在显示数字 0, 2, 3, 5, 6, 7, 8, 9 时应点亮（输出 1），显示数字 1, 4 时应熄灭（输出 0）。</p>
+            <p><strong>真值表（输入为 BCD 编码 \(A_3 A_2 A_1 A_0\)）：</strong></p>
+            <p>0 (0000) → 1, 1 (0001) → 0, 2 (0010) → 1, 3 (0011) → 1, 4 (0100) → 0, 5 (0101) → 1, 6 (0110) → 1, 7 (0111) → 1, 8 (1000) → 1, 9 (1001) → 1。</p>
+            <p>10-15 (1010-1111) → X（无关项，共 6 个）。</p>
+            <p>用最小项表示：\(a = \sum m(0,2,3,5,6,7,8,9) + \sum d(10,11,12,13,14,15)\)。</p>
+
+            <p><strong>不使用无关项的化简：</strong>仅对值为 1 的单元格分组。在 4 变量卡诺图中分组后可能得到较多乘积项，例如 \(a = A_3 + A_1 A_0' + A_2 A_1 + A_2' A_0'\)（需要验证，此处为示意）。</p>
+
+            <p><strong>使用无关项的化简：</strong>将无关项的 X 选择性地视为 1，以扩大分组。例如，将 \(m_{10}, m_{11}, m_{12}, m_{13}, m_{14}, m_{15}\) 中的部分视为 1 后，可以将原来的小分组合并为更大的分组。最终可能简化为 \(a = A_3 + A_1 + A_2 A_0 + A_2' A_0'\)（需要更少的门和更少的文字数）。</p>
+
+            <p><strong>对比效果：</strong></p>
+            <p>不用无关项：可能需要 4-5 个乘积项，每个包含 2-3 个文字。</p>
+            <p>利用无关项：可能简化到 3-4 个乘积项，某些项只有 1 个文字（如 \(A_3\)）。</p>
+            <p>文字数的减少直接对应门的输入数减少、面积降低、延迟缩短。在 7 个段的函数都利用无关项后，整个解码器的总门数可能减少 30% 以上。</p>
+
+            <div class="warning-box">
+              ⚠️ <strong>无关项是"可选的 1"，不是"必须的 1"！</strong>在卡诺图中，你不需要覆盖所有的 X——只将那些能帮助扩大分组的 X 纳入即可。同时，不要将 X 作为独立的分组起点（除非它恰好能帮助覆盖某个已有的 1）。目标仍然是覆盖所有的 1，X 只是可选的辅助手段。
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>BCD 算术电路：</strong>在 BCD 加法器、减法器和乘法器中，中间结果和最终结果都限制在 BCD 范围内。超出 0-9 的中间值需要校正，而校正电路的设计大量利用无关项来简化逻辑。</p>
+            <p><strong>CPU 指令解码器：</strong>现代 CPU 的指令集通常不会使用所有可能的操作码（Opcode）组合。例如，一个 8 位操作码有 256 种可能，但 CPU 可能只定义了 200 条指令。未定义的 56 种操作码对应的解码输出就是无关项。指令解码器利用这些无关项来简化解码逻辑，减少关键路径延迟，提高时钟频率。</p>
+            <p><strong>存储器地址解码：</strong>在嵌入式系统中，内存映射（Memory Map）通常不会使用全部地址空间。未使用的地址范围对应的片选信号输出是无关项，地址解码器可以利用它们来简化逻辑。例如，一个 16 位地址空间中只使用了 0x0000-0x3FFF 和 0x8000-0xBFFF 两个区域，其余地址是无关项。</p>
+            <p><strong>EDA 工具中的应用：</strong>现代 EDA 工具（如 ABC——加州大学伯克利分校开发的逻辑综合工具）在优化过程中会自动识别和利用无关项。设计者在 HDL 代码中通过 <code>default: x</code>（SystemVerilog）或类似语法显式声明无关项，帮助工具实现更积极的优化。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><strong>例题：</strong>设计 BCD-to-7-segment 解码器的段 \(a\) 输出。输入为 4 位 BCD 编码 \(A_3 A_2 A_1 A_0\)，段 \(a\) 在显示 0, 2, 3, 5, 6, 7, 8, 9 时点亮。利用无关项进行 K-map 化简。</p>
+            <p><strong>✅ 正确分析：</strong></p>
+            <p>在 4 变量卡诺图中填入：1（位置 0,2,3,5,6,7,8,9），0（位置 1,4），X（位置 10-15）。</p>
+            <p>利用无关项扩大分组：将 \(m_{10}-m_{15}\) 中合适的 X 纳入分组。例如，\(m_8, m_9, m_{10}, m_{11}\) 可以构成一个 4 单元格分组（包含 2 个 X），对应乘积项 \(A_3\)（消去了 \(A_2, A_1, A_0\) 三个变量！）。如果不用无关项，\(m_8\) 和 \(m_9\) 只能组成 2 单元格分组，对应 \(A_3 \overline{A_2}\)——多了一个文字。</p>
+            <p>最终结果：\(a = A_3 + A_1 + A_2 \oplus A_0\)（其中 \(\oplus\) 是 XOR，等价于 \(A_2 A_0 + A_2' A_0'\)），或用纯 SOP 表示为 \(a = A_3 + A_1 + A_2 A_0 + \overline{A_2}\;\overline{A_0}\)。</p>
+            <p><strong>❌ 常见错误 1：将 X 全部视为 0 或全部视为 1。</strong>应该根据每个分组的需要，灵活选择哪些 X 视为 1。不同的 X 在不同的分组中可能有不同的赋值。</p>
+            <p><strong>❌ 常见错误 2：在多个输出函数中对同一 X 使用相同的值。</strong>段 \(a\) 和段 \(b\) 是独立的函数，可以对同一个无关项赋不同的值。不要因为在段 \(a\) 中将 \(m_{10}\) 视为 1，就在段 \(b\) 中也必须将 \(m_{10}\) 视为 1。</p>
+            <div class="warning-box">
+              ⚠️ <strong>不同输出函数的无关项可以独立赋值！</strong>每个输出函数独立优化，独立选择如何利用无关项。这是因为无关项对应的输入组合在实际中不会发生，所以每个输出函数可以根据自己的化简需要，为同一个 X 选择不同的值。这种灵活性是无关项优化的核心力量。
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s2-ch02-kp4">
+        <svg viewBox="0 0 400 280" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .fg{fill:#334155} .fg2{fill:#64748b}
+            .line{stroke:#334155;fill:none;stroke-width:1.5}
+            .accent{fill:#f59e0b}
+            .accentStroke{stroke:#f59e0b;fill:none;stroke-width:2}
+          </style>
+          <!-- Title -->
+          <text x="200" y="16" text-anchor="middle" class="fg" font-size="11" font-weight="bold">K-map 中无关项 (X) 的利用</text>
+
+          <!-- Column/Row labels -->
+          <text x="120" y="38" text-anchor="middle" class="accent" font-size="10" font-weight="bold">A₁A₀</text>
+          <text x="55" y="72" text-anchor="end" class="accent" font-size="10" font-weight="bold">A₃A₂</text>
+          <text x="100" y="52" text-anchor="middle" class="fg2" font-size="9">00</text>
+          <text x="150" y="52" text-anchor="middle" class="fg2" font-size="9">01</text>
+          <text x="200" y="52" text-anchor="middle" class="fg2" font-size="9">11</text>
+          <text x="250" y="52" text-anchor="middle" class="fg2" font-size="9">10</text>
+          <text x="68" y="82" text-anchor="middle" class="fg2" font-size="9">00</text>
+          <text x="68" y="122" text-anchor="middle" class="fg2" font-size="9">01</text>
+          <text x="68" y="162" text-anchor="middle" class="fg2" font-size="9">11</text>
+          <text x="68" y="202" text-anchor="middle" class="fg2" font-size="9">10</text>
+
+          <!-- Grid -->
+          <rect x="76" y="58" width="200" height="160" fill="none" class="line"/>
+          <line x1="126" y1="58" x2="126" y2="218" class="line"/>
+          <line x1="176" y1="58" x2="176" y2="218" class="line"/>
+          <line x1="226" y1="58" x2="226" y2="218" class="line"/>
+          <line x1="76" y1="98" x2="276" y2="98" class="line"/>
+          <line x1="76" y1="138" x2="276" y2="138" class="line"/>
+          <line x1="76" y1="178" x2="276" y2="178" class="line"/>
+
+          <!-- Row AB=00 (digits 0-3): seg a: 0→1, 1→0, 3→1, 2→1 -->
+          <text x="100" y="82" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="150" y="82" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="200" y="82" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="250" y="82" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <!-- Row AB=01 (digits 4-7): 4→0, 5→1, 7→1, 6→1 -->
+          <text x="100" y="122" text-anchor="middle" class="fg2" font-size="13">0</text>
+          <text x="150" y="122" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="200" y="122" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="250" y="122" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <!-- Row AB=11 (digits 12-15): all X -->
+          <text x="100" y="162" text-anchor="middle" font-size="13" fill="#ef4444" font-weight="bold">X</text>
+          <text x="150" y="162" text-anchor="middle" font-size="13" fill="#ef4444" font-weight="bold">X</text>
+          <text x="200" y="162" text-anchor="middle" font-size="13" fill="#ef4444" font-weight="bold">X</text>
+          <text x="250" y="162" text-anchor="middle" font-size="13" fill="#ef4444" font-weight="bold">X</text>
+          <!-- Row AB=10 (digits 8-11): 8→1, 9→1, 11→X, 10→X -->
+          <text x="100" y="202" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="150" y="202" text-anchor="middle" class="fg" font-size="13" font-weight="bold">1</text>
+          <text x="200" y="202" text-anchor="middle" font-size="13" fill="#ef4444" font-weight="bold">X</text>
+          <text x="250" y="202" text-anchor="middle" font-size="13" fill="#ef4444" font-weight="bold">X</text>
+
+          <!-- Group highlight: A3 group (row AB=10 + AB=11, all 8 cells, but let's show the A3 group) -->
+          <rect x="78" y="140" width="196" height="76" rx="8" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-dasharray="6,3"/>
+          <text x="310" y="175" font-size="9" fill="#3b82f6" font-weight="bold">A₃ (8 cells)</text>
+
+          <!-- Group highlight: A1 group (columns 01 and 11) -->
+          <rect x="128" y="60" width="96" height="76" rx="8" fill="none" stroke="#10b981" stroke-width="2" stroke-dasharray="5,3"/>
+          <text x="310" y="95" font-size="9" fill="#10b981" font-weight="bold">A₁ (with X)</text>
+
+          <!-- Legend -->
+          <text x="100" y="242" text-anchor="middle" class="fg" font-size="10" font-weight="bold">1</text>
+          <text x="115" y="242" class="fg2" font-size="9">= 确定为 1</text>
+          <text x="190" y="242" text-anchor="middle" font-size="10" fill="#ef4444" font-weight="bold">X</text>
+          <text x="205" y="242" class="fg2" font-size="9">= 无关项</text>
+          <text x="300" y="242" class="fg2" font-size="9">虚线 = 利用 X 的扩大分组</text>
+
+          <text x="200" y="268" text-anchor="middle" class="fg" font-size="10">纳入无关项后，乘积项 A₃ 只含 1 个变量（原本需要 2-3 个）</text>
+        </svg>
+        <figcaption>图 2-4：BCD 段 a 卡诺图 — 无关项 (X) 被选择性纳入分组以扩大覆盖面积</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在 BCD 编码（4 位二进制表示十进制 0-9）中，存在多少个无关项？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '不对。4 位 = 16 种组合，BCD 使用 10 种（0-9），所以无关项不是 4 个。')">
+            A. 4 个
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！4 位二进制有 16 种组合，BCD 只用 0-9 共 10 种，剩余 10-15 共 6 种是无关项。')">
+            B. 6 个
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '不对。16 - 10 = 6，不是 8。请重新计算 BCD 未使用的编码数量。')">
+            C. 8 个
+          </button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '不对。BCD 编码使用了 10 种组合，所以无关项应该是 16 - 10 = 6。')">
+            D. 10 个
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ═══════════ EXERCISES ═══════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <!-- ═══════════ CHAPTER NAV ═══════════ -->
+    <nav class="chapter-nav">
+      <a href="ch01.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch03.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>

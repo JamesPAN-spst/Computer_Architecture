@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.4 显示输出（Display Output） — 看见的世界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      { id: "s7-ch04-q1", question: "HDMI 2.1 的最大理论带宽是多少？", options: ["18 Gbps","36 Gbps","48 Gbps","80 Gbps"], answer: 2, explanation: "HDMI 2.1 的最大理论带宽为 48 Gbps。18 Gbps 是 HDMI 2.0 的带宽，80 Gbps 是 DisplayPort 2.0 的带宽。" },
+      { id: "s7-ch04-q2", question: "4K@120Hz@10bit RGB 信号所需的原始带宽约为多少？", options: ["14.93 Gbps","23.89 Gbps","29.86 Gbps","42.67 Gbps"], answer: 2, explanation: "3840×2160×120×10×3 = 29,859,840,000 bps ≈ 29.86 Gbps。这需要 HDMI 2.1 或 DP 1.4（配合 DSC 压缩）来传输。" },
+      { id: "s7-ch04-q3", question: "开启垂直同步（V-Sync）后，如果 GPU 渲染一帧需要 20ms，显示器刷新率为 60Hz，实际帧率会降到多少？", options: ["50 FPS","45 FPS","30 FPS","24 FPS"], answer: 2, explanation: "V-Sync 要求 GPU 在 VBI 时交换缓冲区。60Hz 的帧周期为 16.67ms，20ms 超过一个周期，必须等到下一个 VBI（33.33ms），因此帧率降至 30 FPS。" },
+      { id: "s7-ch04-q4", question: "画面撕裂（Tearing）发生的根本原因是什么？", options: ["GPU 渲染速度太慢","前缓冲区在扫描过程中被交换","显示器分辨率过高","HDMI 线缆质量不佳"], answer: 1, explanation: "画面撕裂的根本原因是前缓冲区在显示器扫描过程中（非 VBI 期间）被交换，导致屏幕上半部分和下半部分显示不同帧的内容。" },
+      { id: "s7-ch04-q5", question: "FreeSync 技术基于哪个 VESA 开放标准？", options: ["TMDS","DSC","Adaptive-Sync","HDCP"], answer: 2, explanation: "AMD FreeSync 基于 VESA Adaptive-Sync 开放标准实现，该标准已被纳入 DisplayPort 规范。相比之下 NVIDIA G-Sync 最初需要专有硬件模块。" },
+      { id: "s7-ch04-q6", question: "VRR 范围为 48-144Hz 的显示器，当 GPU 输出 30 FPS 时，LFC 机制会怎么做？", options: ["以 30Hz 刷新显示器","将帧重复显示，刷新率提升至 60Hz","丢弃帧以适配 48Hz 下限","关闭 VRR 回退到固定刷新率"], answer: 1, explanation: "LFC（Low Framerate Compensation）在帧率低于 VRR 最小值时，通过帧重复将刷新率翻倍。30 FPS×2=60Hz，落入 48-144Hz 范围内。LFC 条件：max_refresh ≥ 2×min_refresh（144 ≥ 96 ✓）。" },
+      { id: "s7-ch04-q7", question: "HDR10 标准使用的传输函数（Transfer Function）是什么？", options: ["sRGB Gamma 2.2","HLG（Hybrid Log-Gamma）","PQ（Perceptual Quantizer, ST 2084）","线性光"], answer: 2, explanation: "HDR10 使用 SMPTE ST 2084 定义的 PQ（Perceptual Quantizer）传输函数，它基于人眼的对比度感知模型（Barten 模型），将 0-10000 nits 的亮度映射到 10-bit 码值。HLG 主要用于广播电视。" },
+      { id: "s7-ch04-q8", question: "8-bit 色深与 10-bit 色深在每通道可表示的亮度级别数量差异为多少？", options: ["2 倍（512 vs 256）","4 倍（1024 vs 256）","8 倍（2048 vs 256）","16 倍（4096 vs 256）"], answer: 1, explanation: "8-bit 每通道 2^8=256 级，10-bit 每通道 2^10=1024 级。1024/256=4 倍。更多级别意味着更细腻的亮度过渡，减少色带（Banding）现象。" }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-7" data-module="ch04" style="--domain-color: var(--c-gpu-graphics);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 7</span><a href="index.html" class="module-name">看见的世界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.4 / 5</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · HDMI/DisplayPort 信号链路</a></li>
+      <li><a href="#kp2">02 · V-Sync 与画面撕裂</a></li>
+      <li><a href="#kp3">03 · G-Sync/FreeSync 自适应刷新</a></li>
+      <li><a href="#kp4">04 · HDR 与色彩空间</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 4</p>
+      <h1>显示输出（Display Output）</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · HDMI / DisplayPort 信号链路</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>GPU 在显存中渲染好了一帧漂亮的画面——但如何让这些数字信号<strong>物理地</strong>传输到显示器并点亮像素？从帧缓冲区到你的眼睛之间，存在着一条复杂的信号链路。</p>
+            <p>随着分辨率从 1080p 跃升到 4K 乃至 8K，刷新率从 60Hz 提升到 144Hz、240Hz，<strong>传输带宽</strong>成为瓶颈。理解 HDMI 和 DisplayPort 的信号传输原理，是理解"为什么换了线缆就能多出 30 帧"的关键。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① HDMI 信号编码——TMDS</strong></p>
+            <p>HDMI 使用 <strong>TMDS（Transition-Minimized Differential Signaling）</strong>差分信号传输：将 8 位像素数据编码为 10 位差分信号（8b/10b），通过 3 条数据通道（R/G/B）和 1 条时钟通道传输。差分信号抗干扰能力强，适合长距离传输。</p>
+            <p><strong>② DisplayPort 信号编码——微包架构</strong></p>
+            <p>DisplayPort 采用<strong>微包（Micro-Packet）</strong>架构：数据被封装为小型数据包，通过 1-4 条 lane 传输。使用 8b/10b（DP 1.x）或 128b/132b（DP 2.0）编码。微包架构使 DP 更灵活——可以在同一链路上传输视频、音频和辅助数据。</p>
+            <p><strong>③ 带宽对比</strong></p>
+            <p>HDMI 2.0：18 Gbps → HDMI 2.1：48 Gbps（使用 FRL 编码替代 TMDS）。DP 1.4：32.4 Gbps → DP 2.0：80 Gbps（UHBR 模式）。</p>
+            <p><strong>④ 内容保护与压缩</strong></p>
+            <p><strong>HDCP（High-bandwidth Digital Content Protection）</strong>：加密传输，防止未授权复制。<strong>DSC（Display Stream Compression）</strong>：视觉无损压缩（约 3:1 压缩比），使 8K@60Hz 信号可通过现有接口传输。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>显示信号所需的<strong>原始带宽</strong>计算公式：</p>
+            \[
+            BW_{\text{raw}} = W \times H \times f_{\text{refresh}} \times D \times 3
+            \]
+            <p>其中 \(W\) 为水平分辨率，\(H\) 为垂直分辨率，\(f_{\text{refresh}}\) 为刷新率，\(D\) 为每通道色深（bit），3 表示 RGB 三通道。</p>
+            <p><strong>示例：4K@120Hz@10bit</strong></p>
+            \[
+            BW = 3840 \times 2160 \times 120 \times 10 \times 3 = 29{,}859{,}840{,}000 \text{ bps} \approx 29.86 \text{ Gbps}
+            \]
+            <p>考虑 blanking 开销（约 6-8%），实际所需约 31-32 Gbps。HDMI 2.0（18 Gbps）不够，HDMI 2.1（48 Gbps）或 DP 1.4+DSC 可以胜任。</p>
+            <p><strong>8K@60Hz@10bit</strong></p>
+            \[
+            BW = 7680 \times 4320 \times 60 \times 10 \times 3 \approx 59.72 \text{ Gbps}
+            \]
+            <p>即使 HDMI 2.1（48 Gbps）也不够——必须启用 <strong>DSC 压缩</strong>（3:1 压缩后约 19.9 Gbps）才能传输。</p>
+            <div class="warning-box">⚠️ HDMI 2.1 线缆质量参差不齐——市面上许多声称"HDMI 2.1"的线缆实际无法稳定传输 48 Gbps。只有通过 <strong>"Ultra High Speed"</strong> 认证的线缆才能保证 4K@120Hz 信号完整传输。购买时务必认准认证标志。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>DP 菊花链（MST, Multi-Stream Transport）</strong>：DisplayPort 支持通过一条线缆串联多台显示器。源设备的总带宽在多台显示器之间分配。例如 DP 1.4 可以菊花链 2 台 4K@60Hz 显示器。</p>
+            <p><strong>USB-C Alt Mode</strong>：USB-C 接口可以通过 Alt Mode 直接传输 DisplayPort 信号。现代笔记本电脑广泛使用 USB-C/Thunderbolt 接口输出视频，一根线缆同时传输视频、数据和供电。</p>
+            <p><strong>链路训练（Link Training）</strong>：DisplayPort 连接建立时，源设备和显示器会进行自动协商——逐步提高 lane 速率直到找到双方都支持的最高稳定速率。如果线缆质量不佳，链路训练会自动降低速率以保证稳定性。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一台显示器的规格为 2560×1440@165Hz@8bit RGB。计算所需原始带宽，并判断 HDMI 2.0（18 Gbps）和 DP 1.2（21.6 Gbps）是否支持。</p>
+            <p><em>解答：</em></p>
+            \[
+            BW = 2560 \times 1440 \times 165 \times 8 \times 3 = 14{,}631{,}936{,}000 \text{ bps} \approx 14.63 \text{ Gbps}
+            \]
+            <p>加上约 7% blanking 开销：\(14.63 \times 1.07 \approx 15.65 \text{ Gbps}\)。</p>
+            <p>HDMI 2.0（18 Gbps）✅ 可以支持；DP 1.2（21.6 Gbps）✅ 可以支持。</p>
+            <p>❌ <strong>常见错误：</strong>忽略 blanking 开销，直接使用原始带宽与接口上限比较，可能在边界情况出错。</p>
+            <p>✅ <strong>正确做法：</strong>实际带宽需乘以 1.06-1.08 的 blanking 系数。对于接近接口上限的规格，必须留有余量。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch04-kp1">
+        <svg viewBox="0 0 420 230" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}.arrow{stroke:#334155;fill:#334155;stroke-width:1.5}</style>
+          <text class="fg" x="210" y="18" text-anchor="middle" font-size="12" font-weight="bold">显示信号链路：GPU → 线缆 → 显示器</text>
+          <!-- GPU -->
+          <rect class="box" x="10" y="35" width="90" height="50"/>
+          <text class="fg" x="55" y="58" text-anchor="middle" font-size="11" font-weight="bold">GPU</text>
+          <text class="fg2" x="55" y="72" text-anchor="middle" font-size="8">帧缓冲区</text>
+          <!-- Arrow -->
+          <line x1="100" y1="60" x2="130" y2="60" class="line"/>
+          <polygon points="128,56 136,60 128,64" class="arrow"/>
+          <!-- Encoder -->
+          <rect class="box" x="138" y="35" width="80" height="50"/>
+          <text class="fg" x="178" y="55" text-anchor="middle" font-size="10" font-weight="bold">编码器</text>
+          <text class="fg2" x="178" y="68" text-anchor="middle" font-size="8">TMDS / FRL</text>
+          <text class="fg2" x="178" y="78" text-anchor="middle" font-size="8">μ-Packet</text>
+          <!-- Arrow -->
+          <line x1="218" y1="60" x2="248" y2="60" class="line"/>
+          <polygon points="246,56 254,60 246,64" class="arrow"/>
+          <!-- Cable -->
+          <rect x="256" y="40" width="60" height="40" fill="#3b82f6" opacity="0.12" rx="4"/>
+          <text class="accent" x="286" y="58" text-anchor="middle" font-size="9" font-weight="bold">线缆</text>
+          <text class="fg2" x="286" y="70" text-anchor="middle" font-size="7">HDMI/DP</text>
+          <!-- Arrow -->
+          <line x1="316" y1="60" x2="340" y2="60" class="line"/>
+          <polygon points="338,56 346,60 338,64" class="arrow"/>
+          <!-- Monitor -->
+          <rect class="box" x="348" y="35" width="65" height="50"/>
+          <text class="fg" x="380" y="58" text-anchor="middle" font-size="10" font-weight="bold">显示器</text>
+          <text class="fg2" x="380" y="72" text-anchor="middle" font-size="8">解码+扫描</text>
+          <!-- Bandwidth comparison -->
+          <text class="fg" x="210" y="110" text-anchor="middle" font-size="10" font-weight="bold">接口带宽对比</text>
+          <!-- HDMI bars -->
+          <text class="fg2" x="98" y="130" text-anchor="end" font-size="8">HDMI 2.0</text>
+          <rect x="102" y="122" width="68" height="12" fill="#f59e0b" opacity="0.4" rx="2"/>
+          <text class="fg2" x="174" y="132" font-size="7">18 Gbps</text>
+          <text class="fg2" x="98" y="148" text-anchor="end" font-size="8">HDMI 2.1</text>
+          <rect x="102" y="140" width="180" height="12" fill="#f59e0b" opacity="0.6" rx="2"/>
+          <text class="fg2" x="286" y="150" font-size="7">48 Gbps</text>
+          <text class="fg2" x="98" y="166" text-anchor="end" font-size="8">DP 1.4</text>
+          <rect x="102" y="158" width="122" height="12" fill="#3b82f6" opacity="0.4" rx="2"/>
+          <text class="fg2" x="228" y="168" font-size="7">32.4 Gbps</text>
+          <text class="fg2" x="98" y="184" text-anchor="end" font-size="8">DP 2.0</text>
+          <rect x="102" y="176" width="300" height="12" fill="#3b82f6" opacity="0.6" rx="2"/>
+          <text class="fg2" x="406" y="186" font-size="7">80 Gbps</text>
+          <!-- Demand line -->
+          <line x1="214" y1="120" x2="214" y2="192" stroke="#ef4444" stroke-width="1" stroke-dasharray="3,2"/>
+          <text style="fill:#ef4444" x="214" y="206" text-anchor="middle" font-size="7">4K@120Hz@10bit ≈ 29.86 Gbps</text>
+          <text class="fg2" x="210" y="225" text-anchor="middle" font-size="9" font-style="italic">红色虚线标示 4K@120Hz@10bit 的带宽需求</text>
+        </svg>
+        <figcaption>图 4-1 显示信号链路与各接口带宽对比</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">传输 8K@60Hz@10bit RGB 信号（约 59.72 Gbps）时，以下哪种方案可行？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'HDMI 2.1 最大 48 Gbps，无法直接传输约 60 Gbps 的原始信号。')">A. HDMI 2.1 无压缩</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！DSC 约 3:1 压缩后约 20 Gbps，HDMI 2.1（48 Gbps）完全够用。')">B. HDMI 2.1 + DSC 压缩</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'DP 1.4 只有 32.4 Gbps，即使有 DSC 也很勉强。原始信号不可能。')">C. DP 1.4 无压缩</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'HDMI 2.0 只有 18 Gbps，远远不够传输 8K 信号。')">D. HDMI 2.0 + DSC</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 垂直同步（V-Sync）与撕裂（Tearing）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>显示器的扫描方式是固定的——电子束（或 LCD 的扫描驱动）从屏幕<strong>左上角到右下角</strong>逐行刷新，以固定频率重复（如 60Hz 即每秒 60 次）。但 GPU 渲染帧的速度并不与显示器同步。</p>
+            <p>如果 GPU 在显示器扫描到一半时更新了帧缓冲区，屏幕上半部分显示旧帧、下半部分显示新帧——这就是<strong>画面撕裂（Tearing）</strong>。V-Sync 是最经典的解决方案，但它带来了新的问题。理解这些权衡，是理解现代显示技术的基础。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① 光栅扫描（Raster Scan）</strong></p>
+            <p>显示器从左到右扫描一行像素，到达行尾后回到下一行开头（<strong>水平消隐 HBI</strong>）。扫描完所有行后回到左上角（<strong>垂直消隐 VBI</strong>）。VBI 期间屏幕不显示任何内容——这是安全交换帧缓冲区的时间窗口。</p>
+            <p><strong>② 画面撕裂的原理</strong></p>
+            <p>GPU 渲染完成后立即将新帧写入前缓冲区（Front Buffer）。如果此时显示器正在扫描过程中，扫描线上方显示旧帧、下方显示新帧，产生一条可见的<strong>撕裂线</strong>。</p>
+            <p><strong>③ V-Sync 的原理</strong></p>
+            <p>垂直同步（V-Sync）强制 GPU 只在 <strong>VBI 期间</strong>交换缓冲区。GPU 渲染完成后等待下一个 VBI 信号，确保显示器始终扫描完整帧，消除撕裂。</p>
+            <p><strong>④ 双缓冲 vs 三缓冲</strong></p>
+            <p><strong>双缓冲（Double Buffering）</strong>：前缓冲区 + 后缓冲区。GPU 渲染到后缓冲区，VBI 时交换。<strong>三缓冲（Triple Buffering）</strong>：增加第二个后缓冲区，GPU 可以立即开始渲染下一帧而不必等待 VBI，减少帧率损失。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>V-Sync 帧时序分析：</strong></p>
+            <p>设显示器刷新率为 \(f_{\text{refresh}}\)，帧周期为：</p>
+            \[
+            T_{\text{frame}} = \frac{1}{f_{\text{refresh}}}
+            \]
+            <p>60Hz 时 \(T_{\text{frame}} = 16.67\text{ms}\)，144Hz 时 \(T_{\text{frame}} = 6.94\text{ms}\)。</p>
+            <p><strong>GPU 渲染时间与实际帧率的关系（V-Sync ON，双缓冲）：</strong></p>
+            <p>GPU 必须在 VBI 窗口交换缓冲区。如果 GPU 渲染时间 \(T_{\text{gpu}}\) 超过一个帧周期，则必须等到下一个 VBI：</p>
+            \[
+            \text{实际帧率} = \frac{f_{\text{refresh}}}{\lceil T_{\text{gpu}} / T_{\text{frame}} \rceil}
+            \]
+            <p><strong>示例（60Hz）：</strong></p>
+            <p>\(T_{\text{gpu}} = 12\text{ms} \lt 16.67\text{ms}\) → 60 FPS ✓</p>
+            <p>\(T_{\text{gpu}} = 20\text{ms}\)，\(\lceil 20/16.67 \rceil = 2\) → 帧率 = 60/2 = <strong>30 FPS</strong> ✗（断崖式下降！）</p>
+            <p><strong>V-Sync 输入延迟</strong>：最坏情况下 GPU 渲染完成后需等待近一个完整帧周期才能显示，额外输入延迟最高达 \(T_{\text{frame}}\)（60Hz 时为 16.67ms）。</p>
+            <div class="warning-box">⚠️ V-Sync 的两难困境：<strong>关闭 V-Sync</strong> = 画面撕裂；<strong>开启 V-Sync</strong> = 输入延迟增加 + 帧率断崖式下降（从 60 直接跳到 30 FPS）。这两种方案都不理想——这正是 Adaptive Sync 技术诞生的动力。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>三缓冲（Triple Buffering）</strong>：增加一个后缓冲区后，GPU 无需等待 VBI 就能开始渲染下一帧。当 VBI 到来时，交换最新完成的帧。这减少了帧率断崖，但增加了 1 帧延迟（GPU 领先显示器 1-2 帧）。</p>
+            <p><strong>Fast Sync（NVIDIA）</strong>：让 GPU 自由渲染（不等待 VBI），但只在 VBI 时显示最新完成的帧，丢弃中间帧。降低输入延迟同时消除撕裂，代价是部分渲染算力浪费。</p>
+            <p><strong>Vulkan 呈现模式</strong>：<code>VK_PRESENT_MODE_FIFO_KHR</code>（等同 V-Sync）、<code>VK_PRESENT_MODE_MAILBOX_KHR</code>（类似三缓冲，丢弃旧帧保留最新帧）、<code>VK_PRESENT_MODE_IMMEDIATE_KHR</code>（无 V-Sync，可能撕裂）。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>显示器刷新率为 144Hz，开启 V-Sync（双缓冲）。计算 GPU 渲染时间分别为 5ms、8ms、12ms 时的实际帧率和最大额外输入延迟。</p>
+            <p><em>解答：</em>\(T_{\text{frame}} = 1/144 \approx 6.94\text{ms}\)</p>
+            <p>\(T_{\text{gpu}} = 5\text{ms}\)：\(\lceil 5/6.94 \rceil = 1\) → <strong>144 FPS</strong>，最大延迟 \(\approx 6.94 - 5 = 1.94\text{ms}\)</p>
+            <p>\(T_{\text{gpu}} = 8\text{ms}\)：\(\lceil 8/6.94 \rceil = 2\) → <strong>72 FPS</strong>，最大延迟 \(\approx 2 \times 6.94 - 8 = 5.88\text{ms}\)</p>
+            <p>\(T_{\text{gpu}} = 12\text{ms}\)：\(\lceil 12/6.94 \rceil = 2\) → <strong>72 FPS</strong>，最大延迟 \(\approx 13.88 - 12 = 1.88\text{ms}\)</p>
+            <p>❌ <strong>常见错误：</strong>认为帧率会平滑下降（如 144→120→100…）——实际上 V-Sync 帧率只能是刷新率的整数分之一：144、72、48、36…</p>
+            <p>✅ <strong>正确理解：</strong>V-Sync 帧率 = \(f_{\text{refresh}} / n\)，其中 \(n = \lceil T_{\text{gpu}}/T_{\text{frame}} \rceil\)，产生阶梯式下降。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch04-kp2">
+        <svg viewBox="0 0 420 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}.arrow{stroke:#334155;fill:#334155;stroke-width:1.5}</style>
+          <text class="fg" x="210" y="16" text-anchor="middle" font-size="11" font-weight="bold">V-Sync 关 vs 开：画面撕裂与帧率阶梯</text>
+          <!-- V-Sync OFF - Tearing -->
+          <text class="fg" x="105" y="36" text-anchor="middle" font-size="9" font-weight="bold">V-Sync OFF（撕裂）</text>
+          <!-- Monitor frame -->
+          <rect x="30" y="42" width="150" height="90" fill="#f1f5f9" stroke="#334155" stroke-width="1" rx="4"/>
+          <!-- Scan region - old frame -->
+          <rect x="30" y="42" width="150" height="40" fill="#3b82f6" opacity="0.15" rx="4"/>
+          <text class="fg2" x="105" y="66" text-anchor="middle" font-size="8">帧 N（旧帧上半）</text>
+          <!-- Tear line -->
+          <line x1="30" y1="82" x2="180" y2="82" stroke="#ef4444" stroke-width="2" stroke-dasharray="4,2"/>
+          <text style="fill:#ef4444" x="105" y="78" text-anchor="middle" font-size="7" font-weight="bold">← 撕裂线 →</text>
+          <!-- New frame bottom -->
+          <rect x="30" y="82" width="150" height="50" fill="#22c55e" opacity="0.15"/>
+          <text class="fg2" x="105" y="112" text-anchor="middle" font-size="8">帧 N+1（新帧下半）</text>
+          <!-- V-Sync ON - Stutter -->
+          <text class="fg" x="315" y="36" text-anchor="middle" font-size="9" font-weight="bold">V-Sync ON（帧率阶梯）</text>
+          <!-- FPS staircase chart -->
+          <line x1="245" y1="130" x2="405" y2="130" class="line"/>
+          <line x1="245" y1="130" x2="245" y2="45" class="line"/>
+          <text class="fg2" x="242" y="50" text-anchor="end" font-size="7">FPS</text>
+          <text class="fg2" x="325" y="142" text-anchor="middle" font-size="7">GPU 渲染时间 →</text>
+          <!-- 60 FPS step -->
+          <line x1="245" y1="55" x2="300" y2="55" stroke="#3b82f6" stroke-width="2"/>
+          <text class="accent" x="238" y="58" text-anchor="end" font-size="7">60</text>
+          <!-- Drop to 30 -->
+          <line x1="300" y1="55" x2="300" y2="92" stroke="#3b82f6" stroke-width="2" stroke-dasharray="2,2"/>
+          <line x1="300" y1="92" x2="355" y2="92" stroke="#3b82f6" stroke-width="2"/>
+          <text class="accent" x="238" y="95" text-anchor="end" font-size="7">30</text>
+          <!-- Drop to 20 -->
+          <line x1="355" y1="92" x2="355" y2="110" stroke="#3b82f6" stroke-width="2" stroke-dasharray="2,2"/>
+          <line x1="355" y1="110" x2="400" y2="110" stroke="#3b82f6" stroke-width="2"/>
+          <text class="accent" x="238" y="113" text-anchor="end" font-size="7">20</text>
+          <!-- Time marks -->
+          <text class="fg2" x="272" y="138" text-anchor="middle" font-size="6">≤16.7ms</text>
+          <text class="fg2" x="325" y="138" text-anchor="middle" font-size="6">≤33.3ms</text>
+          <text class="fg2" x="378" y="138" text-anchor="middle" font-size="6">≤50ms</text>
+          <!-- Timeline -->
+          <text class="fg" x="210" y="165" text-anchor="middle" font-size="10" font-weight="bold">双缓冲 V-Sync 时序（60Hz）</text>
+          <!-- VBI markers -->
+          <line x1="30" y1="180" x2="410" y2="180" class="line"/>
+          <text class="fg2" x="20" y="178" text-anchor="end" font-size="7">VBI</text>
+          <line x1="70" y1="175" x2="70" y2="185" stroke="#22c55e" stroke-width="2"/>
+          <line x1="170" y1="175" x2="170" y2="185" stroke="#22c55e" stroke-width="2"/>
+          <line x1="270" y1="175" x2="270" y2="185" stroke="#22c55e" stroke-width="2"/>
+          <line x1="370" y1="175" x2="370" y2="185" stroke="#22c55e" stroke-width="2"/>
+          <!-- GPU bars -->
+          <rect x="70" y="190" width="60" height="12" fill="#3b82f6" opacity="0.4" rx="2"/>
+          <text class="fg2" x="100" y="199" text-anchor="middle" font-size="6">GPU 12ms</text>
+          <!-- Wait -->
+          <rect x="130" y="190" width="40" height="12" fill="#f59e0b" opacity="0.2" rx="2"/>
+          <text class="fg2" x="150" y="199" text-anchor="middle" font-size="6">等待</text>
+          <!-- Swap at VBI -->
+          <line x1="170" y1="188" x2="170" y2="205" stroke="#22c55e" stroke-width="1.5"/>
+          <text style="fill:#22c55e" x="170" y="215" text-anchor="middle" font-size="6">swap</text>
+          <rect x="170" y="190" width="80" height="12" fill="#3b82f6" opacity="0.4" rx="2"/>
+          <text class="fg2" x="210" y="199" text-anchor="middle" font-size="6">GPU 20ms</text>
+          <!-- Must wait for NEXT VBI -->
+          <rect x="250" y="190" width="20" height="12" fill="#f59e0b" opacity="0.2" rx="2"/>
+          <text class="fg2" x="260" y="215" text-anchor="middle" font-size="6">等待→跳帧</text>
+          <text class="fg2" x="210" y="235" text-anchor="middle" font-size="9" font-style="italic">绿线=VBI 交换点 | 黄色=GPU 空等 | 超过帧周期→强制等下一个 VBI</text>
+        </svg>
+        <figcaption>图 4-2 画面撕裂（左）与 V-Sync 帧率阶梯（右）及双缓冲时序</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">60Hz 显示器开启 V-Sync，GPU 渲染一帧需要 18ms。实际帧率是多少？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '55 FPS 不是 60 的整数分之一，V-Sync 帧率只能是 60/n。')">A. 55 FPS</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '45 FPS 同样不是 60 的整数分之一。')">B. 45 FPS</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！18ms > 16.67ms，必须等到下一个 VBI（33.33ms），帧率 = 60/2 = 30 FPS。')">C. 30 FPS</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, '20 FPS = 60/3，需要渲染时间超过 33.33ms 才会降到这个值。')">D. 20 FPS</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · G-Sync / FreeSync 的自适应刷新</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>V-Sync 是一种妥协——它假设显示器刷新率是不可改变的，GPU 必须去适应显示器。但如果我们反过来想：<strong>让显示器去适应 GPU 呢？</strong></p>
+            <p>当 GPU 渲染完一帧时，显示器立即刷新——不早不晚。没有撕裂（因为缓冲区交换与刷新完美同步），没有帧率断崖（因为刷新率跟随 GPU 变化），没有额外输入延迟（因为不需要等待固定 VBI）。这就是 <strong>VRR（Variable Refresh Rate，可变刷新率）</strong>技术的核心思想。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① VRR 基本原理</strong></p>
+            <p>传统显示器以固定间隔发送 VBI 信号。VRR 显示器将 VBI 的控制权交给 GPU——GPU 渲染完一帧后通知显示器，显示器随即刷新。刷新间隔因帧而异，故称"可变刷新率"。</p>
+            <p><strong>② G-Sync（NVIDIA）</strong></p>
+            <p>NVIDIA 的专有方案，最初需要在显示器内部安装 NVIDIA 专用硬件模块（G-Sync 处理器），替换传统的定时控制器（Scaler/TCON）。硬件模块直接控制面板刷新时序，精度极高。</p>
+            <p><strong>③ FreeSync（AMD）</strong></p>
+            <p>AMD 的实现基于 VESA <strong>Adaptive-Sync</strong> 开放标准，已纳入 DisplayPort 1.2a 规范。不需要额外硬件，通过 DP 的标准协议调整刷新率。成本更低，生态更开放。</p>
+            <p><strong>④ HDMI 2.1 VRR</strong></p>
+            <p>HDMI 2.1 规范也纳入了 VRR 支持，成为平台无关的标准。PS5 和 Xbox Series X 通过 HDMI 2.1 VRR 实现自适应刷新。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>VRR 工作范围</strong></p>
+            <p>每台 VRR 显示器有一个支持范围，如 48-144Hz。当 GPU 帧率在此范围内时，显示器刷新率 = GPU 帧率，完美同步。</p>
+            <p><strong>LFC（Low Framerate Compensation）——低帧率补偿</strong></p>
+            <p>当 FPS 低于 VRR 最小值时，VRR 无法直接工作。LFC 通过<strong>帧重复</strong>将刷新率倍增：</p>
+            \[
+            f_{\text{display}} = \text{FPS} \times n, \quad \text{其中 } n = \lceil f_{\min} / \text{FPS} \rceil
+            \]
+            <p>LFC 启用条件：\(f_{\max} \geq 2 \times f_{\min}\)（确保翻倍后仍在范围内）。</p>
+            <p><strong>示例：VRR 范围 48-165Hz</strong></p>
+            <p>检查 LFC 条件：\(165 \geq 2 \times 48 = 96\) ✓（LFC 可用）</p>
+            <p>· FPS = 100 → 在范围内 → 显示器 100Hz ✓</p>
+            <p>· FPS = 60 → 在范围内 → 显示器 60Hz ✓</p>
+            <p>· FPS = 30 → 低于 48Hz → LFC 翻倍 → 显示器 60Hz（每帧显示两次）</p>
+            <p>· FPS = 200 → 超过 165Hz → VRR 失效，需要帧率限制器或 V-Sync 辅助</p>
+            <div class="warning-box">⚠️ VRR 对超过显示器最大刷新率的帧率<strong>无能为力</strong>。如果 GPU 输出 200 FPS 但显示器最高 165Hz，多余的帧会导致撕裂（除非同时开启帧率限制器或 V-Sync 上限）。最佳实践：VRR + 帧率上限 = 完美体验。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>G-Sync Compatible</strong>：2019 年起，NVIDIA 允许其 GPU 在通过认证的 FreeSync 显示器上启用 VRR（称为"G-Sync Compatible"）。这打破了 G-Sync 的封闭生态，使更多显示器可以与 NVIDIA GPU 搭配使用。</p>
+            <p><strong>主机 VRR</strong>：PS5 和 Xbox Series X 均支持 HDMI 2.1 VRR。游戏可以在画面复杂的场景动态调低帧率而不产生撕裂或卡顿，改善了开放世界游戏的体验。</p>
+            <p><strong>VRR + V-Sync 组合</strong>：当帧率在 VRR 范围内时使用 VRR；当帧率超过上限时 V-Sync 接管防止撕裂。NVIDIA 控制面板中的"G-Sync + V-Sync ON + 帧率限制器（设为刷新率-3 FPS）"被视为最佳配置。</p>
+            <p><strong>NVIDIA Reflex</strong>：除了 VRR 解决撕裂问题，Reflex 技术通过减少渲染队列深度来降低<strong>系统延迟</strong>（从鼠标输入到画面更新的总时间），在竞技游戏中尤为重要。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>一台 VRR 显示器支持范围 48-165Hz。判断以下帧率下的显示行为：30 FPS、60 FPS、100 FPS、200 FPS。</p>
+            <p><em>解答：</em></p>
+            <p>LFC 条件检查：\(165 \geq 2 \times 48 = 96\) ✓</p>
+            <p><strong>30 FPS</strong>：低于 48Hz 下限。LFC 启动，\(\lceil 48/30 \rceil = 2\)，每帧显示 2 次 → 显示器 <strong>60Hz</strong>，无撕裂，略有重复感。</p>
+            <p><strong>60 FPS</strong>：在 48-165 范围内 → 显示器 <strong>60Hz</strong>，完美 VRR 同步。</p>
+            <p><strong>100 FPS</strong>：在范围内 → 显示器 <strong>100Hz</strong>，完美同步。</p>
+            <p><strong>200 FPS</strong>：超过 165Hz 上限 → VRR 失效。若无 V-Sync 或帧率限制器 → <strong>画面撕裂</strong>。</p>
+            <p>❌ <strong>常见错误：</strong>认为 VRR 是"万能药"——实际上它只在指定范围内有效。</p>
+            <p>✅ <strong>正确配置：</strong>开启 VRR + V-Sync + 帧率限制器（设为 162 FPS）→ 全帧率范围无撕裂无卡顿。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch04-kp3">
+        <svg viewBox="0 0 420 230" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}</style>
+          <text class="fg" x="210" y="16" text-anchor="middle" font-size="11" font-weight="bold">VRR 工作区间与 LFC 低帧率补偿</text>
+          <!-- Axes -->
+          <line x1="50" y1="190" x2="400" y2="190" class="line"/>
+          <line x1="50" y1="190" x2="50" y2="30" class="line"/>
+          <text class="fg2" x="46" y="28" text-anchor="end" font-size="8">显示器 Hz</text>
+          <text class="fg2" x="400" y="203" text-anchor="end" font-size="8">GPU FPS →</text>
+          <!-- VRR range highlight -->
+          <rect x="100" y="40" width="220" height="140" fill="#22c55e" opacity="0.06"/>
+          <text style="fill:#22c55e" x="210" y="55" text-anchor="middle" font-size="8" font-weight="bold">VRR 有效区间 (48-165Hz)</text>
+          <!-- Y axis labels -->
+          <text class="fg2" x="46" y="178" text-anchor="end" font-size="7">48</text>
+          <line x1="48" y1="175" x2="52" y2="175" class="line"/>
+          <text class="fg2" x="46" y="43" text-anchor="end" font-size="7">165</text>
+          <line x1="48" y1="40" x2="52" y2="40" class="line"/>
+          <!-- X axis labels -->
+          <text class="fg2" x="75" y="203" text-anchor="middle" font-size="7">30</text>
+          <text class="fg2" x="100" y="203" text-anchor="middle" font-size="7">48</text>
+          <text class="fg2" x="210" y="203" text-anchor="middle" font-size="7">100</text>
+          <text class="fg2" x="320" y="203" text-anchor="middle" font-size="7">165</text>
+          <text class="fg2" x="370" y="203" text-anchor="middle" font-size="7">200</text>
+          <!-- Ideal 1:1 line (within VRR range) -->
+          <line x1="100" y1="175" x2="320" y2="40" stroke="#22c55e" stroke-width="2.5"/>
+          <text style="fill:#22c55e" x="230" y="95" font-size="8" transform="rotate(-35,230,95)">刷新率 = 帧率</text>
+          <!-- LFC region -->
+          <line x1="50" y1="145" x2="100" y2="175" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4,2"/>
+          <text style="fill:#f59e0b" x="60" y="148" font-size="7">LFC</text>
+          <circle cx="75" cy="158" r="3" fill="#f59e0b"/>
+          <text class="fg2" x="80" y="143" font-size="6">30FPS→60Hz</text>
+          <!-- Above max region -->
+          <line x1="320" y1="40" x2="400" y2="40" stroke="#ef4444" stroke-width="2" stroke-dasharray="4,2"/>
+          <text style="fill:#ef4444" x="365" y="35" text-anchor="middle" font-size="7">V-Sync / 限帧</text>
+          <!-- Annotations -->
+          <rect x="50" y="212" width="10" height="8" fill="#f59e0b" opacity="0.5" rx="1"/>
+          <text class="fg2" x="64" y="219" font-size="7">LFC 区间（帧率 &lt; 下限）</text>
+          <rect x="155" y="212" width="10" height="8" fill="#22c55e" opacity="0.5" rx="1"/>
+          <text class="fg2" x="169" y="219" font-size="7">VRR 完美同步</text>
+          <rect x="268" y="212" width="10" height="8" fill="#ef4444" opacity="0.5" rx="1"/>
+          <text class="fg2" x="282" y="219" font-size="7">超上限（需限帧）</text>
+        </svg>
+        <figcaption>图 4-3 VRR 可变刷新率工作区间：LFC 低帧补偿、完美同步区、超限区</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">VRR 范围 48-144Hz，GPU 输出 40 FPS。LFC 启用条件 (144 ≥ 2×48=96) 满足。显示器实际刷新率是？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '40Hz 低于 VRR 下限 48Hz，显示器不能以 40Hz 刷新。')">A. 40 Hz</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '48Hz 是 VRR 下限，但 LFC 会将帧率倍增而非固定在下限。')">B. 48 Hz</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！LFC 将 40 FPS 翻倍为 80Hz（每帧显示两次），80Hz 在 48-144 范围内。')">C. 80 Hz</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '120Hz 是三倍帧率，但 LFC 只需翻倍（80Hz）即可进入 VRR 范围。')">D. 120 Hz</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · HDR 与色彩空间（Color Space）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>标准显示器（SDR）只能表现有限的亮度范围（约 100 nits 峰值）和有限的色彩范围（sRGB 色域）。但真实世界中，阳光直射可达 100,000 nits，色彩远比 sRGB 丰富。</p>
+            <p><strong>HDR（High Dynamic Range）</strong>技术的目标是让显示内容更接近人眼的真实感知：更高的峰值亮度（400-10,000 nits）、更宽的色域（DCI-P3、BT.2020）、更高的色深（10-bit+）。理解 HDR 的技术原理和标准，是评判"真 HDR"与"假 HDR"的关键。</p></div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p><strong>① SDR 基线</strong></p>
+            <p>传统 SDR 标准：sRGB 色域、8-bit 色深（每通道 256 级）、峰值亮度约 100 nits、Gamma 2.2 传输函数。受限于 CRT 时代的技术遗产。</p>
+            <p><strong>② HDR 三大要素</strong></p>
+            <p><strong>宽色域（WCG）</strong>：DCI-P3 色域比 sRGB 大约 25%，BT.2020 更大。覆盖人眼可见色彩的更大范围。</p>
+            <p><strong>高色深</strong>：10-bit（每通道 1024 级）或 12-bit（4096 级）。更多级别意味着更平滑的亮度/色彩过渡，减少<strong>色带（Banding）</strong>——在渐变区域出现的阶梯状条纹。</p>
+            <p><strong>高动态范围</strong>：峰值亮度从 100 nits 提升至 400-10,000 nits。<strong>同时保持深黑</strong>（黑色亮度越低越好），对比度 = 峰值白 / 最深黑。</p>
+            <p><strong>③ 传输函数（Transfer Function）</strong></p>
+            <p><strong>PQ（Perceptual Quantizer, SMPTE ST 2084）</strong>：基于 <strong>Barten 模型</strong>（人眼对比度敏感度模型），将 0-10,000 nits 映射到 10-bit 码值，使每一步亮度变化都恰好低于人眼可感知阈值。用于 HDR10、Dolby Vision。</p>
+            <p><strong>HLG（Hybrid Log-Gamma）</strong>：BBC 和 NHK 联合开发，兼容 SDR 显示器（低亮度区使用 Gamma，高亮度区使用对数曲线）。主要用于广播电视。</p></div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p><strong>色深与可感知级别</strong></p>
+            <p>8-bit 每通道 \(2^8 = 256\) 级，10-bit 每通道 \(2^{10} = 1024\) 级。在 SDR 的 100 nits 范围内，256 级可能够用。但 HDR 的 10,000 nits 范围内：</p>
+            \[
+            \frac{10{,}000 \text{ nits}}{256 \text{ 级}} \approx 39 \text{ nits/级（8-bit）} \quad \text{vs} \quad \frac{10{,}000}{1024} \approx 9.8 \text{ nits/级（10-bit）}
+            \]
+            <p>PQ 曲线的实际分配是非线性的（暗部更密、亮部更疏），但 8-bit 在 HDR 范围内仍然不够用——色带明显。</p>
+            <p><strong>色彩体积（Color Volume）</strong></p>
+            \[
+            V_{\text{color}} = A_{\text{gamut}} \times L_{\text{range}}
+            \]
+            <p>色彩体积 = 色域面积 × 亮度范围。这是衡量 HDR 显示能力的综合指标。仅有宽色域但低亮度（或高亮度但窄色域）都不算真正的 HDR。</p>
+            <p><strong>色调映射（Tone Mapping）</strong></p>
+            <p>HDR 内容可能标记的峰值亮度为 4000 nits，但显示器只有 600 nits。色调映射将 HDR 内容的亮度范围压缩到显示器的实际能力，同时尽量保留相对亮度关系和细节。</p>
+            <div class="warning-box">⚠️ 许多标称"HDR"的显示器峰值亮度不足 400 nits，没有局部调光（Local Dimming），实际 HDR 效果与 SDR 几乎没有区别。真正有意义的 HDR 体验需要<strong>至少 600 nits 峰值亮度 + 局部调光</strong>。DisplayHDR 400 认证门槛过低，应以 DisplayHDR 600 或以上为参考。</div></div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>HDR10 vs Dolby Vision</strong></p>
+            <p>HDR10：开放标准，静态元数据（整部影片一组亮度参数），10-bit PQ，免费授权。Dolby Vision：专有标准，<strong>动态元数据</strong>（逐场景甚至逐帧调整色调映射参数），最高 12-bit，需授权费。Dolby Vision 在暗场景和亮场景交替时效果显著优于 HDR10。</p>
+            <p><strong>DisplayHDR 认证</strong>：VESA 制定的 HDR 显示器分级标准——DisplayHDR 400（入门，400 nits 峰值）、600、1000、1400。数字越高，峰值亮度和对比度要求越严格。</p>
+            <p><strong>Windows HDR 实现</strong>：Windows 内部使用 <strong>scRGB</strong>（浮点 sRGB）格式表示 HDR 颜色，值可超过 1.0。SDR 内容通过 SDR content brightness 滑块调整亮度映射。</p>
+            <p><strong>游戏中的 HDR</strong>：现代游戏引擎（Unreal Engine、Unity）支持 HDR 渲染管线。正确实现 HDR 需要：10-bit 交换链、PQ 或 scRGB 输出、适当的色调映射算子（如 ACES）。</p></div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>比较 8-bit 和 10-bit 色深：(1) 每通道可表示多少级？(2) 在 0-1000 nits HDR 范围内，每级平均代表多少 nits？(3) 为什么 8-bit 在 HDR 下会出现色带？</p>
+            <p><em>解答：</em></p>
+            <p>(1) 8-bit：\(2^8 = 256\) 级；10-bit：\(2^{10} = 1024\) 级。差距 4 倍。</p>
+            <p>(2) 若均匀分配（线性假设）：</p>
+            \[
+            \text{8-bit} = \frac{1000}{256} \approx 3.91 \text{ nits/级}, \quad \text{10-bit} = \frac{1000}{1024} \approx 0.98 \text{ nits/级}
+            \]
+            <p>(3) 人眼在暗部区域对亮度变化更敏感（韦伯定律：可感知亮度差约为当前亮度的 1%）。在 10 nits 暗部区域，人眼可感知约 0.1 nits 的差异。8-bit 的 3.91 nits/级 远超感知阈值，导致可见色带。10-bit 的 0.98 nits/级 配合 PQ 非线性曲线（暗部分配更多码值）则可以消除色带。</p>
+            <p>❌ <strong>常见错误：</strong>认为"10-bit 比 8-bit 好一点点"——实际上在 HDR 场景下差距巨大，是 HDR 体验的基础条件。</p>
+            <p>✅ <strong>正确理解：</strong>HDR 必须搭配 10-bit+色深。8-bit HDR 是自相矛盾的——色带问题会严重破坏 HDR 的视觉效果。</p></div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s7-ch04-kp4">
+        <svg viewBox="0 0 420 250" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#3b82f6}</style>
+          <text class="fg" x="210" y="16" text-anchor="middle" font-size="11" font-weight="bold">SDR vs HDR：色深、色域与亮度范围</text>
+          <!-- SDR box -->
+          <rect x="20" y="30" width="170" height="100" fill="#94a3b8" opacity="0.1" rx="6" stroke="#94a3b8" stroke-width="1"/>
+          <text class="fg" x="105" y="48" text-anchor="middle" font-size="10" font-weight="bold">SDR</text>
+          <text class="fg2" x="105" y="63" text-anchor="middle" font-size="8">色域：sRGB</text>
+          <text class="fg2" x="105" y="76" text-anchor="middle" font-size="8">色深：8-bit（256级/通道）</text>
+          <text class="fg2" x="105" y="89" text-anchor="middle" font-size="8">亮度：~100 nits 峰值</text>
+          <text class="fg2" x="105" y="102" text-anchor="middle" font-size="8">传输：Gamma 2.2</text>
+          <!-- Banding illustration -->
+          <rect x="35" y="108" width="20" height="12" fill="#6b7280" opacity="0.3"/>
+          <rect x="55" y="108" width="20" height="12" fill="#6b7280" opacity="0.45"/>
+          <rect x="75" y="108" width="20" height="12" fill="#6b7280" opacity="0.6"/>
+          <rect x="95" y="108" width="20" height="12" fill="#6b7280" opacity="0.75"/>
+          <rect x="115" y="108" width="20" height="12" fill="#6b7280" opacity="0.9"/>
+          <rect x="135" y="108" width="40" height="12" fill="#6b7280"/>
+          <text class="fg2" x="105" y="132" text-anchor="middle" font-size="7">8-bit 渐变 → 可见色带 ↑</text>
+          <!-- HDR box -->
+          <rect x="220" y="30" width="185" height="100" fill="#3b82f6" opacity="0.08" rx="6" stroke="#3b82f6" stroke-width="1"/>
+          <text class="accent" x="312" y="48" text-anchor="middle" font-size="10" font-weight="bold">HDR</text>
+          <text class="fg2" x="312" y="63" text-anchor="middle" font-size="8">色域：DCI-P3 / BT.2020</text>
+          <text class="fg2" x="312" y="76" text-anchor="middle" font-size="8">色深：10-bit（1024级/通道）</text>
+          <text class="fg2" x="312" y="89" text-anchor="middle" font-size="8">亮度：400-10000 nits 峰值</text>
+          <text class="fg2" x="312" y="102" text-anchor="middle" font-size="8">传输：PQ (ST 2084) / HLG</text>
+          <!-- Smooth gradient -->
+          <defs>
+            <linearGradient id="hdrGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#1e293b"/>
+              <stop offset="100%" stop-color="#f8fafc"/>
+            </linearGradient>
+          </defs>
+          <rect x="235" y="108" width="155" height="12" fill="url(#hdrGrad)" rx="2"/>
+          <text class="fg2" x="312" y="132" text-anchor="middle" font-size="7">10-bit 渐变 → 平滑无色带 ↑</text>
+          <!-- Luminance range comparison -->
+          <text class="fg" x="210" y="155" text-anchor="middle" font-size="9" font-weight="bold">亮度范围对比（对数刻度）</text>
+          <!-- SDR bar -->
+          <rect x="80" y="163" width="40" height="14" fill="#94a3b8" opacity="0.4" rx="2"/>
+          <text class="fg2" x="65" y="173" text-anchor="end" font-size="7">SDR</text>
+          <text class="fg2" x="124" y="173" font-size="6">~100 nits</text>
+          <!-- HDR bar -->
+          <rect x="80" y="182" width="260" height="14" fill="#3b82f6" opacity="0.3" rx="2"/>
+          <text class="fg2" x="65" y="192" text-anchor="end" font-size="7">HDR</text>
+          <text class="fg2" x="344" y="192" font-size="6">≤10000 nits</text>
+          <!-- Scale markers -->
+          <text class="fg2" x="80" y="208" text-anchor="middle" font-size="6">0.01</text>
+          <text class="fg2" x="120" y="208" text-anchor="middle" font-size="6">100</text>
+          <text class="fg2" x="210" y="208" text-anchor="middle" font-size="6">1000</text>
+          <text class="fg2" x="340" y="208" text-anchor="middle" font-size="6">10000 nits</text>
+          <!-- HDR Standards -->
+          <text class="fg" x="210" y="228" text-anchor="middle" font-size="9" font-weight="bold">标准对比</text>
+          <text class="fg2" x="80" y="244" text-anchor="middle" font-size="7">HDR10（静态元数据）</text>
+          <text class="fg2" x="210" y="244" text-anchor="middle" font-size="7">Dolby Vision（动态元数据）</text>
+          <text class="fg2" x="340" y="244" text-anchor="middle" font-size="7">HLG（广播兼容）</text>
+        </svg>
+        <figcaption>图 4-4 SDR 与 HDR 对比：色深、色域、亮度范围与主要标准</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">10-bit 色深相比 8-bit，每通道可表示的亮度级别数量是多少倍？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '2 倍是 9-bit 与 8-bit 的关系（512 vs 256）。')">A. 2 倍</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！10-bit = 1024 级，8-bit = 256 级，1024/256 = 4 倍。')">B. 4 倍</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '8 倍是 11-bit 与 8-bit 的关系（2048 vs 256）。')">C. 8 倍</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '10 倍是一个近似值，实际为 4 倍（2^10/2^8 = 2^2 = 4）。')">D. 10 倍</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch03.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch05.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
