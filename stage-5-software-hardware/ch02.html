@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ch.2 汇编与编译 — 软硬交界 — Architectura</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="../shared/layout.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <script>
+    const QUESTIONS = [
+      {
+        id: "s5-ch02-q1",
+        question: "C 语言编译的四个阶段依次是什么？",
+        options: [
+          "编译 → 预处理 → 汇编 → 链接",
+          "预处理 → 编译 → 汇编 → 链接",
+          "预处理 → 汇编 → 编译 → 链接",
+          "汇编 → 编译 → 预处理 → 链接"
+        ],
+        answer: 1,
+        explanation: "C 语言编译的四个阶段依次为：预处理（Preprocessing，处理 #include、#define 等宏指令）→ 编译（Compilation，将 C 代码翻译为汇编语言）→ 汇编（Assembly，将汇编语言翻译为机器码目标文件）→ 链接（Linking，将多个目标文件合并为可执行文件）。这个顺序反映了从高级抽象到底层实现的逐步转换过程。"
+      },
+      {
+        id: "s5-ch02-q2",
+        question: "在 RISC-V 调用约定中，函数参数通过哪组寄存器传递？",
+        options: [
+          "s0–s7（callee-saved 寄存器）",
+          "t0–t6（临时寄存器）",
+          "a0–a7（参数寄存器）",
+          "x0–x7（前 8 个通用寄存器）"
+        ],
+        answer: 2,
+        explanation: "RISC-V 调用约定规定函数参数通过 a0–a7（即 x10–x17）这 8 个寄存器传递，返回值通过 a0–a1 返回。s0–s11 是 callee-saved 寄存器，用于保存跨函数调用需要保留的值；t0–t6 是 caller-saved 临时寄存器。这种约定使得函数调用高效且可预测。"
+      },
+      {
+        id: "s5-ch02-q3",
+        question: "栈帧序言（prologue）的主要作用是什么？",
+        options: [
+          "执行函数的核心计算逻辑",
+          "分配栈空间并保存返回地址和 callee-saved 寄存器",
+          "释放栈空间并恢复寄存器",
+          "将函数参数从寄存器复制到内存"
+        ],
+        answer: 1,
+        explanation: "函数序言（prologue）在函数入口处执行，负责：① 通过 addi sp, sp, -N 向下移动栈指针分配栈帧空间；② 用 sw 保存返回地址（ra）和所有将被修改的 callee-saved 寄存器（s0–s11）。这确保了函数返回后调用者的环境不被破坏。对应地，函数尾声（epilogue）执行反向操作：恢复寄存器并释放栈空间。"
+      },
+      {
+        id: "s5-ch02-q4",
+        question: "编译器优化中，将乘法替换为移位操作的技术叫什么？",
+        options: [
+          "循环展开（Loop Unrolling）",
+          "公共子表达式消除（CSE）",
+          "强度削减（Strength Reduction）",
+          "死代码消除（Dead Code Elimination）"
+        ],
+        answer: 2,
+        explanation: "强度削减（Strength Reduction）是一种将高代价操作替换为低代价等价操作的优化技术。最典型的例子是将乘以 2 的幂次的乘法替换为左移操作，例如 x * 8 变为 x << 3。移位操作在硬件中只需要一个周期，而乘法可能需要多个周期，因此这种替换能显著提升性能。"
+      },
+      {
+        id: "s5-ch02-q5",
+        question: "编译选项 -O0 的含义是什么？",
+        options: [
+          "最高级别优化，最大化运行速度",
+          "优化代码体积（size）",
+          "不进行任何优化，方便调试",
+          "仅进行安全的基本优化"
+        ],
+        answer: 2,
+        explanation: "-O0 表示关闭所有编译器优化。在此模式下，编译器生成的汇编代码与 C 源码有最直接的对应关系——每个变量都在内存中，每条 C 语句都独立翻译。这使得调试器能精确追踪源码行号，变量值随时可查。但生成的代码效率最低。-O1/-O2/-O3 依次增加优化强度，-Os 则优化代码体积。"
+      },
+      {
+        id: "s5-ch02-q6",
+        question: "目标文件（object file）中，机器代码存放在哪个段（section）中？",
+        options: [
+          ".data 段",
+          ".bss 段",
+          ".text 段",
+          ".rodata 段"
+        ],
+        answer: 2,
+        explanation: ".text 段存放程序的机器代码（可执行指令）。.data 段存放已初始化的全局/静态变量；.bss 段存放未初始化的全局/静态变量（不占文件空间，加载时清零）；.rodata 段存放只读常量（如字符串字面量）。这种分段设计允许操作系统对不同区域设置不同的权限（如 .text 可读可执行但不可写）。"
+      },
+      {
+        id: "s5-ch02-q7",
+        question: "静态链接与动态链接的主要区别是什么？",
+        options: [
+          "静态链接在运行时加载库，动态链接在编译时嵌入库",
+          "静态链接将所有库代码嵌入可执行文件，动态链接在运行时加载共享库",
+          "两者没有实质区别，只是名称不同",
+          "静态链接只用于 C 语言，动态链接只用于 C++"
+        ],
+        answer: 1,
+        explanation: "静态链接在链接阶段将所有引用的库函数代码复制并嵌入最终的可执行文件中，优点是运行时无外部依赖，缺点是文件体积大且无法共享库代码。动态链接只在可执行文件中记录对共享库（.so/.dll）的引用，实际的库代码在程序运行时由动态链接器（如 ld.so）加载到内存，多个程序可以共享同一份库的内存映像，节省内存和磁盘空间。"
+      },
+      {
+        id: "s5-ch02-q8",
+        question: "编译时出现 \"undefined reference to foo\" 错误，最可能的原因是什么？",
+        options: [
+          "函数 foo 的语法有错误",
+          "头文件中没有声明函数 foo",
+          "链接器找不到函数 foo 的定义（实现），缺少目标文件或 -l 库选项",
+          "函数 foo 的参数类型不匹配"
+        ],
+        answer: 2,
+        explanation: "\"undefined reference\" 是链接器（linker）报出的错误，而非编译器。它表示链接器在所有提供的目标文件和库中都找不到符号 foo 的定义。常见原因包括：① 忘记编译包含 foo 定义的源文件；② 忘记用 -l 选项指定库（如使用 math.h 函数需要 -lm）；③ 函数名拼写错误。头文件只提供声明，如果缺少声明会导致编译阶段的 implicit declaration 警告，而非链接错误。"
+      }
+    ];
+  </script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+</head>
+<body class="chapter-page" data-category="stage-5" data-module="ch02" style="--domain-color: var(--c-software);">
+
+  <nav class="topbar">
+    <a href="../index.html" class="topbar-brand">Architectura</a>
+    <div class="topbar-module"><span class="module-domain">STAGE 5</span><a href="index.html" class="module-name">软硬交界</a></div>
+    <div class="topbar-right"><span class="chapter-indicator">Ch.2 / 4</span><button class="theme-toggle" onclick="toggleTheme()" id="theme-icon" title="切换主题">🌙</button></div>
+  </nav>
+
+  <aside class="toc-sidebar">
+    <div class="toc-header">本章目录</div>
+    <ul class="toc-list">
+      <li><a href="#kp1">01 · C 到汇编</a></li>
+      <li><a href="#kp2">02 · 调用约定与栈帧</a></li>
+      <li><a href="#kp3">03 · 编译器优化</a></li>
+      <li><a href="#kp4">04 · 链接与加载</a></li>
+      <li><a href="#exercises">综合练习</a></li>
+    </ul>
+  </aside>
+
+  <main class="main-content">
+    <header class="chapter-hero">
+      <p class="chapter-label">Chapitre 2</p>
+      <h1>汇编与编译</h1>
+    </header>
+
+    <!-- ════════════════ KP 1 ════════════════ -->
+    <section id="kp1">
+      <h2 class="kp-title">知识点 1 · 从 C 到汇编——编译器做了什么</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>当你在 C 语言中写下 <code>int x = a + b;</code> 时，处理器硬件实际执行的是什么？处理器不认识 C 语言——它只认识由 0 和 1 组成的机器指令。在你的源代码和硬件之间，存在着一位沉默而强大的翻译官：<strong>编译器（Compiler）</strong>。</p>
+            <p>理解编译过程就是理解<strong>人类思维与机器逻辑之间的桥梁</strong>。高级语言让我们用接近自然语言的方式表达算法，而编译器将这些抽象表达忠实地翻译成处理器能直接执行的机器指令。这个翻译过程并非简单的逐行替换——编译器需要处理类型系统、作用域、控制流、内存管理等大量语义信息。</p>
+            <p>对于计算机体系结构的学习者来说，理解 C 到汇编的映射关系是打通"软硬交界"的核心技能：它让你知道每一行高级代码在硬件上的真实代价，从而写出更高效的程序，也更深刻地理解处理器的设计权衡。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>从 C 源代码到可执行程序，需要经过<strong>四个阶段</strong>：</p>
+            <p><strong>① 预处理（Preprocessing）</strong>：处理以 <code>#</code> 开头的指令——展开 <code>#include</code>（插入头文件内容）、替换 <code>#define</code> 宏、处理 <code>#ifdef</code> 条件编译。输出仍是 C 源代码，但已消除所有预处理指令。</p>
+            <p><strong>② 编译（Compilation）</strong>：将预处理后的 C 代码翻译为汇编语言（Assembly）。这是最核心的阶段——编译器进行词法分析、语法分析、语义检查、中间代码生成、优化，最终输出目标平台的汇编代码。</p>
+            <p><strong>③ 汇编（Assembly）</strong>：汇编器（Assembler）将汇编语言中的助记符（如 <code>add</code>、<code>lw</code>）翻译为二进制机器码，生成<strong>目标文件（Object File）</strong>（.o 文件）。</p>
+            <p><strong>④ 链接（Linking）</strong>：链接器（Linker）将多个目标文件和库组合成最终的可执行文件，解析跨文件的符号引用。</p>
+            <p>在编译阶段，C 语言的各种构造与汇编指令之间存在系统性的映射关系：<strong>算术运算</strong>对应 <code>add</code>/<code>sub</code>/<code>mul</code> 等指令；<strong>变量</strong>对应寄存器或内存位置；<strong>if/else 分支</strong>对应 <code>beq</code>/<code>bne</code> 等条件跳转指令；<strong>循环</strong>对应带有向后跳转的条件分支；<strong>数组访问</strong>对应基址 + 偏移量寻址。编译器还需要进行<strong>寄存器分配（Register Allocation）</strong>——将程序中的变量映射到有限的物理寄存器上。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>让我们用具体的例子展示 C 到汇编的映射过程。</p>
+            <p><strong>① 算术运算：</strong>对于 <code>int sum = a + b;</code>（假设 a、b 的地址在 x10 指向的结构中）：</p>
+<pre><code>lw   x5, 0(x10)    # 从内存加载 a 到寄存器 x5
+lw   x6, 4(x10)    # 从内存加载 b 到寄存器 x6
+add  x7, x5, x6    # x7 = x5 + x6，即 sum = a + b
+sw   x7, 8(x10)    # 将 sum 存回内存</code></pre>
+            <p>注意：一条简单的 C 加法语句需要 4 条汇编指令——2 条 load、1 条 add、1 条 store。这就是 Load/Store 架构的特点：运算只能在寄存器间进行，必须先从内存加载数据。</p>
+            <p><strong>② if-else 分支：</strong>对于 <code>if (a == b) x = 1; else x = 2;</code>：</p>
+<pre><code>    beq  x5, x6, equal   # 若 a == b，跳转到 equal
+    addi x7, x0, 2       # else: x = 2
+    j    end              # 跳过 if 分支
+equal:
+    addi x7, x0, 1       # if: x = 1
+end:
+    sw   x7, 0(x10)      # 存储结果</code></pre>
+            <p><strong>③ while 循环：</strong>对于 <code>while (i &lt; n) { sum += arr[i]; i++; }</code>：</p>
+<pre><code>loop:
+    bge  x5, x6, done    # 若 i >= n，退出循环
+    slli x28, x5, 2      # x28 = i * 4（int 为 4 字节）
+    add  x28, x10, x28   # x28 = arr 基址 + 偏移
+    lw   x29, 0(x28)     # x29 = arr[i]
+    add  x7, x7, x29     # sum += arr[i]
+    addi x5, x5, 1       # i++
+    j    loop             # 跳回循环开头
+done:</code></pre>
+            <p>从指令数量分析：循环体每次迭代执行 6 条指令。若循环执行 \(N\) 次，则总指令数为 \(6N + 1\)（最后一次 <code>bge</code> 跳出循环）。这类分析对性能估算至关重要。</p>
+            <div class="warning-box">⚠️ <strong>编译器可能生成与你预期完全不同的汇编代码！</strong>使用 <code>-O0</code>（无优化）和 <code>-O2</code>（标准优化）编译同一段 C 代码，生成的汇编可能面目全非。永远不要假设 C 代码行与汇编指令之间存在 1:1 的对应关系——编译器可能重排指令、消除冗余计算、甚至完全移除你认为"必要"的代码。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>使用 <code>gcc -S</code> 查看汇编输出：</strong>在终端中运行 <code>gcc -S -O0 main.c</code> 会生成 <code>main.s</code> 文件，内容是人类可读的汇编代码。加上 <code>-O2</code> 可以看到优化后的版本。比较两者的差异是理解编译器行为的最佳实践。</p>
+            <p><strong>Godbolt 编译器探索器：</strong><a href="https://godbolt.org">godbolt.org</a> 是一个在线工具，支持几十种编译器和目标架构。你可以在左侧编写 C 代码，右侧实时看到生成的汇编，还能高亮对应关系。这是学习编译器行为的最直观工具。</p>
+            <p><strong>GDB 汇编级调试：</strong>使用 <code>gdb</code> 的 <code>disassemble</code> 命令可以查看当前函数的反汇编代码，<code>stepi</code>/<code>nexti</code> 可以逐指令执行，<code>info registers</code> 查看所有寄存器的值。对于性能关键代码的调试，汇编级调试是不可或缺的技能。</p>
+            <p><strong>理解性能关键代码：</strong>在游戏引擎、数据库内核、密码学库等对性能极度敏感的场景中，工程师需要检查编译器的汇编输出，确认热路径（Hot Path）上没有不必要的内存访问或分支，甚至手写内联汇编来榨取最后一点性能。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>将以下 C 代码翻译为 RISC-V 汇编：<code>for(int i=0; i&lt;n; i++) sum += arr[i];</code>。假设 n 在 x6，arr 基址在 x10，sum 在 x7（初始为 0），i 在 x5。</p>
+            <p><em>逐步翻译：</em></p>
+<pre><code>    addi x5, x0, 0       # i = 0
+    addi x7, x0, 0       # sum = 0
+loop:
+    bge  x5, x6, done    # if (i >= n) goto done
+    slli x28, x5, 2      # x28 = i * 4（每个 int 占 4 字节）
+    add  x28, x10, x28   # x28 = &amp;arr[i]（基址 + 偏移）
+    lw   x29, 0(x28)     # x29 = arr[i]
+    add  x7, x7, x29     # sum += arr[i]
+    addi x5, x5, 1       # i++
+    j    loop             # 回到循环条件判断
+done:</code></pre>
+            <p>❌ <strong>常见错误：</strong>忘记用 <code>slli x28, x5, 2</code> 将索引乘以元素大小！<code>arr[i]</code> 的地址不是 <code>arr + i</code>，而是 <code>arr + i × sizeof(int)</code>。如果直接用 <code>add x28, x10, x5</code> 计算地址，会导致地址偏移错误——每次只偏移 1 字节而非 4 字节，读取到错误的数据。</p>
+            <p>✅ <strong>正确做法：</strong>始终记住数组地址计算公式：\(\text{addr}(\text{arr}[i]) = \text{base} + i \times \text{sizeof(element)}\)。对于 <code>int</code> 数组，需要左移 2 位（乘以 4）；对于 <code>long</code>（8 字节），左移 3 位。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch02-kp1">
+        <svg viewBox="0 0 700 120" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp1" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <!-- C Source -->
+          <rect x="5" y="30" width="80" height="50" class="box" fill="#f0f9ff"/>
+          <text x="45" y="50" text-anchor="middle" class="fg" font-size="10" font-weight="bold">C 源代码</text>
+          <text x="45" y="68" text-anchor="middle" class="fg2" font-size="8">.c</text>
+          <!-- Arrow -->
+          <line x1="85" y1="55" x2="115" y2="55" class="line" marker-end="url(#ah-kp1)"/>
+          <!-- Preprocessor -->
+          <rect x="115" y="30" width="90" height="50" class="box" fill="#ecfdf5"/>
+          <text x="160" y="50" text-anchor="middle" class="fg" font-size="10" font-weight="bold">预处理器</text>
+          <text x="160" y="68" text-anchor="middle" class="fg2" font-size="8">cpp</text>
+          <!-- Arrow -->
+          <line x1="205" y1="55" x2="235" y2="55" class="line" marker-end="url(#ah-kp1)"/>
+          <!-- Compiler -->
+          <rect x="235" y="30" width="90" height="50" rx="6" fill="#f0f9ff" stroke="#06b6d4" stroke-width="2"/>
+          <text x="280" y="50" text-anchor="middle" class="accent" font-size="10" font-weight="bold">编译器</text>
+          <text x="280" y="68" text-anchor="middle" class="fg2" font-size="8">cc1</text>
+          <!-- Arrow -->
+          <line x1="325" y1="55" x2="355" y2="55" class="line" marker-end="url(#ah-kp1)"/>
+          <!-- Assembly -->
+          <rect x="355" y="30" width="80" height="50" class="box" fill="#fff7ed"/>
+          <text x="395" y="50" text-anchor="middle" class="fg" font-size="10" font-weight="bold">汇编语言</text>
+          <text x="395" y="68" text-anchor="middle" class="fg2" font-size="8">.s</text>
+          <!-- Arrow -->
+          <line x1="435" y1="55" x2="465" y2="55" class="line" marker-end="url(#ah-kp1)"/>
+          <!-- Assembler -->
+          <rect x="465" y="30" width="80" height="50" class="box" fill="#ecfdf5"/>
+          <text x="505" y="50" text-anchor="middle" class="fg" font-size="10" font-weight="bold">汇编器</text>
+          <text x="505" y="68" text-anchor="middle" class="fg2" font-size="8">as</text>
+          <!-- Arrow -->
+          <line x1="545" y1="55" x2="575" y2="55" class="line" marker-end="url(#ah-kp1)"/>
+          <!-- Linker -->
+          <rect x="575" y="30" width="80" height="50" class="box" fill="#fdf2f8"/>
+          <text x="615" y="50" text-anchor="middle" class="fg" font-size="10" font-weight="bold">链接器</text>
+          <text x="615" y="68" text-anchor="middle" class="fg2" font-size="8">ld</text>
+          <!-- Output label -->
+          <text x="660" y="58" class="fg2" font-size="9">→ 可执行文件</text>
+          <!-- Stage labels -->
+          <text x="45" y="100" text-anchor="middle" class="fg2" font-size="8">①</text>
+          <text x="160" y="100" text-anchor="middle" class="fg2" font-size="8">②预处理</text>
+          <text x="280" y="100" text-anchor="middle" class="accent" font-size="8" font-weight="bold">③编译</text>
+          <text x="395" y="100" text-anchor="middle" class="fg2" font-size="8">④</text>
+          <text x="505" y="100" text-anchor="middle" class="fg2" font-size="8">⑤汇编</text>
+          <text x="615" y="100" text-anchor="middle" class="fg2" font-size="8">⑥链接</text>
+        </svg>
+        <figcaption>图 2-1 C 语言编译流水线：从源代码到可执行文件的完整路径</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp1">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">RISC-V 指令 <code>sw x7, 8(x10)</code> 执行什么操作？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '这是 lw（load word）的行为，不是 sw。sw 是存储操作，方向相反。')">A. 从内存地址 Reg[x10]+8 加载数据到 x7</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, true, '正确！sw（store word）将寄存器 x7 的值存储到内存地址 Reg[x10]+8 处。sw = store word，方向是寄存器 → 内存。')">B. 将 x7 的值存储到内存地址 Reg[x10]+8</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, '8(x10) 表示的是内存地址 Reg[x10]+8，不是将 8 和 x10 的值相加存入 x7。')">C. 计算 x10 + 8 并将结果存入 x7</button>
+          <button onclick="checkInlineQuiz('iq-kp1', this, false, 'sw 是字（word，4 字节）存储指令，不涉及字节操作。sb 才是存储字节的指令。')">D. 将 x7 的低 8 位存入 x10 指向的内存</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 2 ════════════════ -->
+    <section id="kp2">
+      <h2 class="kp-title">知识点 2 · 调用约定（Calling Convention）与栈帧（Stack Frame）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>当函数 A 调用函数 B 时，看似简单的一次 <code>jal</code> 跳转背后隐藏着大量必须回答的问题：参数通过什么方式传递给 B？B 的返回值放在哪里？A 正在使用的寄存器会不会被 B 覆盖？B 返回后，程序如何知道跳回 A 的哪一行继续执行？</p>
+            <p>如果没有一套统一的规则来回答这些问题，<strong>分离编译（Separate Compilation）</strong>就不可能实现——每个 .c 文件独立编译为 .o 文件，最终由链接器组合，这要求所有编译器对函数调用的"礼仪"达成一致。这套规则就是<strong>调用约定（Calling Convention）</strong>。</p>
+            <p>调用约定还决定了<strong>栈帧（Stack Frame）</strong>的布局方式——每次函数调用在栈上分配的一块内存区域，用于保存返回地址、局部变量和需要保护的寄存器。理解栈帧结构是理解递归、调试崩溃（查看 backtrace）和分析安全漏洞（缓冲区溢出攻击）的基础。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>RISC-V 的调用约定对 32 个通用寄存器做了明确的角色划分：</p>
+            <p><strong>参数寄存器 a0–a7（x10–x17）：</strong>前 8 个函数参数依次放在 a0 至 a7 中。超过 8 个的参数通过栈传递。函数返回值放在 a0（如果需要 64 位返回值，使用 a0 和 a1）。</p>
+            <p><strong>Callee-saved 寄存器 s0–s11（x8–x9, x18–x27）：</strong>被调用者（callee）负责保护。如果函数要使用这些寄存器，必须先将原值保存到栈帧中，返回前恢复。这保证了调用者（caller）在函数返回后，这些寄存器的值不变。</p>
+            <p><strong>Caller-saved 寄存器 t0–t6（x5–x7, x28–x31）：</strong>临时寄存器，调用者自行负责。如果调用者在调用前后需要保留这些寄存器的值，必须自己保存和恢复。</p>
+            <p><strong>特殊寄存器：</strong><code>ra</code>（x1）保存返回地址；<code>sp</code>（x2）是栈指针；<code>gp</code>（x3）是全局指针；<code>tp</code>（x4）是线程指针。</p>
+            <p><strong>栈帧结构：</strong>栈从高地址向低地址增长。每次函数调用，<code>sp</code> 向下移动分配栈帧空间。栈帧中依次存放：返回地址（ra）、保存的 callee-saved 寄存器、局部变量、为被调用函数准备的参数（如果超过 8 个）。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>一个标准函数的汇编代码遵循<strong>序言-主体-尾声（Prologue-Body-Epilogue）</strong>模式：</p>
+<pre><code># ─── 序言（Prologue）───
+func:
+    addi sp, sp, -16    # 分配 16 字节栈帧（必须 16 字节对齐）
+    sw   ra, 12(sp)     # 保存返回地址
+    sw   s0, 8(sp)      # 保存 callee-saved 寄存器 s0
+
+# ─── 函数主体（Body）───
+    ...                  # 使用 a0-a7 读取参数
+    ...                  # 可以安全使用 s0 了
+    ...                  # 结果放入 a0 作为返回值
+
+# ─── 尾声（Epilogue）───
+    lw   s0, 8(sp)      # 恢复 s0 的原始值
+    lw   ra, 12(sp)     # 恢复返回地址
+    addi sp, sp, 16     # 释放栈帧
+    ret                  # 等价于 jalr x0, ra, 0</code></pre>
+            <p>帧指针（Frame Pointer, FP）与栈指针的关系可以用公式表示：</p>
+            \[
+            \text{FP} = \text{SP}_{\text{entry}}
+            \]
+            <p>局部变量通过帧指针或栈指针加偏移量访问：</p>
+            \[
+            \text{addr}(\text{local}_k) = \text{FP} - \text{offset}_k
+            \]
+            <p>栈帧大小的计算：假设需要保存 \(r\) 个寄存器（每个 4 字节），有 \(v\) 字节的局部变量，则栈帧大小为：</p>
+            \[
+            \text{FrameSize} = \lceil (4r + v) / 16 \rceil \times 16
+            \]
+            <p>上取整到 16 的倍数是因为 RISC-V 要求栈指针保持 16 字节对齐。</p>
+            <div class="warning-box">⚠️ <strong>忘记保存 callee-saved 寄存器是最常见的汇编 Bug 之一！</strong>如果你的函数修改了 s0–s11 中的任何一个寄存器，就必须在序言中保存它、在尾声中恢复它。否则，调用者在你返回后会发现自己依赖的寄存器值被"神秘地"改变了，导致极难排查的 Bug。同样，如果你的函数调用了其他函数（即不是叶函数），就必须保存 ra——否则 <code>ret</code> 时会跳到错误的地址。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>递归函数的工作原理：</strong>每次递归调用都会创建一个新的栈帧，保存自己的局部变量和返回地址。递归深度为 \(d\) 时，栈上存在 \(d\) 个栈帧。这就是为什么无限递归会导致<strong>栈溢出（Stack Overflow）</strong>——栈空间是有限的，过多的帧会耗尽可用内存。</p>
+            <p><strong>调试中的栈回溯（Backtrace）：</strong>当程序崩溃时，调试器通过沿栈帧链逐级向上追溯，可以还原完整的函数调用序列。每个栈帧中保存的 ra 和 FP 就是回溯的线索。这就是你在 GDB 中输入 <code>bt</code> 看到调用栈的原理。</p>
+            <p><strong>缓冲区溢出攻击：</strong>经典的栈溢出攻击利用了栈帧布局的可预测性。如果局部变量（如数组）相邻于 ra 的保存位置，攻击者可以通过溢出数组覆盖 ra 的值，使函数返回时跳转到恶意代码。现代防御措施包括栈金丝雀（Stack Canary）、地址空间随机化（ASLR）和不可执行栈（NX bit）。</p>
+            <p><strong>setjmp/longjmp：</strong>C 语言的非局部跳转机制（setjmp/longjmp）本质上是保存和恢复栈帧上下文（包括 SP、FP、callee-saved 寄存器和 PC），实现跨多层函数调用的"远程返回"。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>编写递归阶乘函数 <code>int fact(int n)</code> 的完整 RISC-V 汇编，包括栈帧管理。</p>
+            <p><em>C 伪代码：</em><code>if (n &lt;= 1) return 1; else return n * fact(n-1);</code></p>
+<pre><code>fact:
+    addi sp, sp, -16     # 分配栈帧
+    sw   ra, 12(sp)      # 保存返回地址（因为要调用 fact 自身）
+    sw   a0, 8(sp)       # 保存参数 n（调用后还需要用）
+
+    addi x5, x0, 1       # x5 = 1
+    bgt  a0, x5, recurse # if (n > 1) goto recurse
+    addi a0, x0, 1       # 基本情况：return 1
+    j    epilog           # 跳到尾声
+
+recurse:
+    addi a0, a0, -1      # a0 = n - 1
+    jal  ra, fact         # 调用 fact(n-1)，结果在 a0 中
+    lw   x5, 8(sp)       # 恢复保存的 n
+    mul  a0, x5, a0      # a0 = n * fact(n-1)
+
+epilog:
+    lw   ra, 12(sp)      # 恢复返回地址
+    addi sp, sp, 16      # 释放栈帧
+    ret                   # 返回</code></pre>
+            <p>❌ <strong>常见错误：</strong>在递归调用 <code>jal ra, fact</code> 之前忘记保存 ra。如果不保存 ra，递归调用会覆盖 ra 的值，导致最终无法返回到最初的调用者——程序会陷入无限循环或崩溃。</p>
+            <p>✅ <strong>关键原则：</strong>凡是<strong>非叶函数</strong>（即内部调用了其他函数的函数），都必须在序言中保存 ra。叶函数不调用其他函数，ra 不会被修改，可以省略保存。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch02-kp2">
+        <svg viewBox="0 0 400 340" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <!-- Title -->
+          <text x="200" y="20" text-anchor="middle" class="fg" font-size="13" font-weight="bold">栈帧（Stack Frame）布局</text>
+          <!-- High address label -->
+          <text x="90" y="50" text-anchor="end" class="fg2" font-size="10">高地址 ↑</text>
+          <!-- Caller's frame -->
+          <rect x="110" y="38" width="180" height="30" class="box" fill="#f0f9ff"/>
+          <text x="200" y="57" text-anchor="middle" class="fg2" font-size="10">调用者（Caller）的栈帧</text>
+          <!-- SP_entry / FP arrow -->
+          <line x1="300" y1="68" x2="340" y2="68" stroke="#06b6d4" stroke-width="1.5" fill="none"/>
+          <text x="345" y="72" class="accent" font-size="10" font-weight="bold">← FP (SP_entry)</text>
+          <!-- Current frame sections -->
+          <!-- Return address -->
+          <rect x="110" y="72" width="180" height="35" class="box" fill="#fef3c7"/>
+          <text x="200" y="94" text-anchor="middle" class="fg" font-size="10" font-weight="bold">返回地址 (ra)</text>
+          <text x="95" y="94" text-anchor="end" class="fg2" font-size="9">FP-4</text>
+          <!-- Saved registers -->
+          <rect x="110" y="110" width="180" height="50" class="box" fill="#ecfdf5"/>
+          <text x="200" y="130" text-anchor="middle" class="fg" font-size="10" font-weight="bold">保存的寄存器</text>
+          <text x="200" y="148" text-anchor="middle" class="fg2" font-size="9">s0, s1, ... (callee-saved)</text>
+          <!-- Local variables -->
+          <rect x="110" y="163" width="180" height="50" class="box" fill="#fdf2f8"/>
+          <text x="200" y="183" text-anchor="middle" class="fg" font-size="10" font-weight="bold">局部变量</text>
+          <text x="200" y="201" text-anchor="middle" class="fg2" font-size="9">local_1, local_2, ...</text>
+          <!-- Outgoing args -->
+          <rect x="110" y="216" width="180" height="40" class="box" fill="#fff7ed"/>
+          <text x="200" y="236" text-anchor="middle" class="fg" font-size="10" font-weight="bold">传出参数区</text>
+          <text x="200" y="250" text-anchor="middle" class="fg2" font-size="9">超过 8 个参数时使用</text>
+          <!-- SP arrow -->
+          <line x1="300" y1="256" x2="340" y2="256" stroke="#06b6d4" stroke-width="1.5" fill="none"/>
+          <text x="345" y="260" class="accent" font-size="10" font-weight="bold">← SP</text>
+          <!-- Low address label -->
+          <text x="90" y="280" text-anchor="end" class="fg2" font-size="10">低地址 ↓</text>
+          <!-- Growth arrow -->
+          <line x1="60" y1="60" x2="60" y2="270" class="line" marker-end="url(#ah-kp2)"/>
+          <text x="55" y="165" text-anchor="end" class="fg2" font-size="9" transform="rotate(-90, 55, 165)">栈增长方向</text>
+          <!-- Brace for current frame -->
+          <text x="310" y="170" class="accent" font-size="40" font-weight="100">}</text>
+          <text x="330" y="170" class="accent" font-size="10">当前函数</text>
+          <text x="330" y="184" class="accent" font-size="10">栈帧</text>
+        </svg>
+        <figcaption>图 2-2 函数栈帧的内部结构 — 栈从高地址向低地址增长，SP 指向帧底部</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp2">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">在 RISC-V 调用约定中，以下哪组寄存器是 callee-saved（被调用者保存）的？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'a0–a7 是参数/返回值寄存器，属于 caller-saved。函数可以自由修改它们，调用者不应假设调用后它们的值不变。')">A. a0–a7（参数寄存器）</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 't0–t6 是临时寄存器，属于 caller-saved。被调用者可以随意使用它们而不需要保存和恢复。')">B. t0–t6（临时寄存器）</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, true, '正确！s0–s11 是 callee-saved 寄存器。如果被调用的函数要使用它们，必须先保存原值到栈帧，返回前恢复。这保证了调用者的这些寄存器值在函数调用前后不变。')">C. s0–s11（保存寄存器）</button>
+          <button onclick="checkInlineQuiz('iq-kp2', this, false, 'x0 恒为 0，不需要也不能被保存。x1 是 ra（返回地址），属于特殊寄存器。')">D. x0–x1（零寄存器和返回地址）</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 3 ════════════════ -->
+    <section id="kp3">
+      <h2 class="kp-title">知识点 3 · 编译器优化——为什么你的"理解"可能失效</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>你是否有过这样的经历：在 Godbolt 上打开 <code>-O2</code> 优化，发现编译器生成的汇编代码与你的 C 源码几乎毫无相似之处？循环消失了，函数调用不见了，甚至整个代码块被一条指令替代？这就是现代编译器优化的威力。</p>
+            <p>编译器优化是一把双刃剑。一方面，它使得程序员可以用清晰、可读的方式编写代码，而不必担心性能——编译器会自动将其转换为高效的机器码。另一方面，当你需要调试优化后的代码、分析性能瓶颈、或理解安全漏洞时，不了解编译器优化就会陷入迷雾。</p>
+            <p>理解常见的编译器优化手段，不仅能帮助你写出更容易被优化的代码（而不是写出阻碍优化的代码），还能让你在阅读编译器输出时不再困惑。这是从"能写代码"到"真正理解代码在机器上如何执行"的关键一跃。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>编译器的优化可以分为多个层次和类别：</p>
+            <p><strong>① 常量折叠（Constant Folding）：</strong>在编译时直接计算常量表达式。例如 <code>int x = 3 + 5;</code> 直接变成 <code>int x = 8;</code>，运行时无需任何计算。</p>
+            <p><strong>② 死代码消除（Dead Code Elimination）：</strong>移除不会影响程序输出的代码。如果一个变量被赋值但从未被读取，赋值操作会被直接删除。</p>
+            <p><strong>③ 公共子表达式消除（Common Subexpression Elimination, CSE）：</strong>如果同一个表达式被计算多次且中间值未改变，只计算一次并复用结果。</p>
+            <p><strong>④ 强度削减（Strength Reduction）：</strong>将高代价操作替换为等价的低代价操作。最典型的例子：将乘以 2 的幂次替换为左移操作，因为移位在硬件中远比乘法快。</p>
+            <p><strong>⑤ 循环展开（Loop Unrolling）：</strong>将循环体复制多次以减少分支跳转的开销，代价是代码体积增大。</p>
+            <p><strong>⑥ 内联展开（Function Inlining）：</strong>将函数体直接插入调用处，消除函数调用的开销（保存/恢复寄存器、跳转）。</p>
+            <p><strong>⑦ 寄存器分配（Register Allocation）：</strong>使用图着色（Graph Coloring）等算法，将尽可能多的变量分配到寄存器中，减少对内存的访问。</p>
+            <p><strong>优化级别：</strong><code>-O0</code> 不优化（方便调试）；<code>-O1</code> 基础优化；<code>-O2</code> 标准优化（推荐用于发布）；<code>-O3</code> 激进优化（可能增大代码体积）；<code>-Os</code> 优化代码大小。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>让我们用一个例子展示多种优化的联合作用。考虑以下 C 代码：</p>
+<pre><code>int x = a * 4 + a * 4;</code></pre>
+            <p><strong>第一步——公共子表达式消除（CSE）：</strong>表达式 <code>a * 4</code> 出现了两次。编译器识别后，只计算一次：</p>
+<pre><code>int t = a * 4;
+int x = t + t;</code></pre>
+            <p><strong>第二步——强度削减（Strength Reduction）：</strong>将 <code>a * 4</code> 替换为移位操作：</p>
+<pre><code>int t = a &lt;&lt; 2;   // 左移 2 位 = 乘以 4
+int x = t + t;</code></pre>
+            <p><strong>第三步——进一步简化：</strong><code>t + t</code> 等价于 <code>t &lt;&lt; 1</code>，而 <code>(a &lt;&lt; 2) &lt;&lt; 1 = a &lt;&lt; 3</code>，即 <code>a * 8</code>：</p>
+<pre><code>int x = a &lt;&lt; 3;   // 一条移位指令解决！</code></pre>
+            <p>原本需要 2 次乘法和 1 次加法的表达式，经过三轮优化后只需<strong>1 条移位指令</strong>。</p>
+            <p><strong>循环展开的量化分析：</strong>一个执行 \(N\) 次的循环，每次迭代末尾有一条条件分支。若进行 \(k\) 倍展开（每次循环体复制 \(k\) 次），则分支次数从 \(N\) 减少为：</p>
+            \[
+            \text{branches} = \lceil N / k \rceil
+            \]
+            <p><strong>内联展开的权衡：</strong>假设某函数体有 \(B\) 条指令，被调用 \(C\) 次，每次调用的额外开销（保存寄存器、跳转等）为 \(H\) 条指令。不内联时总开销为 \(B + C \times H\) 条指令（函数体 + 调用开销），内联后为 \(B \times C\) 条指令（每个调用点都嵌入函数体）。当 \(B\) 较小而 \(C\) 不太大时，内联有利：</p>
+            \[
+            B \times C < B + C \times H \implies B < \frac{C \times H}{C - 1} \approx H \quad (\text{当 } C \gg 1)
+            \]
+            <p>即当函数体大小小于调用开销时，内联几乎总是有利的。</p>
+            <div class="warning-box">⚠️ <strong>不要试图用"聪明"的 C 语言技巧来超越编译器优化！</strong>现代编译器（GCC、LLVM/Clang）在 <code>-O2</code> 级别下，几乎总是能生成比手动"优化"的 C 代码更好的汇编。比如，手动用位操作写的"快速除法"不仅可读性差，而且编译器早就知道这些技巧并会自动应用。<strong>写清晰的代码，让编译器做优化。</strong>只有在剖析（profiling）确认了瓶颈后，才考虑在最关键的内循环中手写汇编。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong><code>volatile</code> 关键字的意义：</strong>编译器优化可能会将它认为"不必要"的内存读取消除掉——比如连续读取同一地址两次时，它可能只读一次并复用值。但如果这个地址对应的是硬件设备寄存器（Memory-Mapped I/O），每次读取的值可能不同！<code>volatile</code> 告诉编译器"不要对这个变量的访问进行任何优化"，每次访问都必须真实地执行。</p>
+            <p><strong>编译器屏障（Compiler Barrier）：</strong>在多线程和操作系统内核编程中，编译器可能会重排无数据依赖的内存操作来提升性能。编译器屏障（如 GCC 的 <code>asm volatile("" ::: "memory")</code>）防止编译器跨屏障重排内存操作，对于保证并发正确性至关重要。</p>
+            <p><strong>Profile-Guided Optimization (PGO)：</strong>先用典型输入运行程序并收集性能数据（哪些分支最常走、哪些函数最热），然后将这些数据反馈给编译器进行第二次编译。编译器根据真实的运行时统计来做出更优的内联、分支预测提示和代码布局决策。</p>
+            <p><strong>Link-Time Optimization (LTO)：</strong>传统编译器只能优化单个编译单元（.c 文件）内的代码。LTO 推迟优化到链接阶段，使编译器能跨文件进行内联、死代码消除等优化，发现更多优化机会。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>以下代码在 <code>-O0</code> 和 <code>-O2</code> 下生成的汇编有何区别？</p>
+<pre><code>int compute(int a) {
+    int x = a * 4 + a * 4;
+    return x;
+}</code></pre>
+            <p><em><code>-O0</code> 生成的汇编（示意，RISC-V）：</em></p>
+<pre><code>compute:
+    addi sp, sp, -16
+    sw   a0, 0(sp)       # 把 a 存到栈上
+    lw   x5, 0(sp)       # 加载 a
+    slli x5, x5, 2       # a * 4
+    lw   x6, 0(sp)       # 再次加载 a
+    slli x6, x6, 2       # a * 4（重复计算！）
+    add  a0, x5, x6      # x = a*4 + a*4
+    addi sp, sp, 16
+    ret</code></pre>
+            <p><em><code>-O2</code> 生成的汇编：</em></p>
+<pre><code>compute:
+    slli a0, a0, 3       # a << 3 = a * 8，一步到位！
+    ret</code></pre>
+            <p>优化后的版本只需要<strong>2 条指令</strong>（slli + ret），而未优化版本需要 8 条以上。编译器通过 CSE、强度削减和代数化简，将整个计算压缩为一条移位指令。</p>
+            <p>❌ <strong>常见误区：</strong>认为 <code>-O2</code> 下代码行为会改变。标准的编译器优化保证<strong>可观测行为（Observable Behavior）不变</strong>——即程序的输入输出、volatile 访问和文件操作完全一致。优化改变的只是中间过程的执行方式。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch02-kp3">
+        <svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp3" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <!-- Title -->
+          <text x="300" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">编译器优化流水线</text>
+          <!-- Source -->
+          <rect x="10" y="35" width="85" height="45" class="box" fill="#f0f9ff"/>
+          <text x="52" y="55" text-anchor="middle" class="fg" font-size="9" font-weight="bold">C 源代码</text>
+          <text x="52" y="70" text-anchor="middle" class="fg2" font-size="8">a*4 + a*4</text>
+          <line x1="95" y1="57" x2="115" y2="57" class="line" marker-end="url(#ah-kp3)"/>
+          <!-- CSE -->
+          <rect x="115" y="35" width="85" height="45" rx="6" fill="#ecfdf5" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="157" y="52" text-anchor="middle" class="accent" font-size="9" font-weight="bold">CSE</text>
+          <text x="157" y="70" text-anchor="middle" class="fg2" font-size="8">t=a*4; t+t</text>
+          <line x1="200" y1="57" x2="220" y2="57" class="line" marker-end="url(#ah-kp3)"/>
+          <!-- Dead Code Elim -->
+          <rect x="220" y="35" width="85" height="45" rx="6" fill="#ecfdf5" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="262" y="52" text-anchor="middle" class="accent" font-size="9" font-weight="bold">死代码消除</text>
+          <text x="262" y="70" text-anchor="middle" class="fg2" font-size="8">移除无用变量</text>
+          <line x1="305" y1="57" x2="325" y2="57" class="line" marker-end="url(#ah-kp3)"/>
+          <!-- Strength Reduction -->
+          <rect x="325" y="35" width="85" height="45" rx="6" fill="#ecfdf5" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="367" y="52" text-anchor="middle" class="accent" font-size="9" font-weight="bold">强度削减</text>
+          <text x="367" y="70" text-anchor="middle" class="fg2" font-size="8">*4 → &lt;&lt;2</text>
+          <line x1="410" y1="57" x2="430" y2="57" class="line" marker-end="url(#ah-kp3)"/>
+          <!-- Register Allocation -->
+          <rect x="430" y="35" width="85" height="45" rx="6" fill="#ecfdf5" stroke="#06b6d4" stroke-width="1.5"/>
+          <text x="472" y="52" text-anchor="middle" class="accent" font-size="9" font-weight="bold">寄存器分配</text>
+          <text x="472" y="70" text-anchor="middle" class="fg2" font-size="8">变量→寄存器</text>
+          <line x1="515" y1="57" x2="535" y2="57" class="line" marker-end="url(#ah-kp3)"/>
+          <!-- Output -->
+          <rect x="535" y="35" width="55" height="45" class="box" fill="#fef3c7"/>
+          <text x="562" y="52" text-anchor="middle" class="fg" font-size="9" font-weight="bold">优化后</text>
+          <text x="562" y="70" text-anchor="middle" class="fg2" font-size="8">a&lt;&lt;3</text>
+          <!-- Bottom annotation row -->
+          <rect x="10" y="110" width="175" height="70" class="box" fill="#fff7ed"/>
+          <text x="97" y="128" text-anchor="middle" class="fg" font-size="10" font-weight="bold">优化前（-O0）</text>
+          <text x="97" y="145" text-anchor="middle" class="fg2" font-size="9">lw, slli, lw, slli, add, sw</text>
+          <text x="97" y="162" text-anchor="middle" class="fg2" font-size="9">≈ 8 条指令</text>
+          <!-- Arrow between bottom boxes -->
+          <line x1="195" y1="145" x2="225" y2="145" stroke="#06b6d4" stroke-width="2" fill="none" marker-end="url(#ah-kp3)"/>
+          <rect x="230" y="110" width="175" height="70" class="box" fill="#ecfdf5"/>
+          <text x="317" y="128" text-anchor="middle" class="accent" font-size="10" font-weight="bold">优化后（-O2）</text>
+          <text x="317" y="145" text-anchor="middle" class="fg2" font-size="9">slli a0, a0, 3</text>
+          <text x="317" y="162" text-anchor="middle" class="fg2" font-size="9">仅 1 条指令！</text>
+        </svg>
+        <figcaption>图 2-3 编译器优化流水线 — 从冗余计算到单条移位指令的逐步化简过程</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp3">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">强度削减（Strength Reduction）优化做了什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '移除不可达代码是死代码消除（Dead Code Elimination）的工作，不是强度削减。')">A. 移除程序中永远不会执行的代码</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '将函数体插入调用处是内联展开（Function Inlining），不是强度削减。')">B. 将函数调用替换为函数体的副本</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, true, '正确！强度削减将代价高的操作替换为等价的低代价操作，最典型的例子就是将乘以 2 的幂次替换为左移操作（如 x*8 → x&lt;&lt;3），因为移位指令通常只需 1 个周期，而乘法可能需要 3-5 个周期。')">C. 将高代价操作（如乘法）替换为等价的低代价操作（如移位）</button>
+          <button onclick="checkInlineQuiz('iq-kp3', this, false, '复制循环体以减少分支开销是循环展开（Loop Unrolling），不是强度削减。')">D. 复制循环体以减少循环次数</button>
+        </div>
+      </div>
+    </section>
+
+    <hr class="kp-separator">
+
+    <!-- ════════════════ KP 4 ════════════════ -->
+    <section id="kp4">
+      <h2 class="kp-title">知识点 4 · 链接（Linking）与加载（Loading）</h2>
+      <div class="mental-chain">
+
+        <div class="step-card step-motivation">
+          <div class="step-label">🎯 为什么研究这个问题</div>
+          <div class="step-body">
+            <p>真实的程序从来不是单个文件。一个中等规模的 C 项目可能包含数十个 <code>.c</code> 文件和数百个库函数。每个源文件都被独立编译成 <code>.o</code> 目标文件——但目标文件中的代码无法独立运行：<code>main.o</code> 调用了 <code>utils.o</code> 中的函数，而 <code>utils.o</code> 又引用了标准库中的 <code>printf</code>。这些跨文件的引用该如何解决？</p>
+            <p>这就是<strong>链接器（Linker）</strong>的职责——它将多个目标文件和库"拼接"在一起，解析所有的跨文件引用，最终生成一个完整的可执行文件。而<strong>加载器（Loader）</strong>则是操作系统中的组件，负责将可执行文件读入内存、设置运行环境（栈、堆、数据段），然后跳转到程序的入口点开始执行。</p>
+            <p>理解链接和加载过程，能帮助你解决那些令人困惑的编译错误（如 "undefined reference"）、理解动态库的工作原理、分析程序的内存布局，以及理解安全漏洞的利用机制。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-abstraction">
+          <div class="step-label">🔍 抽象化方法</div>
+          <div class="step-body">
+            <p>目标文件的内部结构由多个<strong>段（Section）</strong>组成，每个段存放不同类型的数据：</p>
+            <p><strong>.text 段（代码段）：</strong>存放编译后的机器指令。通常被标记为只读+可执行。</p>
+            <p><strong>.data 段（数据段）：</strong>存放已初始化的全局变量和静态变量。例如 <code>int count = 42;</code> 中的初始值 42 就存在这里。</p>
+            <p><strong>.bss 段：</strong>存放<strong>未初始化</strong>的全局/静态变量。<code>.bss</code> 在文件中不占实际空间（只记录大小），加载到内存时被全部清零。名称来自历史上的 "Block Started by Symbol"。</p>
+            <p><strong>.rodata 段（只读数据）：</strong>存放常量数据，如字符串字面量 <code>"Hello"</code>、const 变量等。</p>
+            <p>此外，目标文件还包含两张关键的表：<strong>符号表（Symbol Table）</strong>列出本文件定义的和引用的所有符号（函数名、全局变量名）及其地址或未定义标记；<strong>重定位表（Relocation Table）</strong>记录哪些位置的地址需要在链接时填入正确的值。</p>
+            <p><strong>ELF（Executable and Linkable Format）</strong>是 Linux 系统上标准的目标文件和可执行文件格式。ELF 头部包含程序入口点、段表（Section Header Table）和程序头表（Program Header Table），后者告诉加载器如何将文件映射到内存。</p>
+            <p><strong>静态链接 vs 动态链接：</strong>静态链接在编译时将所有引用的库代码复制进可执行文件；动态链接只在可执行文件中记录对共享库（.so/.dll）的引用，实际代码在运行时由动态链接器（如 <code>ld.so</code>）加载。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-derivation">
+          <div class="step-label">📐 公式推导 / 模型建立</div>
+          <div class="step-body">
+            <p>链接的核心任务是<strong>符号解析（Symbol Resolution）</strong>和<strong>地址重定位（Relocation）</strong>。以具体的例子说明：</p>
+            <p>假设 <code>main.o</code> 中调用了 <code>utils.o</code> 中定义的函数 <code>foo</code>。在编译 <code>main.c</code> 时，编译器不知道 <code>foo</code> 的最终地址，因此生成一个带有<strong>占位符</strong>的跳转指令：</p>
+<pre><code># main.o 中的机器码（编译时）
+0x0010: jal ra, 0x00000000    # 地址为占位符</code></pre>
+            <p>同时，汇编器在重定位表中记录：</p>
+<pre><code>{ offset: 0x0010, type: R_RISCV_JAL, symbol: "foo" }</code></pre>
+            <p>这告诉链接器："在偏移 0x0010 处有一条 JAL 指令，它引用了符号 <code>foo</code>，请在链接时填入 <code>foo</code> 的实际地址。"</p>
+            <p>链接器合并所有 .o 文件后，确定了 <code>foo</code> 位于最终地址 <code>0x00012340</code>，于是将占位符替换为实际地址：</p>
+<pre><code># 可执行文件中（链接后）
+0x0010: jal ra, 0x00012340    # 已填入实际地址</code></pre>
+            <p>各段在内存中的虚拟地址由链接器分配，遵循公式：</p>
+            \[
+            \text{Virtual Address} = \text{Base}_{\text{section}} + \text{offset}_{\text{in\_section}}
+            \]
+            <p><strong>静态与动态链接的体积比较：</strong>假设程序引用了一个 2 MB 的库。静态链接后，可执行文件增大约 2 MB（库代码被完整复制进来）。动态链接后，可执行文件只增加几百字节（记录库名和符号引用），但运行时需要系统上存在对应的 .so 文件。如果 10 个程序都使用同一个库，静态链接浪费 20 MB 磁盘空间，而动态链接只需一份 2 MB 的共享库。</p>
+            <div class="warning-box">⚠️ <strong>"Undefined reference" 错误发生在链接阶段，不是编译阶段！</strong>如果你看到 <code>undefined reference to 'foo'</code>，这意味着链接器在所有目标文件和库中都找不到符号 <code>foo</code> 的定义。常见原因：① 忘记编译包含 <code>foo</code> 实现的源文件；② 忘记使用 <code>-l</code> 选项链接所需的库（如使用 <code>sin()</code> 需要 <code>-lm</code>）；③ C++ 的名字修饰（Name Mangling）导致符号名不匹配。不要把这个错误和编译时的 "implicit declaration" 警告混淆——后者是找不到函数声明，前者是找不到函数实现。</div>
+          </div>
+        </div>
+
+        <div class="step-card step-application">
+          <div class="step-label">🌐 实际应用</div>
+          <div class="step-body">
+            <p><strong>动态共享库（.so / .dll）：</strong>Linux 上的 <code>.so</code>（Shared Object）和 Windows 上的 <code>.dll</code>（Dynamic Link Library）是动态链接的载体。它们在运行时被动态链接器加载到进程的地址空间中。使用 <code>ldd</code> 命令可以查看一个可执行文件依赖哪些共享库。</p>
+            <p><strong>位置无关代码（PIC）：</strong>共享库需要编译为位置无关代码（<code>gcc -fPIC</code>），即代码中不包含绝对地址，所有地址引用都通过<strong>全局偏移表（GOT, Global Offset Table）</strong>间接访问。这使得同一份库代码可以被加载到不同进程的不同虚拟地址处。</p>
+            <p><strong>过程链接表（PLT, Procedure Linkage Table）：</strong>动态链接的函数调用通过 PLT 实现<strong>延迟绑定（Lazy Binding）</strong>——第一次调用时才解析函数的实际地址并缓存到 GOT 中，后续调用直接跳转。这避免了程序启动时一次性解析所有符号的开销。</p>
+            <p><strong>动态链接器 <code>ld.so</code>：</strong>这是 Linux 中的运行时链接器，由内核在加载 ELF 可执行文件时自动调用。它负责加载所有依赖的共享库、解析符号引用、处理重定位，最后将控制权交给程序的 <code>_start</code>（或 <code>main</code>）入口点。</p>
+          </div>
+        </div>
+
+        <div class="step-card step-example">
+          <div class="step-label">✏️ 例题分析与易错点</div>
+          <div class="step-body">
+            <p><em>题目：</em>有两个源文件 <code>main.c</code> 和 <code>utils.c</code>。<code>main.c</code> 调用了 <code>utils.c</code> 中定义的函数 <code>int add(int a, int b)</code>。描述从源码到可执行文件的完整编译链接过程。</p>
+            <p><em>步骤分解：</em></p>
+<pre><code># 步骤 1：分别编译为目标文件
+gcc -c main.c  -o main.o    # main.o: 引用 add（undefined）
+gcc -c utils.c -o utils.o   # utils.o: 定义 add
+
+# 步骤 2：链接
+gcc main.o utils.o -o program  # 链接器解析 add 的引用</code></pre>
+            <p>链接过程中，链接器执行以下操作：① 合并所有 .text 段为一个连续的代码区域；② 合并 .data 和 .bss 段；③ 在 <code>main.o</code> 的符号表中发现 <code>add</code> 为未定义（undefined）符号；④ 在 <code>utils.o</code> 的符号表中找到 <code>add</code> 的定义和地址；⑤ 根据重定位表，将 <code>main.o</code> 中所有引用 <code>add</code> 的占位符替换为实际地址。</p>
+            <p>❌ <strong>常见错误 1：</strong>编译时忘记链接 math 库。使用 <code>sin()</code>、<code>sqrt()</code> 等函数时，只 <code>#include &lt;math.h&gt;</code> 不够——这只提供了声明。还需要在链接时加 <code>-lm</code> 选项来链接 libm 库，否则会报 <code>undefined reference to 'sin'</code>。</p>
+            <p>❌ <strong>常见错误 2：</strong>链接顺序错误。链接器从左到右扫描目标文件和库，如果库出现在引用它的目标文件<strong>之前</strong>，符号可能无法解析。正确做法：将 <code>-l</code> 选项放在命令最后，如 <code>gcc main.o utils.o -lm</code>。</p>
+          </div>
+        </div>
+
+      </div>
+
+      <figure class="kp-figure" data-figure="s5-ch02-kp4">
+        <svg viewBox="0 0 520 280" xmlns="http://www.w3.org/2000/svg">
+          <style>.fg{fill:#334155}.fg2{fill:#64748b}.line{stroke:#334155;fill:none;stroke-width:1.5}.accent{fill:#06b6d4}.box{fill:none;stroke:#334155;stroke-width:1.5;rx:6}</style>
+          <defs>
+            <marker id="ah-kp4" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+            </marker>
+          </defs>
+          <!-- Title -->
+          <text x="260" y="18" text-anchor="middle" class="fg" font-size="12" font-weight="bold">链接过程：多个目标文件 → 可执行文件</text>
+          <!-- main.o -->
+          <rect x="20" y="40" width="120" height="80" class="box" fill="#f0f9ff"/>
+          <text x="80" y="60" text-anchor="middle" class="fg" font-size="10" font-weight="bold">main.o</text>
+          <text x="80" y="78" text-anchor="middle" class="fg2" font-size="8">.text: main()</text>
+          <text x="80" y="92" text-anchor="middle" class="fg2" font-size="8">ref: add ❓</text>
+          <text x="80" y="106" text-anchor="middle" class="fg2" font-size="8">ref: printf ❓</text>
+          <!-- utils.o -->
+          <rect x="20" y="140" width="120" height="70" class="box" fill="#ecfdf5"/>
+          <text x="80" y="160" text-anchor="middle" class="fg" font-size="10" font-weight="bold">utils.o</text>
+          <text x="80" y="178" text-anchor="middle" class="fg2" font-size="8">.text: add()</text>
+          <text x="80" y="192" text-anchor="middle" class="fg2" font-size="8">def: add ✅</text>
+          <!-- libc.a -->
+          <rect x="20" y="230" width="120" height="40" class="box" fill="#fdf2f8"/>
+          <text x="80" y="248" text-anchor="middle" class="fg" font-size="10" font-weight="bold">libc（标准库）</text>
+          <text x="80" y="262" text-anchor="middle" class="fg2" font-size="8">def: printf ✅</text>
+          <!-- Arrows to linker -->
+          <line x1="140" y1="80" x2="200" y2="140" class="line" marker-end="url(#ah-kp4)"/>
+          <line x1="140" y1="175" x2="200" y2="150" class="line" marker-end="url(#ah-kp4)"/>
+          <line x1="140" y1="250" x2="200" y2="160" class="line" marker-end="url(#ah-kp4)"/>
+          <!-- Linker box -->
+          <rect x="200" y="120" width="100" height="55" rx="6" fill="#fff7ed" stroke="#06b6d4" stroke-width="2"/>
+          <text x="250" y="143" text-anchor="middle" class="accent" font-size="12" font-weight="bold">链接器</text>
+          <text x="250" y="160" text-anchor="middle" class="fg2" font-size="9">符号解析 + 重定位</text>
+          <!-- Arrow to executable -->
+          <line x1="300" y1="147" x2="350" y2="147" class="line" marker-end="url(#ah-kp4)"/>
+          <!-- Executable -->
+          <rect x="350" y="40" width="150" height="210" class="box" fill="#fef3c7"/>
+          <text x="425" y="60" text-anchor="middle" class="fg" font-size="11" font-weight="bold">可执行文件 (ELF)</text>
+          <!-- Sections inside executable -->
+          <rect x="365" y="72" width="120" height="30" rx="4" fill="#f0f9ff" stroke="#334155" stroke-width="1"/>
+          <text x="425" y="91" text-anchor="middle" class="fg" font-size="9">.text（所有代码）</text>
+          <rect x="365" y="108" width="120" height="30" rx="4" fill="#ecfdf5" stroke="#334155" stroke-width="1"/>
+          <text x="425" y="127" text-anchor="middle" class="fg" font-size="9">.data（初始化数据）</text>
+          <rect x="365" y="144" width="120" height="30" rx="4" fill="#fdf2f8" stroke="#334155" stroke-width="1"/>
+          <text x="425" y="163" text-anchor="middle" class="fg" font-size="9">.bss（未初始化数据）</text>
+          <rect x="365" y="180" width="120" height="30" rx="4" fill="#fff7ed" stroke="#334155" stroke-width="1"/>
+          <text x="425" y="199" text-anchor="middle" class="fg" font-size="9">.rodata（只读常量）</text>
+          <!-- Symbol resolution arrows -->
+          <text x="250" y="100" text-anchor="middle" class="accent" font-size="8">add → 0x12340</text>
+          <text x="250" y="200" text-anchor="middle" class="accent" font-size="8">printf → 0x23450</text>
+        </svg>
+        <figcaption>图 2-4 链接过程 — 链接器合并多个目标文件，解析跨文件符号引用，生成统一的可执行文件</figcaption>
+      </figure>
+
+      <div class="inline-quiz" id="iq-kp4">
+        <div class="iq-header">⚡ 快速检测</div>
+        <div class="iq-prompt">目标文件中的 .bss 段存放的是什么？</div>
+        <div class="iq-options">
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '机器指令存放在 .text 段，不是 .bss 段。.text 是代码段，通常被标记为只读+可执行。')">A. 编译后的机器指令</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '已初始化的全局变量存放在 .data 段。例如 int x = 42; 的初始值 42 保存在 .data 中。')">B. 已初始化的全局变量</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, true, '正确！.bss（Block Started by Symbol）存放未初始化的全局变量和静态变量。它在目标文件中不占实际空间（只记录需要多少字节），加载到内存时会被操作系统全部清零。这是一种节省磁盘空间的设计。')">C. 未初始化的全局变量和静态变量</button>
+          <button onclick="checkInlineQuiz('iq-kp4', this, false, '字符串常量存放在 .rodata（read-only data）段，该段在运行时被标记为只读。')">D. 字符串常量和只读数据</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ EXERCISES ════════════════ -->
+    <section id="exercises" class="exercises-section">
+      <h2>🧩 综合练习</h2>
+      <div id="quiz-zone"></div>
+    </section>
+
+    <nav class="chapter-nav">
+      <a href="ch01.html" class="nav-prev">← 上一章</a>
+      <a href="index.html" class="nav-overview">📋 概览</a>
+      <a href="ch03.html" class="nav-next">下一章 →</a>
+    </nav>
+  </main>
+
+  <footer class="site-footer"><span>Architectura · 计算机结构全景</span></footer>
+  <script src="../shared/search-data.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../shared/components.js"></script>
+</body>
+</html>
