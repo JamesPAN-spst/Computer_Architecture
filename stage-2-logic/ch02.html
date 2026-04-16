@@ -57,7 +57,7 @@
           "00, 11, 01, 10（随机）"
         ],
         answer: 1,
-        explanation: "卡诺图使用格雷码（Gray Code）排列：00, 01, 11, 10。格雷码的核心特性是相邻编码之间只有 1 位不同。这保证了卡诺图中物理相邻的单元格在逻辑上也只差一个变量，从而使得"相邻单元格分组"直接对应"消去变量"。如果使用自然二进制顺序（00, 01, 10, 11），则 01 和 10 相邻但有 2 位不同，无法正确化简。"
+        explanation: "卡诺图使用格雷码（Gray Code）排列：00, 01, 11, 10。格雷码的核心特性是相邻编码之间只有 1 位不同。这保证了卡诺图中物理相邻的单元格在逻辑上也只差一个变量，从而使得\u201C相邻单元格分组\u201D直接对应\u201C消去变量\u201D。如果使用自然二进制顺序（00, 01, 10, 11），则 01 和 10 相邻但有 2 位不同，无法正确化简。"
       },
       {
         id: "s2-ch02-q5",
@@ -69,7 +69,7 @@
           "\\(A'B' + C'\\)"
         ],
         answer: 1,
-        explanation: "德摩根定律推广到 n 个变量：\\(\\overline{A_1 + A_2 + \\cdots + A_n} = \\overline{A_1} \\cdot \\overline{A_2} \\cdots \\overline{A_n}\\)。"打破（break）"整体取反的横杠，将 OR 变为 AND，每个变量分别取反。因此 \\(\\overline{A + B + C} = A' \\cdot B' \\cdot C'\\)。直觉上：\\(A+B+C\\) 只要有一个为 1 就为 1，所以其取反要求所有变量都为 0，即 \\(A'=1, B'=1, C'=1\\)，等价于 \\(A' \\cdot B' \\cdot C'\\)。"
+        explanation: "德摩根定律推广到 n 个变量：\\(\\overline{A_1 + A_2 + \\cdots + A_n} = \\overline{A_1} \\cdot \\overline{A_2} \\cdots \\overline{A_n}\\)。\u201C打破（break）\u201D整体取反的横杠，将 OR 变为 AND，每个变量分别取反。因此 \\(\\overline{A + B + C} = A' \\cdot B' \\cdot C'\\)。直觉上：\\(A+B+C\\) 只要有一个为 1 就为 1，所以其取反要求所有变量都为 0，即 \\(A'=1, B'=1, C'=1\\)，等价于 \\(A' \\cdot B' \\cdot C'\\)。"
       },
       {
         id: "s2-ch02-q6",
@@ -81,7 +81,7 @@
           "XOR 门接 NOT"
         ],
         answer: 1,
-        explanation: "由德摩根定律：\\(\\overline{A \\cdot B} = \\overline{A} + \\overline{B}\\)。这意味着 NAND 门（对 AND 取反）等价于先分别对各输入取反，再做 OR 运算。在电路图中，这表现为：一个 NAND 门可以画成一个 OR 门，但输入端各有一个"气泡"（表示取反）。这就是"气泡推动（Bubble Pushing）"技术的核心原理，在 NAND-only 电路设计中至关重要。"
+        explanation: "由德摩根定律：\\(\\overline{A \\cdot B} = \\overline{A} + \\overline{B}\\)。这意味着 NAND 门（对 AND 取反）等价于先分别对各输入取反，再做 OR 运算。在电路图中，这表现为：一个 NAND 门可以画成一个 OR 门，但输入端各有一个\u201C气泡\u201D（表示取反）。这就是\u201C气泡推动（Bubble Pushing）\u201D技术的核心原理，在 NAND-only 电路设计中至关重要。"
       },
       {
         id: "s2-ch02-q7",
